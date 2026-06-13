@@ -18,7 +18,9 @@ defmodule VmuCore.Application do
        [name: VmuCore.Shared.Registry, keys: :unique, members: :auto]},
       # 4. Horde dynamic supervisor — starts/restarts per-account AccountStateCoordinator processes
       {Horde.DynamicSupervisor,
-       [name: VmuCore.Shared.AccountSupervisor, strategy: :one_for_one, members: :auto]}
+       [name: VmuCore.Shared.AccountSupervisor, strategy: :one_for_one, members: :auto]},
+      # 5. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL workflows
+      {Oban, Application.fetch_env!(:vmu_core, Oban)}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

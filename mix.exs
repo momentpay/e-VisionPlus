@@ -35,6 +35,9 @@ defmodule VmuCore.MixProject do
       {:horde, "~> 0.9"},
       {:libcluster, "~> 3.3"},
 
+      # --- Background Jobs (EOD workflow, bureau calls, dunning) ---
+      {:oban, "~> 2.18"},
+
       # --- Standalone Switch ---
       {:da_product_app, path: "../muNSwitch", override: true},
 

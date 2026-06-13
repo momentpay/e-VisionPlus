@@ -15,6 +15,7 @@ defmodule VmuCore.CMS.EOD.FlushGlJob do
   require Logger
   import Ecto.Query
   alias VmuCore.{Repo, CMS.Account, CMS.AccountStateCoordinator}
+  alias VmuCore.LMS.CmsInterface
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"account_id" => account_id, "eod_date" => eod_date_str}}) do
@@ -26,7 +27,10 @@ defmodule VmuCore.CMS.EOD.FlushGlJob do
 
     AccountStateCoordinator.refresh(account_id)
 
-    Logger.info("[EOD] FlushGL: account=#{account_id} date=#{eod_date_str} — unlocked")
+    eod_date = Date.from_iso8601!(eod_date_str)
+    CmsInterface.trigger_points_calculation(eod_date)
+
+    Logger.info("[EOD] FlushGL: account=#{account_id} date=#{eod_date_str} — unlocked, LMS triggered")
     :ok
   end
 end

@@ -19,7 +19,9 @@ defmodule VmuCore.Application do
       # 4. Horde dynamic supervisor — starts/restarts per-account AccountStateCoordinator processes
       {Horde.DynamicSupervisor,
        [name: VmuCore.Shared.AccountSupervisor, strategy: :one_for_one, members: :auto]},
-      # 5. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL workflows
+      # 5. IVR SessionRegistry — local Registry for IVR session GenServers (G3 fix)
+      {Registry, keys: :unique, name: VmuCore.IVR.SessionRegistry},
+      # 6. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL, LMS workflows
       {Oban, Application.fetch_env!(:vmu_core, Oban)}
     ]
 

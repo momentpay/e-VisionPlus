@@ -1,4 +1,4 @@
-defmodule VmuCore.ITS.IvrSession do
+defmodule VmuCore.IVR.IvrSession do
   @moduledoc """
   IVR (Interactive Voice Response) session state machine.
 
@@ -20,6 +20,9 @@ defmodule VmuCore.ITS.IvrSession do
 
   PIN entry is collected by the IVR platform (DTMF) and passed as a
   hashed block — the plaintext PIN never touches this process.
+
+  Renamed from VmuCore.ITS.IvrSession to avoid conflict with canonical
+  VisionPlus ITS = Interchange Tracking System.
   """
 
   use GenServer
@@ -150,7 +153,7 @@ defmodule VmuCore.ITS.IvrSession do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp via(session_id), do: {:via, Registry, {VmuCore.ITS.SessionRegistry, session_id}}
+  defp via(session_id), do: {:via, Registry, {VmuCore.IVR.SessionRegistry, session_id}}
 
   defp find_account_by_last_four(last_four) do
     case Repo.one(from a in Account, where: a.last_four == ^last_four, limit: 1) do

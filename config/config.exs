@@ -16,12 +16,14 @@ config :vmu_core, Oban,
   repo: VmuCore.Repo,
   plugins: [Oban.Plugins.Pruner],
   queues: [
-    eod:      10,   # EOD billing jobs (sequential within account)
-    cta:      5,    # Card issuance, embossing
-    disputes: 5,    # DPS deadline-sensitive jobs
-    clearing: 10,   # TRAMS IPM/Base II processing
-    collections: 3, # COL dunning, write-off
-    default:  5
+    eod:         10,  # EOD billing jobs (sequential within account)
+    cta:          5,  # Card issuance, embossing
+    disputes:     5,  # DPS deadline-sensitive jobs
+    clearing:    10,  # TRAMS IPM/Base II processing
+    collections:  3,  # COL dunning, write-off
+    lms:          5,  # LMS points calculation, expiry, auto-disbursement
+    cdm:          3,  # CDM behavioral rescoring
+    default:      5
   ]
 
 import_config "#{config_env()}.exs"

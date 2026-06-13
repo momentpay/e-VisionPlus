@@ -22,7 +22,8 @@ defmodule VmuCore.ASM.OperatorPortal do
   require Logger
   import Ecto.Query
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.InternalGlPoster}
-  alias VmuCore.Shared.{ParameterEngine, AccountStateCoordinator}
+  alias VmuCore.CMS.AccountStateCoordinator
+  alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
 
   @role_hierarchy [:agent, :supervisor, :manager, :sysadmin]

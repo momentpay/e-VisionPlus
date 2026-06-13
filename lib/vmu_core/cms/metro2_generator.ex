@@ -121,7 +121,7 @@ defmodule VmuCore.CMS.Metro2Generator do
     past_due    = bucket.unpaid_fees   |> decimal_to_minor_units() |> pad_decimal(9)
     credit_limit = acc.credit_limit    |> decimal_to_minor_units() |> pad_decimal(9)
 
-    account_status = dpd_to_account_status(acc.delinquency_bucket)
+    account_status = metro2_account_status(acc.account_status, acc.delinquency_bucket)
     date_reported  = format_date(report_date)
     date_opened    = format_date(acc.inserted_at |> NaiveDateTime.to_date())
 
@@ -153,6 +153,9 @@ defmodule VmuCore.CMS.Metro2Generator do
     ]
     |> Enum.join()
   end
+
+  defp metro2_account_status("WRITTEN_OFF", _), do: "97"
+  defp metro2_account_status(_, dpd), do: dpd_to_account_status(dpd)
 
   defp dpd_to_account_status(0),   do: "13"   # Current
   defp dpd_to_account_status(30),  do: "71"   # 30-59 days

@@ -1,4 +1,4 @@
-defmodule VmuCore.ITS.OtpEngine do
+defmodule VmuCore.IVR.OtpEngine do
   @moduledoc """
   One-Time Password engine for digital cardholder channels.
 
@@ -8,7 +8,9 @@ defmodule VmuCore.ITS.OtpEngine do
 
   OTPs are 6 digits. The secret is per-account, stored encrypted at rest.
   This module handles generation and verification only — persistence is
-  handled by the caller (ASM session store or ITS session).
+  handled by the caller (ASM session store or IVR session).
+
+  Renamed from VmuCore.ITS.OtpEngine (ITS = Interchange Tracking System in canonical VisionPlus).
   """
 
   use Bitwise
@@ -21,10 +23,7 @@ defmodule VmuCore.ITS.OtpEngine do
   # HOTP — RFC 4226
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Generate an HOTP value for a given secret and counter.
-  Returns a zero-padded 6-digit string.
-  """
+  @doc "Generate an HOTP value for a given secret and counter. Returns a zero-padded 6-digit string."
   def hotp(secret, counter) when is_integer(counter) do
     counter_bytes = <<counter::unsigned-big-integer-64>>
     mac = :crypto.mac(:hmac, :sha, secret, counter_bytes)
@@ -50,9 +49,7 @@ defmodule VmuCore.ITS.OtpEngine do
   # TOTP — RFC 6238
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Generate a TOTP for the current time window.
-  """
+  @doc "Generate a TOTP for the current time window."
   def totp(secret, at \\ DateTime.utc_now()) do
     counter = div(DateTime.to_unix(at), @totp_step)
     hotp(secret, counter)

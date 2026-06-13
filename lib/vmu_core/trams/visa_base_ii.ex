@@ -43,7 +43,15 @@ defmodule VmuCore.TRAMS.VisaBaseII do
       tc05 = Enum.filter(records, &(&1.record_type == "TC05"))
       tc50 = Enum.filter(records, &(&1.record_type == "TC50"))
 
-      clearing_results = Enum.map(tc05, &Repo.insert(ClearingRecord.changeset(%ClearingRecord{}, &1)))
+      clearing_results = Enum.map(tc05, fn attrs ->
+        result = Repo.insert(ClearingRecord.changeset(%ClearingRecord{}, attrs))
+        case result do
+          {:ok, rec} when not is_nil(rec.account_id) ->
+            VmuCore.ITS.FeeClaimProcessor.create_claim(rec)
+          _ -> :ok
+        end
+        result
+      end)
       chargeback_results = Enum.map(tc50, &handle_chargeback/1)
 
       {:ok, %{

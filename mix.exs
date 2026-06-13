@@ -38,6 +38,9 @@ defmodule VmuCore.MixProject do
       # --- Background Jobs (EOD workflow, bureau calls, dunning) ---
       {:oban, "~> 2.18"},
 
+      # --- High-throughput clearing pipeline (G7) ---
+      {:broadway, "~> 1.1"},
+
       # --- Standalone Switch ---
       {:da_product_app, path: "../muNSwitch", override: true},
 

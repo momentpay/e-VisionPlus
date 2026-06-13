@@ -23,6 +23,8 @@ config :vmu_core, Oban,
     collections:  3,  # COL dunning, write-off
     lms:          5,  # LMS points calculation, expiry, auto-disbursement
     cdm:          3,  # CDM behavioral rescoring
+    hcs:          3,  # HCS payment sweep + consolidated statements
+    its:          4,  # ITS1/ITS2 batch, fee settlement, copy request expiry
     default:      5
   ]
 

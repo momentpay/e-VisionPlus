@@ -115,35 +115,98 @@ Project: `vmu_core` - Elixir/Phoenix reimplementation of Visa VisionPlus credit 
 
 ---
 
-## VisionPlus Compatibility Summary
+## Remaining Known Gaps — Post-Phase 6 (all resolved in Phase 7/8 commit)
+
+| # | Gap | Resolution |
+|---|-----|------------|
+| G1 | FAPI 2.0 plug (mTLS + RS256 JWT + cnf.x5t#S256) | `lib/vmu_core_web/plugs/fapi_validation_plug.ex` |
+| G5 | Velocity matrix enforcement in ASC.do_authorize/4 | `check_velocity/3` + `query_today_velocity/2` in ASC |
+| G6 | IPM BCD bitmap parser + full DE extraction | Full 128-bit bitmap + DE decoder in `trams/mastercard_ipm.ex` |
+| G7 | Broadway IpmPipeline (1 producer, 10 processors, GL batcher) | `trams/ipm_pipeline.ex` + Broadway dep in mix.exs |
+| G9 | DSR cap in LimitAllocator (UAE Central Bank 50% cap) | `calculate/6` DSR check; updated `application_scorer.ex` |
+| G10 | ADB daily balance snapshots | Migration `20260615000000_*`; `StatementGenerator.snapshot_daily_balance/2`; true ADB in `daily_balances_for/4` |
+| G11 | Provisional credit GL direction | Confirmed correct (DR 3001 / CR 1001); finance sign-off comment added to `dps/dispute.ex` |
+| G12 | Integration tests for CMS, DPS, COL, CDM, LMS | `test/vmu_core/{cms,dps,col,cdm,lms}/*_test.exs` |
+
+---
+
+## Phase 7 — HCS Hierarchy Company System
+**Commit:** *(this commit)*  **Status:** COMPLETE
+
+| Task | Module | Status |
+|------|--------|--------|
+| Company master record (credit pool, liability model, KYC) | `hcs/company.ex` | Done |
+| Employee card schema (sub-limits, card type, cash flag, cost centre) | `hcs/employee_card.ex` | Done |
+| Spending controls (MCC block/allow, channel block, per-txn/daily cap) | `hcs/spending_control.ex` | Done |
+| Consolidated statement schema | `hcs/consolidated_statement.ex` | Done |
+| Payment sweep + sweep line schemas | `hcs/payment_sweep.ex` | Done |
+| Company onboarding + employee card provisioning with pool validation | `hcs/company_onboarding.ex` | Done |
+| Dual-layer limit controller (individual sub-limit + company pool) | `hcs/limit_controller.ex` | Done |
+| Wire LimitController into AccountStateCoordinator.do_authorize/4 | `cms/account_state_coordinator.ex` | Done |
+| Wire credit_limits/2 into RepaymentDistributor on payment | `cms/repayment_distributor.ex` | Done |
+| Consolidated statement generator | `hcs/consolidated_statement_generator.ex` | Done |
+| Payment sweep Oban job — Central Liability (nightly 22:00) | `hcs/oban/payment_sweep_job.ex` | Done |
+| Consolidated statement Oban job (runs on billing_cycle_day) | `hcs/oban/consolidated_statement_job.ex` | Done |
+| Migration: 6 HCS tables | `20260615000001_create_hcs_tables.exs` | Done |
+| Broadway PipelineSupervisor added to application.ex | `lib/vmu_core/application.ex` | Done |
+| hcs: 3 + its: 4 Oban queues | `config/config.exs` | Done |
+
+---
+
+## Phase 8 — ITS Interchange Tracking System
+**Commit:** *(this commit)*  **Status:** COMPLETE
+
+**Note:** IVR rename (G15) was completed in Phase 6. `VmuCore.ITS` namespace is now the canonical Interchange Tracking System.
+
+| Task | Module | Status |
+|------|--------|--------|
+| Copy request schema (PENDING→SENT→FULFILLED/DECLINED/EXPIRED) | `its/copy_request.ex` | Done |
+| Fee claim schema (interchange income/expense + scheme fee per clearing) | `its/fee_claim.ex` | Done |
+| Financial adjustment schema (FARs from Mastercard/Visa) | `its/financial_adjustment.ex` | Done |
+| CopyRequestManager (raise/fulfill/expire; DPS state advance) | `its/copy_request_manager.ex` | Done |
+| FeeClaimProcessor (create per clearing; ParameterEngine rates; GL) | `its/fee_claim_processor.ex` | Done |
+| FinancialAdjustmentProcessor (ingest FAR; auto-accept < AED 1000) | `its/financial_adjustment_processor.ex` | Done |
+| ITS1 batch extractor (extract PENDING requests + CHARGEBACK_FILED) | `its/batch/its1_extractor.ex` | Done |
+| ITS2 batch receiver (process scheme responses + FARs; advance DPS) | `its/batch/its2_receiver.ex` | Done |
+| Its1BatchJob (Oban, 21:00) | `its/oban/its1_batch_job.ex` | Done |
+| Its2BatchJob (Oban, 02:00) | `its/oban/its2_batch_job.ex` | Done |
+| FeeSettlementJob (Oban, 1st of month) | `its/oban/fee_settlement_job.ex` | Done |
+| CopyRequestExpiryJob (Oban, daily 06:30) | `its/oban/copy_request_expiry_job.ex` | Done |
+| SchemeSubmissionJob (TRAMS stub for scheme network delivery) | `trams/oban/scheme_submission_job.ex` | Done |
+| Wire FeeClaimProcessor into TRAMS after clearing record insert | `trams/mastercard_ipm.ex`, `trams/visa_base_ii.ex` | Done |
+| Alter dps_disputes: submitted_at, arn, card_number_token columns | `20260616000001_create_its_tables.exs` | Done |
+| Migration: its_copy_requests, its_fee_claims, its_financial_adjustments | `20260616000001_create_its_tables.exs` | Done |
+
+---
+
+## Updated VisionPlus Compatibility Summary (Post-Phase 8)
 
 | VisionPlus Subsystem | vMu Module | Coverage |
 |---------------------|-----------|----------|
-| FAS (Financial Authorization System) | `VmuCore.FAS` | Full ISO 8583 auth chain + STIP |
-| CMS (Card Management System) | `VmuCore.CMS` | Accounts, GL, EOD, statements, interest, payments |
-| CIF (Customer Information File) | `VmuCore.Shared.Customer` | KYC fields, tier, id_number |
-| CTA (Card and Account Administration) | `VmuCore.CTA` | Stock, embossing, PIN, activation |
-| IVR (Interactive Voice Response) | `VmuCore.IVR` | OTP (RFC 4226/6238), session state machine |
-| DPS (Dispute Processing System) | `VmuCore.DPS` | Full dispute lifecycle + deadline Oban |
-| TRAMS (Transaction Management System) | `VmuCore.TRAMS` | Mastercard IPM + Visa Base II |
-| COL (Collections) | `VmuCore.COL` | Queue routing, dunning, write-off, recovery |
-| CDM (Credit Decision Management) | `VmuCore.CDM` | Underwriting, bureau, behavioral rescoring |
-| ASM (Account/System Management) | `VmuCore.ASM` | Operator portal, RBAC, audit log |
-| MBS (Merchant Banking Services) | `VmuCore.MBS` | Merchant hierarchy, terminals, MDR engine |
-| LMS (Loyalty Management System) | `VmuCore.LMS` | Schemes, plans, rates, points, redemption, settlement |
-| Metro 2 Bureau Reporting | `VmuCore.CMS.Metro2Generator` | CDIA fixed-width monthly file |
-| Parameter Engine (SYS->BANK->LOGO->BLOCK) | `VmuCore.Shared.ParameterEngine` | ETS 4-level cascade |
+| FAS (Financial Authorization System) | `VmuCore.FAS` | ✅ Full ISO 8583 auth chain + STIP + velocity checks (G5) |
+| CMS (Card Management System) | `VmuCore.CMS` | ✅ Accounts, GL, EOD, statements, interest, payments + daily snapshots (G10) |
+| CIF (Customer Information File) | `VmuCore.Shared.Customer` | ✅ KYC fields, tier, id_number |
+| CTA (Card and Account Administration) | `VmuCore.CTA` | ✅ Stock, embossing, PIN, activation |
+| IVR (Interactive Voice Response / Telephony) | `VmuCore.IVR` | ✅ OTP RFC 4226/6238, IVR session state machine |
+| ITS (Interchange Tracking System) | `VmuCore.ITS` | ✅ Copy requests, fee claims, FARs, ITS1/ITS2 batch |
+| DPS (Dispute Processing System) | `VmuCore.DPS` | ✅ Full dispute lifecycle + deadline Oban + GL direction confirmed (G11) |
+| TRAMS (Transaction Management System) | `VmuCore.TRAMS` | ✅ Full BCD bitmap parser (G6), Broadway pipeline (G7), fee claim wiring |
+| COL (Collections) | `VmuCore.COL` | ✅ Queue routing, dunning, write-off, recovery |
+| CDM (Credit Decision Management) | `VmuCore.CDM` | ✅ Underwriting, bureau, behavioral rescoring + DSR cap (G9) |
+| ASM (Account/System Management) | `VmuCore.ASM` | ✅ RBAC + FAPI 2.0 plug (G1) |
+| MBS (Merchant Banking Services) | `VmuCore.MBS` | ✅ Merchant hierarchy, terminals, MDR engine |
+| LMS (Loyalty Management System) | `VmuCore.LMS` | ✅ Schemes, plans, rates, points, redemption, settlement |
+| HCS (Hierarchy Company System) | `VmuCore.HCS` | ✅ Corporate card hierarchy, dual-layer limits, sweep, consolidated statements |
+| Metro 2 Bureau Reporting | `VmuCore.CMS.Metro2Generator` | ✅ CDIA fixed-width monthly file + WRITTEN_OFF "97" |
+| Parameter Engine (SYS→BANK→LOGO→BLOCK) | `VmuCore.Shared.ParameterEngine` | ✅ ETS 4-level cascade |
+| FAPI 2.0 Security | `VmuCoreWeb.Plugs.FapiValidationPlug` | ✅ mTLS + RS256 JWT + cnf.x5t#S256 binding |
 
-## Remaining Known Gaps (Post-Phase 6)
+## Integration Tests (G12)
 
-| # | Gap | Priority |
-|---|-----|----------|
-| G1 | FAPI 2.0 plug (mTLS + RS256 JWT) for OperatorPortal | Security-critical (before deploy) |
-| G5 | Velocity matrix enforcement in ASC.do_authorize/4 | Before UAT |
-| G6 | IPM field extraction (BCD bitmap parser) | Before UAT |
-| G7 | Broadway IpmPipeline (bulk clearing throughput) | Before UAT |
-| G9 | DSR cap in LimitAllocator (UAE Central Bank requirement) | Before go-live |
-| G10 | ADB daily balance snapshots (cms_daily_balance_snapshots table) | Before go-live |
-| G11 | Provisional credit GL direction review (dps/dispute.ex) | Finance sign-off |
-| G12 | Integration tests for CMS, DPS, COL, CDM, LMS | Before go-live |
-| G14 | HCS - commercial card hierarchy | Phase 7 (future) |
+| Area | Test File | Status |
+|------|-----------|--------|
+| CMS interest + EOD + GL idempotency | `test/vmu_core/cms/interest_integration_test.exs` | Done |
+| DPS dispute lifecycle (file→transition→close) | `test/vmu_core/dps/dispute_lifecycle_test.exs` | Done |
+| COL write-off + recovery interface | `test/vmu_core/col/write_off_recovery_test.exs` | Done |
+| CDM underwriting + DSR cap | `test/vmu_core/cdm/underwriting_test.exs` | Done |
+| LMS enrollment + earning + redemption | `test/vmu_core/lms/points_lifecycle_test.exs` | Done |

@@ -37,11 +37,13 @@ defmodule VmuCore.CDM.ApplicationScorer do
 
     Logger.info("[CDM] Scoring application: #{application_id}")
 
+    existing_payments = application.existing_monthly_payments || Decimal.new(0)
+
     with {:ok, bureau} <- @bureau_adapter.pull_credit_report(customer.customer_id, customer.id_number),
          {:ok, tier}   <- classify_risk(bureau.score),
          {:ok, limit}  <- LimitAllocator.calculate(application.monthly_income, tier,
                            application.sys_id, application.bank_id,
-                           application.logo_id) do
+                           application.logo_id, existing_payments) do
 
       decision = %{
         status:        if(tier == :decline, do: :declined, else: :approved),
@@ -97,7 +99,8 @@ defmodule VmuCore.CDM.ApplicationScorer do
       field :logo_id,         :string
       field :requested_limit, :decimal
       field :approved_limit,  :decimal
-      field :monthly_income,  :decimal
+      field :monthly_income,             :decimal
+      field :existing_monthly_payments,  :decimal, default: 0
       field :employment_type, :string
       field :bureau_score,    :integer
       field :bureau_ref,      :string

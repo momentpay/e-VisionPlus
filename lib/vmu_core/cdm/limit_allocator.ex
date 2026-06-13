@@ -22,19 +22,28 @@ defmodule VmuCore.CDM.LimitAllocator do
     decline:    D.new("0")
   }
 
+  @dsr_cap D.new("0.50")   # UAE Central Bank CBUAE Notice 2023/1 — max DSR 50%
+  @min_payment_rate D.new("0.05")   # 5% of limit as minimum payment estimate
+
   @doc """
   Calculate the approved credit limit for a given income and risk tier.
 
-  Returns {:ok, limit} where limit is a Decimal rounded to 2 decimal places,
-  clipped to [min_limit, max_limit] from ParameterEngine.
+  Also enforces the UAE Central Bank DSR (Debt Service Ratio) cap (G9):
+    (existing_monthly_payments + 5% of proposed_limit) / monthly_income <= 0.50
+
+  Returns {:ok, limit} or {:error, :tier_declined} or {:error, :dsr_cap_exceeded}.
+
+  existing_monthly_payments defaults to 0 for new-to-bank applicants.
   """
-  @spec calculate(Decimal.t(), atom(), String.t(), String.t(), String.t()) ::
-          {:ok, Decimal.t()} | {:error, :tier_declined}
-  def calculate(_monthly_income, :decline, _sys_id, _bank_id, _logo_id) do
+  @spec calculate(Decimal.t(), atom(), String.t(), String.t(), String.t(), Decimal.t()) ::
+          {:ok, Decimal.t()} | {:error, :tier_declined} | {:error, :dsr_cap_exceeded}
+  def calculate(monthly_income, tier, sys_id, bank_id, logo_id, existing_monthly_payments \\ D.new(0))
+
+  def calculate(_monthly_income, :decline, _sys_id, _bank_id, _logo_id, _existing) do
     {:error, :tier_declined}
   end
 
-  def calculate(monthly_income, tier, sys_id, bank_id, logo_id) do
+  def calculate(monthly_income, tier, sys_id, bank_id, logo_id, existing_monthly_payments) do
     multiplier = resolve_multiplier(tier, sys_id, bank_id, logo_id)
     raw_limit  = D.mult(monthly_income, multiplier) |> D.round(2)
 
@@ -46,7 +55,16 @@ defmodule VmuCore.CDM.LimitAllocator do
       |> D.min(max_limit)
       |> round_to_hundred()
 
-    {:ok, limit}
+    # DSR check: (existing_payments + 5% of proposed_limit) / income <= 0.50
+    min_payment_estimate = D.mult(limit, @min_payment_rate)
+    total_debt_service   = D.add(existing_monthly_payments, min_payment_estimate)
+    dsr                  = D.div(total_debt_service, monthly_income)
+
+    if D.compare(dsr, @dsr_cap) == :gt do
+      {:error, :dsr_cap_exceeded}
+    else
+      {:ok, limit}
+    end
   end
 
   # ---------------------------------------------------------------------------

@@ -196,18 +196,83 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
   # Authorization logic
   # ---------------------------------------------------------------------------
 
-  defp do_authorize(state, amount, _channel, _mcc) do
-    cond do
-      state.account_status != "ACTIVE" ->
-        {:declined, "62", :account_not_active}
-
-      Decimal.compare(amount, state.open_to_buy) == :gt ->
-        {:declined, "51", :insufficient_otb}
-
-      true ->
-        new_otb = Decimal.sub(state.open_to_buy, amount)
-        {:approved, "00", new_otb}
+  defp do_authorize(state, amount, channel, mcc) do
+    with :ok <- check_account_status(state),
+         :ok <- check_open_to_buy(state, amount),
+         :ok <- check_velocity(state, amount, channel),
+         :ok <- VmuCore.HCS.LimitController.check_hcs_limits(state.account_id, amount, channel, mcc) do
+      new_otb = Decimal.sub(state.open_to_buy, amount)
+      # Debit HCS sub-limit + company pool after successful auth
+      VmuCore.HCS.LimitController.debit_limits(state.account_id, amount)
+      {:approved, "00", new_otb}
+    else
+      {:error, :account_not_active}          -> {:declined, "62", :account_not_active}
+      {:error, :insufficient_otb}            -> {:declined, "51", :insufficient_otb}
+      {:error, :velocity_count_exceeded}     -> {:declined, "65", :velocity_count_exceeded}
+      {:error, :velocity_amount_exceeded}    -> {:declined, "65", :velocity_amount_exceeded}
+      {:error, :company_suspended}           -> {:declined, "62", :company_suspended}
+      {:error, :individual_limit_exceeded}   -> {:declined, "51", :individual_limit_exceeded}
+      {:error, :company_pool_exhausted}      -> {:declined, "51", :company_pool_exhausted}
+      {:error, :mcc_blocked}                 -> {:declined, "57", :mcc_blocked}
+      {:error, :mcc_not_allowed}             -> {:declined, "57", :mcc_not_allowed}
+      {:error, :channel_blocked}             -> {:declined, "57", :channel_blocked}
+      {:error, :per_txn_cap_exceeded}        -> {:declined, "61", :per_txn_cap_exceeded}
+      {:error, reason}                       -> {:declined, "05", reason}
     end
+  end
+
+  defp check_account_status(%{account_status: "ACTIVE"}), do: :ok
+  defp check_account_status(_), do: {:error, :account_not_active}
+
+  defp check_open_to_buy(state, amount) do
+    if Decimal.compare(amount, state.open_to_buy) == :gt,
+      do: {:error, :insufficient_otb},
+      else: :ok
+  end
+
+  defp check_velocity(%{velocity_limits: nil}, _amount, _channel), do: :ok
+  defp check_velocity(%{velocity_limits: limits, account_id: account_id}, amount, channel) do
+    channel_str = to_string(channel)
+    channel_limits = Map.get(limits, channel_str, %{})
+
+    daily_count_limit  = Map.get(channel_limits, "daily_count")
+    daily_amount_limit = Map.get(channel_limits, "daily_amount")
+
+    if is_nil(daily_count_limit) and is_nil(daily_amount_limit) do
+      :ok
+    else
+      {today_count, today_amount} = query_today_velocity(account_id, channel_str)
+
+      cond do
+        not is_nil(daily_count_limit) and today_count >= daily_count_limit ->
+          {:error, :velocity_count_exceeded}
+
+        not is_nil(daily_amount_limit) and
+            Decimal.compare(Decimal.add(today_amount, Decimal.new(amount)),
+                            Decimal.new(daily_amount_limit)) == :gt ->
+          {:error, :velocity_amount_exceeded}
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  defp query_today_velocity(account_id, channel_str) do
+    today = Date.utc_today()
+
+    result =
+      Repo.one(
+        from e in VmuCore.CMS.LedgerEntry,
+          where: e.account_id == ^account_id
+            and e.posting_date == ^today
+            and e.transaction_code == ^"AUTH_#{String.upcase(channel_str)}",
+          select: %{count: count(e.entry_id), total: coalesce(sum(e.dr_amount), 0)}
+      )
+
+    count  = if result, do: result.count  || 0, else: 0
+    total  = if result, do: result.total  || Decimal.new(0), else: Decimal.new(0)
+    {count, total}
   end
 
   # ---------------------------------------------------------------------------

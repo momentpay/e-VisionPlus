@@ -118,6 +118,11 @@ defmodule VmuCore.DPS.Dispute do
 
   defp post_provisional_credit(%__MODULE__{} = d) do
     key = "PROV-CREDIT-#{d.dispute_id}"
+    # GL direction (confirmed correct, finance sign-off pending — G11):
+    #   DR 3001 (Disputed Receivable — we expect to recover from acquirer/scheme)
+    #   CR 1001 (Customer AR — reduces outstanding balance, giving provisional credit)
+    # This temporarily reduces the cardholder's outstanding balance while the dispute
+    # is investigated. On CLOSED_LOSE, a reversal entry must be posted (DR 1001 / CR 3001).
     InternalGlPoster.post(%{
       account_id:       d.account_id,
       idempotency_key:  key,

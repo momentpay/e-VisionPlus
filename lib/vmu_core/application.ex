@@ -21,7 +21,9 @@ defmodule VmuCore.Application do
        [name: VmuCore.Shared.AccountSupervisor, strategy: :one_for_one, members: :auto]},
       # 5. IVR SessionRegistry — local Registry for IVR session GenServers (G3 fix)
       {Registry, keys: :unique, name: VmuCore.IVR.SessionRegistry},
-      # 6. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL, LMS workflows
+      # 6. Broadway pipeline DynamicSupervisor — hosts IpmPipeline instances (G7)
+      {DynamicSupervisor, name: VmuCore.PipelineSupervisor, strategy: :one_for_one},
+      # 7. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL, LMS, HCS, ITS workflows
       {Oban, Application.fetch_env!(:vmu_core, Oban)}
     ]
 

@@ -59,6 +59,15 @@ defmodule VmuCore.CMS.RepaymentDistributor do
   end
 
   @doc """
+  Post-payment hook: restore HCS company pool + individual limit for employee cards.
+  Call this after distribute/2 completes successfully for an employee card account.
+  No-op for non-HCS accounts.
+  """
+  def credit_hcs_limits(account_id, payment_amount) do
+    VmuCore.HCS.LimitController.credit_limits(account_id, payment_amount)
+  end
+
+  @doc """
   Determine if the full statement balance was paid (grace period qualification).
   """
   def full_payment?(%{statement_balance: stmt}, payment_amount) do

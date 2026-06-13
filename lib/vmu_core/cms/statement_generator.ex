@@ -117,27 +117,83 @@ defmodule VmuCore.CMS.StatementGenerator do
     ) || D.new(0)
   end
 
-  # Simplified: use statement balance as proxy for daily balance series
-  # In production this would aggregate daily snapshots from cms_balance_buckets
+  # True ADB: use daily snapshots from cms_daily_balance_snapshots (G10).
+  # Falls back to single-balance approximation when snapshots are incomplete.
   defp retail_daily_balances(account_id, statement_date, days_in_cycle) do
-    bucket = Repo.one(
-      from b in BalanceBucket,
-        where: b.account_id == ^account_id and b.balance_date <= ^statement_date,
-        order_by: [desc: b.balance_date], limit: 1
-    )
-
-    balance = if bucket, do: bucket.retail_balance, else: D.new(0)
-    for i <- 0..(days_in_cycle - 1), do: {Date.add(statement_date, -i), balance}
+    start_date = Date.add(statement_date, -days_in_cycle + 1)
+    daily_balances_for(account_id, start_date, statement_date, :retail_balance)
   end
 
   defp cash_daily_balances(account_id, statement_date, days_in_cycle) do
-    bucket = Repo.one(
-      from b in BalanceBucket,
-        where: b.account_id == ^account_id and b.balance_date <= ^statement_date,
-        order_by: [desc: b.balance_date], limit: 1
-    )
+    start_date = Date.add(statement_date, -days_in_cycle + 1)
+    daily_balances_for(account_id, start_date, statement_date, :cash_balance)
+  end
 
-    balance = if bucket, do: bucket.cash_balance, else: D.new(0)
-    for i <- 0..(days_in_cycle - 1), do: {Date.add(statement_date, -i), balance}
+  defp daily_balances_for(account_id, start_date, end_date, field) do
+    snapshots =
+      from(s in "cms_daily_balance_snapshots",
+        where: s.account_id == ^account_id
+          and s.snapshot_date >= ^start_date
+          and s.snapshot_date <= ^end_date,
+        select: %{date: s.snapshot_date, balance: field(s, ^field)},
+        order_by: [asc: s.snapshot_date]
+      )
+      |> Repo.all()
+
+    if length(snapshots) >= 5 do
+      # Enough snapshot coverage — use actual daily balances
+      snapshot_map = Map.new(snapshots, fn %{date: d, balance: b} -> {d, b} end)
+
+      # Forward-fill gaps using last known balance
+      {balances, _} =
+        Date.range(start_date, end_date)
+        |> Enum.reduce({[], D.new(0)}, fn date, {acc, last_balance} ->
+          balance = Map.get(snapshot_map, date, last_balance)
+          {[{date, balance} | acc], balance}
+        end)
+
+      Enum.reverse(balances)
+    else
+      # Insufficient snapshots — fall back to bucket balance approximation
+      bucket = Repo.one(
+        from b in BalanceBucket,
+          where: b.account_id == ^account_id and b.balance_date <= ^end_date,
+          order_by: [desc: b.balance_date], limit: 1
+      )
+      days_in_cycle = Date.diff(end_date, start_date) + 1
+      balance = if bucket, do: Map.get(bucket, field, D.new(0)), else: D.new(0)
+      for i <- 0..(days_in_cycle - 1), do: {Date.add(end_date, -i), balance}
+    end
+  end
+
+  @doc """
+  Snapshot today's balance for an account. Called from EOD AgeBuckets step
+  after bucket balances are written, before interest accrual.
+  """
+  def snapshot_daily_balance(account_id, snapshot_date) do
+    bucket =
+      Repo.one(
+        from b in BalanceBucket,
+          where: b.account_id == ^account_id and b.balance_date == ^snapshot_date,
+          limit: 1
+      )
+
+    if bucket do
+      Repo.insert_all(
+        "cms_daily_balance_snapshots",
+        [%{
+          account_id:       account_id,
+          snapshot_date:    snapshot_date,
+          retail_balance:   bucket.retail_balance || D.new(0),
+          cash_balance:     bucket.cash_balance   || D.new(0),
+          fee_balance:      bucket.unpaid_fees    || D.new(0),
+          accrued_interest: bucket.accrued_interest || D.new(0),
+          open_to_buy:      D.new(0),
+          inserted_at:      DateTime.utc_now()
+        }],
+        on_conflict: :nothing,
+        conflict_target: [:account_id, :snapshot_date]
+      )
+    end
   end
 end

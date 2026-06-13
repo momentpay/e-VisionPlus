@@ -1,0 +1,110 @@
+VisionPlus Elixir Alternate Implementation Plan
+This implementation plan details the technical steps to initialize, structure, and build the VisionPlus Elixir-Phoenix alternate system (vMu) using a hybrid EOD workflow, PostgreSQL database, and your existing ISO8583 and risk core codebases.
+
+User Review Required
+IMPORTANT
+
+Sequential EOD Processing: The daily billing and posting cycle will run sequentially via a hybrid framework (cron triggered) to ensure data stability and prevent lock contention on historical ledger records.
+
+Coexistence of Switches: Your existing Mercury ISO8583 switch and the new Mastercard CIS switch will share the same packet-level routing code but operate on separate TCP ports.
+
+Proposed Changes
+Component 1: Umbrella Project & Database Foundation (vMu_shared / :vMu_core)
+[NEW] 
+vMu Umbrella Project Structure
+We will create a parent Elixir Umbrella Application :vMu_core in the workspace root, housing the following apps:
+
+apps/vMu_shared – Shared schemas, parameter cash engine, and database repository.
+apps/vMu_fas – Real-time TCP authorization switch (reusing muNSwitch).
+apps/vMu_cms – Credit management system (reusing wallet_cards + wallet_gl).
+apps/vMu_trams – Clearing, matching, and settlement (reusing settlement_core).
+apps/vMu_cdm – Risk and credit decision rules (reusing mw_risk).
+[NEW] 
+Ecto Migrations: Hierarchical Parameters
+We will define PostgreSQL schemas to support the hierarchical SYS -> BANK -> LOGO -> BLOCK fallback structure:
+
+sql
+
+CREATE TABLE sys_parameters (
+    sys_id VARCHAR(4) PRIMARY KEY,
+    base_currency VARCHAR(3) NOT NULL DEFAULT 'AED',
+    clearing_cycle_time TIME NOT NULL DEFAULT '23:00:00'
+);
+CREATE TABLE bank_parameters (
+    bank_id VARCHAR(4) NOT NULL,
+    sys_id VARCHAR(4) REFERENCES sys_parameters(sys_id),
+    country_code VARCHAR(3) NOT NULL,
+    PRIMARY KEY (sys_id, bank_id)
+);
+CREATE TABLE logo_parameters (
+    logo_id VARCHAR(4) NOT NULL,
+    sys_id VARCHAR(4) NOT NULL,
+    bank_id VARCHAR(4) NOT NULL,
+    bin_prefix VARCHAR(6) NOT NULL,
+    FOREIGN KEY (sys_id, bank_id) REFERENCES bank_parameters(sys_id, bank_id),
+    PRIMARY KEY (sys_id, bank_id, logo_id)
+);
+CREATE TABLE block_parameters (
+    block_id VARCHAR(4) NOT NULL,
+    sys_id VARCHAR(4) NOT NULL,
+    bank_id VARCHAR(4) NOT NULL,
+    logo_id VARCHAR(4) NOT NULL,
+    apr_percentage NUMERIC(5, 2) NOT NULL DEFAULT 24.00,
+    cash_advance_fee_percentage NUMERIC(5, 2) NOT NULL DEFAULT 3.00,
+    FOREIGN KEY (sys_id, bank_id, logo_id) REFERENCES logo_parameters(sys_id, bank_id, logo_id),
+    PRIMARY KEY (sys_id, bank_id, logo_id, block_id)
+);
+Component 2: CMS Credit Ledger & EOD Sequential Workflow (vMu_cms)
+[NEW] 
+CMS Balance Buckets
+Define database schemas and structs supporting multi-bucket ledger balances:
+
+retail_balance – Principal retail transactions.
+cash_balance – Cash advance principal transactions.
+accrued_interest – Accumulated unbilled interest.
+unpaid_fees – Late fees, cash advance fees, etc.
+[NEW] 
+EOD Scheduler & Workflow Engine
+A hybrid workflow coordinator triggered by a cron server (e.g., Oban scheduler) that sequentially executes EOD steps:
+
+Step 1 (Lock Accounts): Mark selected accounts as posting_in_progress to block incoming real-time authorizations.
+Step 2 (Accrue Interest & Apply Fees): Run average daily balance calculations and append fees to unposted ledgers.
+Step 3 (Billing Cycle Statement Generation): Age balances (30, 60, 90 DPD) and output statement totals.
+Step 4 (Unlock Accounts): Reset status indicators and flush general ledger journal entries to the database.
+Component 3: Upstream switch & Mastercard CIS Integration (vMu_fas)
+[MODIFY] 
+ISO8583 Routing Rules
+Integrate Mastercard CIS specifications (e.g., BCD bitmap packager, specific MTI 0100/0110 authorization models, DE 48 subfield specifications) within the existing 
+DaProductApp.Switch.Router
+ codebase.
+
+Verification Plan
+Automated Tests
+Run unit tests on the Parameter Engine resolving Block -> Logo -> Bank fallbacks.
+Simulate an EOD workflow run and verify balance bucket transformations using mock accounts.
+Test ISO8583 binary encoding and decoding for Mastercard CIS payloads.
+Manual Verification
+Verify Ecto migrations run successfully on PostgreSQL.
+Check logs for the sequential EOD workflow processing steps.
+
+>>>>>>>>>>>>>>>>>>>>>>>>>
+Curent status of implementation:
+ What's Been Done
+Step	File	Status
+Project Init	vmu_core/	✅ Created
+Dependencies	vmu_core/mix.exs	✅ All path deps + Ecto/Postgrex configured
+Database Repo	lib/vmu_core/repo.ex	✅ PostgreSQL Ecto repo
+DB Config	config/config.exs	✅ Database connection params
+Migration	priv/repo/migrations/..._create_parameter_tables.exs	✅ All 4 tables with FK constraints
+SysParameter	lib/vmu_core/shared/sys_parameter.ex	✅ Schema + changeset
+BankParameter	lib/vmu_core/shared/bank_parameter.ex	✅ Schema + changeset
+LogoParameter	lib/vmu_core/shared/logo_parameter.ex	✅ Schema + changeset
+BlockParameter	lib/vmu_core/shared/block_parameter.ex	✅ Schema + changeset
+ParameterEngine	lib/vmu_core/shared/parameter_engine.ex	✅ GenServer + ETS + BIN resolver
+Supervision Tree	lib/vmu_core/application.ex	✅ Repo → ParameterEngine ordered startup
+Unit Tests	test/vmu_core/shared/parameter_engine_test.exs	⏳ Running...
+Compilation	mix compile	✅ Zero errors, zero warnings
+What Happens Next (after tests pass)
+Run the database migration against your local PostgreSQL instance
+Seed sample SYS/BANK/LOGO/BLOCK records so you can verify end-to-end resolution
+Wire the ParameterEngine into the FAS switch — the authorization path will call ParameterEngine.get/5 to resolve card product rules and ParameterEngine.resolve_bin/1 to identify the card's Logo from a PAN

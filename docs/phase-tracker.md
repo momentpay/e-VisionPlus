@@ -131,7 +131,7 @@ Project: `vmu_core` - Elixir/Phoenix reimplementation of Visa VisionPlus credit 
 ---
 
 ## Phase 7 — HCS Hierarchy Company System
-**Commit:** *(this commit)*  **Status:** COMPLETE
+**Commit:** `5366da2`  **Status:** COMPLETE
 
 | Task | Module | Status |
 |------|--------|--------|
@@ -154,7 +154,7 @@ Project: `vmu_core` - Elixir/Phoenix reimplementation of Visa VisionPlus credit 
 ---
 
 ## Phase 8 — ITS Interchange Tracking System
-**Commit:** *(this commit)*  **Status:** COMPLETE
+**Commit:** `5366da2`  **Status:** COMPLETE
 
 **Note:** IVR rename (G15) was completed in Phase 6. `VmuCore.ITS` namespace is now the canonical Interchange Tracking System.
 

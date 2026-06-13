@@ -88,6 +88,30 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
     end
   end
 
+  @doc "Update in-memory credit limit without a full DB reload."
+  def refresh_limit(account_id, new_limit) do
+    case Horde.Registry.lookup(@registry, account_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:set_limit, new_limit})
+      []         -> :ok
+    end
+  end
+
+  @doc "Add amount back to OTB (fee waiver, manual credit)."
+  def credit_open_to_buy(account_id, amount) do
+    case Horde.Registry.lookup(@registry, account_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:credit_otb, amount})
+      []         -> :ok
+    end
+  end
+
+  @doc "Notify in-memory coordinator of a status change (closure, suspension, etc.)."
+  def notify_status_change(account_id, new_status) do
+    case Horde.Registry.lookup(@registry, account_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:set_status, new_status})
+      []         -> :ok
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer lifecycle
   # ---------------------------------------------------------------------------
@@ -144,6 +168,22 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
       {:ok, new_state} -> {:reply, :ok, new_state, @idle_ms}
       error            -> {:reply, error, state, @idle_ms}
     end
+  end
+
+  @impl true
+  def handle_cast({:set_limit, new_limit}, state) do
+    new_otb = Decimal.add(state.open_to_buy, Decimal.sub(new_limit, state.credit_limit))
+    {:noreply, %{state | credit_limit: new_limit, open_to_buy: new_otb}, @idle_ms}
+  end
+
+  @impl true
+  def handle_cast({:credit_otb, amount}, state) do
+    {:noreply, %{state | open_to_buy: Decimal.add(state.open_to_buy, amount)}, @idle_ms}
+  end
+
+  @impl true
+  def handle_cast({:set_status, new_status}, state) do
+    {:noreply, %{state | account_status: new_status}, @idle_ms}
   end
 
   @impl true

@@ -31,6 +31,17 @@ defmodule VmuCore.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
 
+      # --- Admin Web UI (LiveDashboard on port 4001) ---
+      # Versions pinned to match muNSwitch path dep to avoid resolution conflicts.
+      {:phoenix, "~> 1.8.0", override: true},
+      {:phoenix_live_view, "~> 1.1.0", override: true},
+      {:phoenix_live_dashboard, "~> 0.8.6"},
+      {:phoenix_pubsub, "~> 2.1", override: true},
+      {:phoenix_ecto, "~> 4.5"},
+      {:bandit, "~> 1.5", override: true},
+      {:telemetry_metrics, "~> 1.0"},
+      {:telemetry_poller, "~> 1.0"},
+
       # --- Distributed Process Registry ---
       {:horde, "~> 0.9"},
       {:libcluster, "~> 3.3"},
@@ -42,11 +53,17 @@ defmodule VmuCore.MixProject do
       {:broadway, "~> 1.1"},
 
       # --- Standalone Switch ---
-      {:da_product_app, path: "../muNSwitch", override: true},
+      # Protocol/types engine (packagers, MTIConverter, FAS.Authorizer behaviour) plus the
+      # issuer-facing Ranch listener (MIP 7585 / VAP 8600). Replaces vmu_core's own redundant
+      # listener + hand-rolled ISO 8583 parser (deleted in Phase 6 of muNSwitch's umbrella tracker).
+      {:da_switch_core, path: "../muNSwitch/apps/da_switch_core", override: true},
+      {:da_issuer, path: "../muNSwitch/apps/da_issuer", override: true},
 
       # --- Settlement Core (tmsuat_apps-main) ---
-      {:settlement_core, path: "../tmsuat_apps-main/apps/settlement_core", override: true},
-      {:platform_core, path: "../tmsuat_apps-main/apps/platform_core", override: true},
+      # runtime: false — code reuse only; their OTP apps (Oban, Repo, MQTT) must not start
+      # because platform_core hardcodes name: Oban which conflicts with vmu_core's Oban instance.
+      {:settlement_core, path: "../tmsuat_apps-main/apps/settlement_core", override: true, runtime: false},
+      {:platform_core, path: "../tmsuat_apps-main/apps/platform_core", override: true, runtime: false},
 
       # --- Cards & GL (wallet-app) ---
       {:wallet_cards, path: "../wallet-app/apps/wallet_cards", override: true},

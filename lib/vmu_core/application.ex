@@ -24,18 +24,23 @@ defmodule VmuCore.Application do
       # 6. Broadway pipeline DynamicSupervisor — hosts IpmPipeline instances (G7)
       {DynamicSupervisor, name: VmuCore.PipelineSupervisor, strategy: :one_for_one},
       # 7. Oban — background job queue for EOD, CTA, DPS, TRAMS, COL, LMS, HCS, ITS workflows
-      {Oban, Application.fetch_env!(:vmu_core, Oban)}
+      {Oban, Application.fetch_env!(:vmu_core, Oban)},
+      # 8. PubSub — required by Phoenix LiveView (LiveDashboard WebSocket updates)
+      {Phoenix.PubSub, name: VmuCore.PubSub},
+      # 9. Telemetry supervisor — emits ParameterEngine + VM metrics every 10s
+      VmuCoreWeb.Telemetry,
+      # 10. Admin web UI — LiveDashboard on http://localhost:4001/dashboard
+      VmuCoreWeb.Endpoint
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: VmuCore.Supervisor]
-    result = Supervisor.start_link(children, opts)
 
-    # Initialise STIP ETS cache and load thresholds from DB after supervisor is up
-    VmuCore.FAS.STIP.init_cache()
-    VmuCore.FAS.STIP.load_thresholds(VmuCore.Repo)
-
-    result
+    with {:ok, _pid} = result <- Supervisor.start_link(children, opts) do
+      VmuCore.FAS.STIP.init_cache()
+      VmuCore.FAS.STIP.load_thresholds(VmuCore.Repo)
+      result
+    end
   end
 end

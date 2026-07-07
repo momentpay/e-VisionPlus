@@ -29,6 +29,9 @@ defmodule VmuCore.DPS.Dispute do
   schema "dps_disputes" do
     field :account_id,               :binary_id
     field :ledger_entry_id,          :binary_id
+    # TRAM aggregate linkage (TRAM-P5 5C, ADR-T5) — nil for disputes filed
+    # before the TRAM feed existed
+    field :trams_transaction_id,     :binary_id
     field :transaction_date,         :date
     field :dispute_amount,           :decimal
     field :currency,                 :string, default: "MC"
@@ -48,7 +51,8 @@ defmodule VmuCore.DPS.Dispute do
 
   def changeset(dispute, attrs) do
     dispute
-    |> cast(attrs, [:account_id, :ledger_entry_id, :transaction_date, :dispute_amount,
+    |> cast(attrs, [:account_id, :ledger_entry_id, :trams_transaction_id,
+                    :transaction_date, :dispute_amount,
                     :currency, :reason_code, :network, :status, :network_ref,
                     :provisional_credit_posted, :chargeback_deadline, :representment_deadline,
                     :pre_arb_deadline, :filed_at, :closed_at])
@@ -79,22 +83,31 @@ defmodule VmuCore.DPS.Dispute do
 
   @doc "Transition dispute to the next state."
   def transition(dispute_id, new_status) when new_status in @valid_statuses do
-    Repo.transaction(fn ->
-      dispute = Repo.get!(__MODULE__, dispute_id)
+    result =
+      Repo.transaction(fn ->
+        dispute = Repo.get!(__MODULE__, dispute_id)
 
-      updates = [status: new_status, updated_at: NaiveDateTime.utc_now()]
-      updates = if new_status in ["CLOSED_WIN", "CLOSED_LOSE", "CANCELLED"],
-        do: Keyword.put(updates, :closed_at, NaiveDateTime.utc_now()),
-        else: updates
+        updates = [status: new_status, updated_at: NaiveDateTime.utc_now()]
+        updates = if new_status in ["CLOSED_WIN", "CLOSED_LOSE", "CANCELLED"],
+          do: Keyword.put(updates, :closed_at, NaiveDateTime.utc_now()),
+          else: updates
 
-      Repo.update_all(
-        from(d in __MODULE__, where: d.dispute_id == ^dispute_id),
-        set: updates
-      )
+        Repo.update_all(
+          from(d in __MODULE__, where: d.dispute_id == ^dispute_id),
+          set: updates
+        )
 
-      schedule_next_deadline(%{dispute | status: new_status})
-      %{dispute | status: new_status}
-    end)
+        schedule_next_deadline(%{dispute | status: new_status})
+        %{dispute | status: new_status}
+      end)
+
+    # Mirror into the TRAM event log AFTER commit (TRAM-P5 5C) — fail-safe,
+    # no-op for disputes without a linked TRAM transaction
+    with {:ok, dispute} <- result do
+      VmuCore.TRAMS.DisputeBridge.notify_transition(dispute)
+    end
+
+    result
   end
 
   # ---------------------------------------------------------------------------
@@ -163,6 +176,9 @@ defmodule VmuCore.DPS.Dispute do
   defp schedule_next_deadline(_), do: :ok
 
   defp deadline_dt(date) do
-    DateTime.new!(date, ~T[08:00:00], "UTC")
+    # "Etc/UTC" — the only zone in the default time_zone_database; plain "UTC"
+    # raises :utc_only_time_zone_database (found during TRAM-P5 smoke testing;
+    # every dispute filing crashed here at deadline scheduling)
+    DateTime.new!(date, ~T[08:00:00], "Etc/UTC")
   end
 end

@@ -89,8 +89,29 @@ defmodule VmuCore.TRAMS.IpmPipeline do
       end)
     end)
 
+    # TRAM matching (TRAM-P3 3C) — after the batch commits, so the matching
+    # engine's own transactions don't nest inside the insert transaction.
+    # Re-fetch by idempotency_key: on_conflict :nothing returns a struct even
+    # when the row already existed, so the fetch resolves the real DB row.
+    Enum.each(attrs_list, &match_inserted_record/1)
+
     messages
   end
+
+  defp match_inserted_record(%{idempotency_key: key}) when is_binary(key) do
+    case Repo.get_by(ClearingRecord, idempotency_key: key) do
+      %ClearingRecord{match_status: "UNMATCHED"} = rec ->
+        VmuCore.TRAMS.MatchingEngine.match_clearing_record(rec)
+
+      _ ->
+        :ok
+    end
+  rescue
+    e ->
+      Logger.error("[IpmPipeline] TRAM matching failed for #{key}: #{Exception.message(e)}")
+  end
+
+  defp match_inserted_record(_), do: :ok
 
   @impl Broadway
   def handle_failed(messages, _context) do

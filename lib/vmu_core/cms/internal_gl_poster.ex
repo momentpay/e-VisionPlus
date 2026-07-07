@@ -25,13 +25,20 @@ defmodule VmuCore.CMS.InternalGlPoster do
     cs = LedgerEntry.changeset(%LedgerEntry{}, attrs)
 
     case Repo.insert(cs, on_conflict: :nothing, conflict_target: :idempotency_key) do
-      {:ok, %LedgerEntry{entry_id: nil}} ->
-        # on_conflict: :nothing returns a struct with no primary key on duplicate
-        {:error, :duplicate}
-
       {:ok, entry} ->
-        Logger.debug("[GL] Posted #{entry.transaction_code} #{entry.dr_amount} key=#{entry.idempotency_key}")
-        {:ok, entry}
+        # entry_id is a CLIENT-generated binary_id, so the returned struct
+        # carries an id even when ON CONFLICT DO NOTHING skipped the insert —
+        # the old `entry_id: nil` duplicate check never fired (latent bug
+        # found 2026-07-05: duplicates reported {:ok, phantom_entry}).
+        # Read back by key: same id ⇒ we inserted it; different ⇒ duplicate.
+        persisted = Repo.get_by!(LedgerEntry, idempotency_key: entry.idempotency_key)
+
+        if persisted.entry_id == entry.entry_id do
+          Logger.debug("[GL] Posted #{entry.transaction_code} #{entry.dr_amount} key=#{entry.idempotency_key}")
+          {:ok, persisted}
+        else
+          {:error, :duplicate}
+        end
 
       {:error, cs} ->
         {:error, cs}

@@ -112,5 +112,7 @@ defmodule VmuCore.CDM.ApplicationScorer do
 
       timestamps()
     end
+
+    @type t :: %__MODULE__{}
   end
 end

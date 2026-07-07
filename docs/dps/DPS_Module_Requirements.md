@@ -1,0 +1,91 @@
+# DPS — Dispute Processing System: Module Requirements
+
+**Status:** 📝 Draft for review — drafted from VisionPlus/card-network dispute domain knowledge, cross-checked against `lib/vmu_core/dps/` and the TRAM dispute bridge. Validate reason codes/timelines against current Visa/Mastercard operating regulations.
+**Companion spec:** `../tram/08_chargebacks_disputes.md` (workflow detail) — this doc is the module-level inventory; the TRAM sub-spec remains the workflow reference.
+
+---
+
+## 1. Purpose & Scope
+
+DPS owns the **dispute case**: intake, provisional credit, the chargeback/representment/arbitration cycle against the network, deadline enforcement, evidence, and financial resolution. The disputed *transaction's* history stays in TRAMS (linked via `trams_transaction_id`, ADR-T5); the *money movement* posts to CMS ledger.
+
+## 2. Where DPS Sits
+
+| Direction | Module | Contract |
+|---|---|---|
+| ← TRAMS | Case origin | `TRAMS.DisputeBridge.file_dispute/2` — window-validated intake from a transaction |
+| → TRAMS | Lifecycle mirror | `notify_transition/1` appends dispute events to the transaction timeline |
+| → CMS | Provisional credit | `InternalGlPoster` DR 3001 / CR 1001 (`DISPUTE_CREDIT`); reversal on loss |
+| → COL | Exclusion | Disputed transactions excluded from collections escalation while open |
+| ↔ Network | Chargeback cycle | Visa/MC dispute messages (VROL / MC Connect equivalents) |
+| → Letters | Correspondence | Acknowledgment, provisional credit notice, outcome letters |
+
+## 3. VisionPlus Feature Inventory
+
+### 3.1 Case Intake (FR-DPS-001 … 008)
+
+| FR | Feature | Notes |
+|---|---|---|
+| 001 | Intake channels: CS/ops UI, cardholder app/web, IVR handoff | |
+| 002 | Transaction resolution via matching hierarchy (RRN → identifiers) | TRAM §6.4 |
+| 003 | Dispute window eligibility per network + reason code | 120d default; bridge enforces |
+| 004 | Reason-code reference data: network + code + window + evidence requirements (table-driven, not enum) | TRAM 08 §4 |
+| 005 | Cardholder narrative + evidence capture at intake | |
+| 006 | Retrieval request handling (inbound copy request BEFORE dispute) | overlaps ITS copy requests |
+| 007 | Duplicate-dispute prevention (one open case per transaction) | |
+| 008 | Multi-transaction disputes (batch intake for one merchant incident) | |
+
+### 3.2 Case Lifecycle (FR-DPS-009 … 018)
+
+| FR | Feature | Notes |
+|---|---|---|
+| 009 | State machine: FILED → RETRIEVAL_REQUESTED → CHARGEBACK_FILED → REPRESENTED → PRE_ARB → ARBITRATION → CLOSED_WIN / CLOSED_LOSE / CANCELLED | Implemented |
+| 010 | Provisional credit posting within regulatory window; reversal on CLOSED_LOSE | posting ✅; loss-reversal entry ⬜ verify |
+| 011 | Deadline enforcement per stage (Oban jobs; missed deadline = auto-forfeit) | Implemented |
+| 012 | Network case reference tracking | `network_ref` field |
+| 013 | Partial chargebacks (amount ≤ original) | |
+| 014 | Evidence/document store per stage with retention | ⬜ |
+| 015 | Case notes + investigator assignment | ⬜ |
+| 016 | Good-faith / pre-chargeback merchant resolution attempt | |
+| 017 | Fraud-flagged disputes: link to hot-card block + FAS decline history | |
+| 018 | Cardholder communication triggers at each stage | |
+
+### 3.3 Financial & Reporting (FR-DPS-019 … 024)
+
+| FR | Feature | Notes |
+|---|---|---|
+| 019 | GL lifecycle: provisional credit → win (recover from scheme) / loss (re-debit cardholder) with distinct entries | |
+| 020 | Scheme settlement of chargeback amounts (incoming credit reconciliation) | |
+| 021 | Write-off small-balance disputes below threshold | |
+| 022 | Regulatory SLA reporting (provisional credit timeliness) | |
+| 023 | Dispute aging + deadline monitor dashboard | Roadmap 6.12 |
+| 024 | Win/loss analytics per reason code + merchant | |
+
+## 4. Current Implementation Map (`lib/vmu_core/dps/`)
+
+| File | Covers |
+|---|---|
+| `dispute.ex` | Case schema + full state machine + provisional credit + deadline computation + TRAM notify hook (`trams_transaction_id` added TRAM-P5) |
+| `deadline_job.ex` | Oban deadline enforcement per stage |
+| `trams/dispute_bridge.ex` (TRAMS) | Window-validated intake from transaction + lifecycle mirroring |
+
+**Bugs fixed 2026-07-03 (TRAM-P5 verification):** provisional-credit posting crashed on varchar(10) `transaction_code`; deadline scheduling crashed on `"UTC"` timezone. Disputes had never run end-to-end before — treat all DPS flows as newly-verified-basic, not battle-tested.
+
+## 5. Gap Analysis (initial — verify during planning)
+
+| Area | Assessment |
+|---|---|
+| State machine, deadlines, provisional credit, TRAM linkage | ✅ Built + smoke-tested |
+| Reason-code reference table (FR-004) | ⬜ `reason_code` is free string; no reference data |
+| Provisional-credit reversal on CLOSED_LOSE (FR-010b) | ⬜ Documented in code comment, not implemented |
+| Evidence store (FR-014), case notes/assignment (FR-015) | ⬜ Not found |
+| Retrieval request inbound flow (FR-006) | 🔄 ITS `copy_request` exists — integration between ITS copy requests and DPS cases unverified |
+| Network message integration (FR-020) | ⬜ Manual transitions only today |
+| Ops UI: case list, detail, actions, deadline monitor | ⬜ Roadmap 6.9–6.12 |
+
+## 6. Open Questions
+
+1. Network connectivity for disputes: manual portal operation (ops re-keys) vs API integration (VROL/Mastercom) — determines FR-020 scope.
+2. Provisional credit regulatory window in target market(s).
+3. Evidence retention period and storage location (DB blob vs object store).
+4. Arbitration in v1 scope, or stop at representment?

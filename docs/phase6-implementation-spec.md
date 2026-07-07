@@ -400,11 +400,21 @@ defmodule VmuCore.LMS.PointsEngine do
     end
   end
 
-  defp update_account_balance(lms_account, points) do
-    Repo.update_all(
-      from(a in Account, where: a.id == ^lms_account.id),
-      inc: [points_balance: points, lifetime_earned: points]
-    )
+  # open_to_redeem is incremented only when warehouse_state = ACTIVE (warehouse_days = 0).
+  # When warehouse_days > 0, points are WAREHOUSE; open_to_redeem is incremented later
+  # by WarehouseAdvancementJob when the warehouse period expires.
+  defp update_account_balance(lms_account, points, warehouse_state) do
+    if warehouse_state == "ACTIVE" do
+      Repo.update_all(
+        from(a in Account, where: a.id == ^lms_account.id),
+        inc: [points_balance: points, open_to_redeem: points, lifetime_earned: points]
+      )
+    else
+      Repo.update_all(
+        from(a in Account, where: a.id == ^lms_account.id),
+        inc: [points_balance: points, lifetime_earned: points]
+      )
+    end
   end
 
   defp find_bonus_groups(groups, nil), do: []
@@ -702,7 +712,65 @@ Cron schedule (add to `config/config.exs` Oban cron):
   args: %{batch_date: "<%= Date.to_iso8601(Date.utc_today()) %>"}}
 ```
 
-### 5.2 `VmuCore.LMS.Oban.PointsExpiryJob`
+### 5.2 `VmuCore.LMS.Oban.WarehouseAdvancementJob`
+
+Runs nightly. Advances WAREHOUSE entries to ACTIVE when the scheme's `warehouse_days` have elapsed, then increments `open_to_redeem` on the account.
+
+```elixir
+defmodule VmuCore.LMS.Oban.WarehouseAdvancementJob do
+  use Oban.Worker, queue: :lms, max_attempts: 3
+
+  alias VmuCore.LMS.{Account, PointsLedger, Scheme}
+  alias VmuCore.Repo
+  import Ecto.Query
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{}) do
+    today = Date.utc_today()
+
+    # For each scheme, find WAREHOUSE entries where posting_date + warehouse_days <= today
+    schemes = Repo.all(from s in Scheme, where: s.warehouse_days > 0 and s.status == "ACTIVE")
+
+    Enum.each(schemes, fn scheme ->
+      eligibility_cutoff = Date.add(today, -scheme.warehouse_days)
+
+      warehouse_entries =
+        from(l in PointsLedger,
+          where: l.scheme_id == ^scheme.id
+            and l.warehouse_state == "WAREHOUSE"
+            and l.posting_date <= ^eligibility_cutoff
+            and l.points_amount > 0
+        )
+        |> Repo.all()
+
+      Enum.each(warehouse_entries, fn entry ->
+        Repo.transaction(fn ->
+          Repo.update_all(
+            from(l in PointsLedger, where: l.id == ^entry.id),
+            set: [warehouse_state: "ACTIVE"]
+          )
+
+          Repo.update_all(
+            from(a in Account, where: a.id == ^entry.lms_account_id),
+            inc: [open_to_redeem: entry.points_amount]
+          )
+        end)
+      end)
+    end)
+
+    :ok
+  end
+end
+```
+
+Cron schedule (runs before PointsCalculationJob):
+```elixir
+%{cron: "15 23 * * *", worker: "VmuCore.LMS.Oban.WarehouseAdvancementJob", args: %{}}
+```
+
+---
+
+### 5.3 `VmuCore.LMS.Oban.PointsExpiryJob`
 
 Runs monthly. Moves expired ACTIVE points to EXPIRED status and reverses their balance.
 
@@ -1080,7 +1148,7 @@ The `warehouse_days` parameter on `lms_schemes` controls how long newly earned p
 7. **CmsInterface** — `trigger_points_calculation/1`, `auto_enroll/2`  
 8. **RedemptionProcessor** — `redeem/3`  
 9. **MerchantSettlement** — `run_settlement/2`  
-10. **Oban Jobs** — `PointsCalculationJob`, `PointsExpiryJob`, `AutoDisbursementJob`  
+10. **Oban Jobs** — `WarehouseAdvancementJob`, `PointsCalculationJob`, `PointsExpiryJob`, `AutoDisbursementJob`  
 11. **Oban cron wiring** in `config.exs`  
 12. **Integration hooks** — add `CmsInterface.trigger_points_calculation` call in `FlushGLJob`; add `CmsInterface.auto_enroll` call in CDM account approval flow  
 13. **Integration tests** — enrollment, points earning, redemption oldest-first, expiry, merchant settlement GL

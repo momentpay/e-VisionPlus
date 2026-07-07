@@ -12,7 +12,7 @@ defmodule VmuCore.HCS.LimitController do
   alias VmuCore.HCS.{Company, EmployeeCard, SpendingControl}
   alias VmuCore.Repo
   import Ecto.Query
-  import Decimal, as: D
+  alias Decimal, as: D
 
   @doc """
   Called from AccountStateCoordinator.do_authorize/4.

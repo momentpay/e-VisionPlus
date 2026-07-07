@@ -21,6 +21,12 @@ defmodule VmuCore.TRAMS.ClearingRecord do
     field :auth_code,        :string
     field :match_status,     :string, default: "UNMATCHED"
     field :matched_auth_id,  :binary_id
+    # De-dup key for file redelivery (IpmPipeline conflict target) — added in
+    # TRAM-P1 migration 20260703000001; the pipeline referenced it before the
+    # column existed.
+    field :idempotency_key,        :string
+    # TRAM transaction this clearing record was matched to (TRAM-P3)
+    field :matched_transaction_id, :binary_id
 
     timestamps()
   end
@@ -30,7 +36,9 @@ defmodule VmuCore.TRAMS.ClearingRecord do
     |> cast(attrs, [:account_id, :network, :file_name, :record_type, :pan_token,
                     :transaction_date, :settlement_date, :amount, :currency,
                     :interchange_fee, :mcc, :acquirer_id, :rrn, :auth_code,
-                    :match_status, :matched_auth_id])
+                    :match_status, :matched_auth_id, :idempotency_key,
+                    :matched_transaction_id])
     |> validate_required([:network, :file_name, :match_status])
+    |> unique_constraint(:idempotency_key)
   end
 end

@@ -4,6 +4,10 @@ now_naive = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 now_utc   = DateTime.utc_now() |> DateTime.truncate(:second)
 today     = Date.utc_today()
 
+# Repo.insert_all with raw table names has no schema context, so Postgrex
+# expects 16-byte binaries for UUID columns rather than 36-char strings.
+uid = fn -> Ecto.UUID.dump!(Ecto.UUID.generate()) end
+
 IO.puts("==> Seeding vMu VisionPlus (all phases)...")
 
 # ============================================================
@@ -89,7 +93,7 @@ IO.puts("    ✓ Parameters, STIP, card stock")
 # ============================================================
 [cust_ahmed, cust_sara, cust_priya, cust_mohammad, cust_jennifer,
  cust_abdullah, cust_fiona, cust_khalid, cust_rashid, cust_fatima] =
-  Enum.map(1..10, fn _ -> Ecto.UUID.generate() end)
+  Enum.map(1..10, fn _ -> uid.() end)
 
 Repo.insert_all("cms_customers", [
   %{customer_id: cust_ahmed, sys_id: "MMPD", bank_id: "MMBD",
@@ -183,7 +187,7 @@ IO.puts("--> Phase 2: CMS Accounts + GL")
 
 [acc_ahmed, acc_sara, acc_priya, acc_mohammad, acc_jennifer,
  acc_abdullah, acc_fiona, acc_khalid, acc_rashid, acc_fatima] =
-  Enum.map(1..10, fn _ -> Ecto.UUID.generate() end)
+  Enum.map(1..10, fn _ -> uid.() end)
 
 pan = fn s -> :crypto.hash(:sha256, s) |> Base.encode16(case: :lower) end
 
@@ -324,76 +328,76 @@ Repo.insert_all("cms_balance_buckets", [
 
 # GL Ledger entries — representative transactions per account
 Repo.insert_all("cms_ledger_entries", [
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_ahmed,
+  %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("450.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -15), value_date: Date.add(today, -15),
     narrative: "Carrefour Dubai - Groceries",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_ahmed,
+  %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PAY-001", transaction_code: "PAYMENT",
     dr_amount: Decimal.new("0.00"), cr_amount: Decimal.new("500.00"),
     gl_account_dr: "2001", gl_account_cr: "1001", currency: "AED",
     posting_date: Date.add(today, -10), value_date: Date.add(today, -10),
     narrative: "Bank transfer payment",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_priya,
+  %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-CASH-001", transaction_code: "CASH_ADV",
     dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1002", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -20), value_date: Date.add(today, -20),
     narrative: "ATM Withdrawal - Al Barsha",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_priya,
+  %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-INT-001", transaction_code: "INTEREST",
     dr_amount: Decimal.new("12.50"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1003", gl_account_cr: "4002", currency: "AED",
     posting_date: Date.add(today, -1), value_date: Date.add(today, -1),
     narrative: "Monthly interest accrual",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_jennifer,
+  %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("9800.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -90), value_date: Date.add(today, -90),
     narrative: "Emirates Electronics - Laptop",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_jennifer,
+  %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-FEE-001", transaction_code: "FEE",
     dr_amount: Decimal.new("150.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1004", gl_account_cr: "4001", currency: "AED",
     posting_date: Date.add(today, -60), value_date: Date.add(today, -60),
     narrative: "Late payment fee",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_mohammad,
+  %{entry_id: uid.(), account_id: acc_mohammad,
     idempotency_key: "SEED-GL-MOHAMMAD-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("3000.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -5), value_date: Date.add(today, -5),
     narrative: "Office Supplies - IKEA", inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_abdullah,
+  %{entry_id: uid.(), account_id: acc_abdullah,
     idempotency_key: "SEED-GL-ABDULLAH-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("75000.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -8), value_date: Date.add(today, -8),
     narrative: "Emirates Airlines - Business Travel",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_khalid,
+  %{entry_id: uid.(), account_id: acc_khalid,
     idempotency_key: "SEED-GL-KHALID-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("7000.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -12), value_date: Date.add(today, -12),
     narrative: "Rolex Boutique - Dubai Mall",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_rashid,
+  %{entry_id: uid.(), account_id: acc_rashid,
     idempotency_key: "SEED-GL-RASHID-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("2500.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -7), value_date: Date.add(today, -7),
     narrative: "Business Dinner - Four Seasons",
     inserted_at: now_naive, updated_at: now_naive},
-  %{entry_id: Ecto.UUID.generate(), account_id: acc_fatima,
+  %{entry_id: uid.(), account_id: acc_fatima,
     idempotency_key: "SEED-GL-FATIMA-PUR-001", transaction_code: "PURCHASE",
     dr_amount: Decimal.new("1000.00"), cr_amount: Decimal.new("0.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
@@ -409,7 +413,7 @@ IO.puts("    ✓ 10 accounts, balance buckets, 11 GL entries")
 # ============================================================
 IO.puts("--> Phase 3: DPS Disputes")
 
-[disp1, disp2, disp3, disp4] = Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
+[disp1, disp2, disp3, disp4] = Enum.map(1..4, fn _ -> uid.() end)
 
 Repo.insert_all("dps_disputes", [
   %{dispute_id: disp1, account_id: acc_priya,
@@ -462,7 +466,7 @@ IO.puts("    ✓ 4 disputes (FILED / RETRIEVAL_REQUESTED / CHARGEBACK_FILED / CL
 # ============================================================
 IO.puts("--> Phase 4: TRAMS + COL")
 
-[cr1, cr2, cr3, cr4, cr5, cr6] = Enum.map(1..6, fn _ -> Ecto.UUID.generate() end)
+[cr1, cr2, cr3, cr4, cr5, cr6] = Enum.map(1..6, fn _ -> uid.() end)
 
 Repo.insert_all("trams_clearing_records", [
   %{clearing_id: cr1, account_id: acc_ahmed, network: "MC",
@@ -510,7 +514,7 @@ Repo.insert_all("trams_clearing_records", [
     match_status: "MATCHED", inserted_at: now_naive, updated_at: now_naive}
 ], on_conflict: :nothing)
 
-[col1, col2] = Enum.map(1..2, fn _ -> Ecto.UUID.generate() end)
+[col1, col2] = Enum.map(1..2, fn _ -> uid.() end)
 
 Repo.insert_all("col_collection_cases", [
   %{case_id: col1, account_id: acc_jennifer,
@@ -532,7 +536,7 @@ IO.puts("    ✓ 6 clearing records (MC + VI), 2 collection cases")
 # ============================================================
 IO.puts("--> Phase 5: CDM + MBS + Operators")
 
-[app1, app2, app3, app4] = Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
+[app1, app2, app3, app4] = Enum.map(1..4, fn _ -> uid.() end)
 
 Repo.insert_all("cdm_credit_applications", [
   %{application_id: app1, customer_id: cust_ahmed,
@@ -575,7 +579,7 @@ Repo.insert_all("cdm_credit_applications", [
 ], on_conflict: :nothing)
 
 [merch_carrefour, merch_emirates, merch_rolex, merch_online] =
-  Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
+  Enum.map(1..4, fn _ -> uid.() end)
 
 Repo.insert_all("mbs_merchants", [
   %{merchant_id: merch_carrefour, sys_id: "MMPD", bank_id: "MMBD",
@@ -607,23 +611,23 @@ Repo.insert_all("mbs_merchants", [
 ], on_conflict: :nothing)
 
 Repo.insert_all("mbs_terminals", [
-  %{terminal_id: Ecto.UUID.generate(), merchant_id: merch_carrefour,
+  %{terminal_id: uid.(), merchant_id: merch_carrefour,
     terminal_code: "CRFM0001", terminal_type: "POS",
     serial_number: "ING-P400-001234", installed_at: ~D[2024-01-10],
     status: "ACTIVE", inserted_at: now_naive, updated_at: now_naive},
-  %{terminal_id: Ecto.UUID.generate(), merchant_id: merch_carrefour,
+  %{terminal_id: uid.(), merchant_id: merch_carrefour,
     terminal_code: "CRFM0002", terminal_type: "MPOS",
     serial_number: "PAX-A920-005678", installed_at: ~D[2024-03-15],
     status: "ACTIVE", inserted_at: now_naive, updated_at: now_naive},
-  %{terminal_id: Ecto.UUID.generate(), merchant_id: merch_emirates,
+  %{terminal_id: uid.(), merchant_id: merch_emirates,
     terminal_code: "EMRK0001", terminal_type: "KIOSK",
     serial_number: "KIOSK-EK-001", installed_at: ~D[2023-11-01],
     status: "ACTIVE", inserted_at: now_naive, updated_at: now_naive},
-  %{terminal_id: Ecto.UUID.generate(), merchant_id: merch_rolex,
+  %{terminal_id: uid.(), merchant_id: merch_rolex,
     terminal_code: "ROLX0001", terminal_type: "POS",
     serial_number: "ING-P400-009876", installed_at: ~D[2024-05-20],
     status: "ACTIVE", inserted_at: now_naive, updated_at: now_naive},
-  %{terminal_id: Ecto.UUID.generate(), merchant_id: merch_online,
+  %{terminal_id: uid.(), merchant_id: merch_online,
     terminal_code: "SHPM0001", terminal_type: "VIRTUAL",
     serial_number: "VIRT-SHP-001", installed_at: ~D[2024-02-01],
     status: "ACTIVE", inserted_at: now_naive, updated_at: now_naive}
@@ -631,17 +635,17 @@ Repo.insert_all("mbs_terminals", [
 
 Repo.insert_all("cms_operator_audit", [
   %{operator_id: "OPR-001", operator_role: "agent",
-    action: "account_view", subject: acc_ahmed,
+    action: "account_view", subject: Ecto.UUID.load!(acc_ahmed),
     details: Jason.encode!(%{reason: "Customer called about statement"}),
     performed_at: NaiveDateTime.add(now_naive, -7 * 86400),
     inserted_at: NaiveDateTime.add(now_naive, -7 * 86400)},
   %{operator_id: "OPR-002", operator_role: "supervisor",
-    action: "fee_waiver", subject: acc_jennifer,
+    action: "fee_waiver", subject: Ecto.UUID.load!(acc_jennifer),
     details: Jason.encode!(%{amount: "150.00", reason: "Customer hardship - first time"}),
     performed_at: NaiveDateTime.add(now_naive, -14 * 86400),
     inserted_at: NaiveDateTime.add(now_naive, -14 * 86400)},
   %{operator_id: "OPR-003", operator_role: "manager",
-    action: "limit_change", subject: acc_ahmed,
+    action: "limit_change", subject: Ecto.UUID.load!(acc_ahmed),
     details: Jason.encode!(%{old_limit: "5000.00", new_limit: "8000.00", reason: "Income increase"}),
     performed_at: NaiveDateTime.add(now_naive, -30 * 86400),
     inserted_at: NaiveDateTime.add(now_naive, -30 * 86400)},

@@ -64,6 +64,15 @@ config :da_issuer, :issuer_listeners, [
 # its own CMS schemas. Skipping the repo avoids the missing :database error.
 config :wallet_database, :start_repo, false
 
+# mw_risk's RuleCache/SuppressionsCache/ActivationWatcher only support integer
+# tenant_id (see VmuCore.FAS.RiskAdapter.resolve_tenant_id/1) — map each alpha
+# `sys_id` from priv/repo/seeds.exs to a stable integer so its risk rules stay
+# isolated from other tenants instead of collapsing to tenant_id 0.
+config :vmu_core, :mw_risk_tenant_ids, %{
+  "MMPD" => 1,
+  "MMRW" => 2
+}
+
 # InfraRepo.Repo backs the mw_risk scoring pipeline (fail-safe: errors → approve).
 # Point to vmu_core_dev so the connection pool starts; infra tables are absent
 # but MwRisk.Pipeline handles all errors gracefully.
@@ -76,6 +85,14 @@ config :infra_repo, InfraRepo.Repo,
   port: 5432,
   pool_size: 3
 
+# ASM-P3.2 — per-role approval authority (max amount an approver may sign
+# off). ADMIN is unlimited in code; roles absent here have zero authority.
+config :vmu_core, :asm_authority_limits, %{
+  "SUPERVISOR" => "10000.00",
+  "RISK"       => "5000.00",
+  "OPS"        => "1000.00"
+}
+
 config :vmu_core, Oban,
   repo: VmuCore.Repo,
   plugins: [
@@ -83,7 +100,21 @@ config :vmu_core, Oban,
     # EOD scheduler: fires at 21:00 nightly to enqueue LockAccountsJob per due cycle_code
     {Oban.Plugins.Cron,
      crontab: [
-       {"0 21 * * *", VmuCore.CMS.EOD.EodSchedulerJob}
+       {"0 21 * * *", VmuCore.CMS.EOD.EodSchedulerJob},
+       # TRAM posting cycle (TRAM-P3): match clearing records + post CLEARED
+       # transactions — 22:30, after the 21:30 IPM file ingest completes
+       {"30 22 * * *", VmuCore.TRAMS.Oban.PostingCycleJob},
+       # TRAM auth expiry sweep (TRAM-P4): release holds never cleared —
+       # 23:00, after the posting cycle consumed any clearing that DID arrive
+       {"0 23 * * *", VmuCore.TRAMS.Oban.AuthExpirySweepJob},
+       # TRAM close+archive sweep (TRAM-P6): weekly, Sunday 02:00
+       {"0 2 * * 0", VmuCore.TRAMS.Oban.ArchiveSweepJob},
+       # Autopay collection (CMS-G2.2): 06:00 daily, after EOD statements
+       {"0 6 * * *", VmuCore.CMS.Oban.AutopayRunJob},
+       # Account lifecycle sweep (CMS-G3): pending closures + dormancy — 05:00
+       {"0 5 * * *", VmuCore.CMS.Oban.AccountLifecycleSweepJob},
+       # Card expiry + auto-renewal sweep (CTA-P2.4) — 04:00
+       {"0 4 * * *", VmuCore.CTA.Oban.CardExpirySweepJob}
      ]}
   ],
   queues: [

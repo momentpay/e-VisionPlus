@@ -134,6 +134,38 @@ defmodule VmuCore.ASM.OperatorPortal do
   end
 
   # ---------------------------------------------------------------------------
+  # Account block / unblock (supervisor+)
+  # ---------------------------------------------------------------------------
+
+  @doc "Block an account — sets status=BLOCKED, halts further authorizations."
+  def block_account(account_id, reason, operator) do
+    with :ok <- require_role(operator, :supervisor) do
+      Repo.update_all(
+        from(a in Account, where: a.account_id == ^account_id),
+        set: [account_status: "BLOCKED", updated_at: NaiveDateTime.utc_now()]
+      )
+      AccountStateCoordinator.notify_status_change(account_id, "BLOCKED")
+      audit(operator, :account_block, account_id, %{reason: reason})
+      Logger.info("[ASM] Account blocked: #{account_id} reason=#{reason} by=#{operator.id}")
+      :ok
+    end
+  end
+
+  @doc "Reactivate a blocked account — sets status=ACTIVE."
+  def unblock_account(account_id, reason, operator) do
+    with :ok <- require_role(operator, :supervisor) do
+      Repo.update_all(
+        from(a in Account, where: a.account_id == ^account_id),
+        set: [account_status: "ACTIVE", updated_at: NaiveDateTime.utc_now()]
+      )
+      AccountStateCoordinator.notify_status_change(account_id, "ACTIVE")
+      audit(operator, :account_unblock, account_id, %{reason: reason})
+      Logger.info("[ASM] Account unblocked: #{account_id} reason=#{reason} by=#{operator.id}")
+      :ok
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Parameter update (sysadmin only)
   # ---------------------------------------------------------------------------
 

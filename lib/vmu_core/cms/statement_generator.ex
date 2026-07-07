@@ -19,8 +19,9 @@ defmodule VmuCore.CMS.StatementGenerator do
   Returns {:ok, %{statement_balance, minimum_payment, next_statement_date}}
   """
   def generate(account_id, statement_date, opts \\ []) do
-    apr = Keyword.get(opts, :apr_percentage, D.new("24.00"))
-    min_pct = Keyword.get(opts, :min_payment_pct, D.new("0.05"))
+    purchase_apr = Keyword.get(opts, :apr_percentage,      D.new("24.00"))
+    cash_apr     = Keyword.get(opts, :cash_apr_percentage, purchase_apr)   # fall back to purchase_apr if not set
+    min_pct      = Keyword.get(opts, :min_payment_pct,    D.new("0.05"))
 
     with {:ok, account} <- load_account(account_id),
          {:ok, bucket}  <- latest_bucket(account_id, statement_date) do
@@ -33,7 +34,7 @@ defmodule VmuCore.CMS.StatementGenerator do
       interest       = InterestEngine.calculate(
                          retail_daily_balances(account_id, statement_date, days_in_cycle),
                          cash_daily_balances(account_id, statement_date, days_in_cycle),
-                         apr, days_in_cycle, grace_applies)
+                         purchase_apr, cash_apr, days_in_cycle, grace_applies)
 
       total_interest = interest.total
       new_retail     = D.add(bucket.retail_balance, total_interest)

@@ -13,7 +13,7 @@ defmodule VmuCore.Repo.Migrations.CreateHcsTables do
       add :credit_limit,         :decimal, precision: 18, scale: 2, null: false
       add :available_limit,      :decimal, precision: 18, scale: 2, null: false
       add :max_employee_cards,   :integer, null: false, default: 50
-      add :parent_account_id,    references(:cms_accounts, on_delete: :restrict)
+      add :parent_account_id,    references(:cms_accounts, column: :account_id, type: :uuid, on_delete: :restrict)
       add :relationship_manager, :string, size: 100
       add :status,               :string, size: 20, null: false, default: "ACTIVE"
       add :kyc_status,           :string, size: 20, null: false, default: "PENDING"
@@ -27,7 +27,7 @@ defmodule VmuCore.Repo.Migrations.CreateHcsTables do
 
     create table(:hcs_employee_cards) do
       add :company_id,           references(:hcs_companies, on_delete: :restrict), null: false
-      add :employee_account_id,  references(:cms_accounts, on_delete: :restrict), null: false
+      add :employee_account_id,  references(:cms_accounts, column: :account_id, type: :uuid, on_delete: :restrict), null: false
       add :employee_name,        :string, size: 200, null: false
       add :employee_id,          :string, size: 50
       add :department,           :string, size: 100

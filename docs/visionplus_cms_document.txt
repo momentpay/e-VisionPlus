@@ -1,0 +1,1279 @@
+
+Excellent choice. If you want to understand VisionPLUS like an issuer processor, acquiring switch architect, or card management SME, CMS (Credit Management System) is the first module to master because almost every other module depends on it.
+CMS is often called the "Heart of VisionPLUS" because it stores customer, account, card, balance, limit, billing, payment, and account history information. Other modules such as FAS, ASM, CTA, ITS, and TRAMS retrieve or update data in CMS. (Learn Payment Card)
+1. What is CMS?
+CMS (Credit Management System) is the Accounts Receivable (AR) engine of VisionPLUS.
+Its responsibilities include:
+* Customer Management
+* Account Management
+* Card Management
+* Credit Limit Management
+* Billing & Statement Generation
+* Interest Calculation
+* Fee Processing
+* Payment Processing
+* Delinquency Tracking
+* Balance Management
+* Product Configuration
+Think of CMS as:
+Customer
+    ?
+Account
+    ?
+Card
+    ?
+Transactions
+    ?
+Billing
+    ?
+Payments
+
+2. CMS Position Inside VisionPLUS
+                +------------+
+                |    CDM     |
+                | Application|
+                +------------+
+                       |
+                       v
+
++---------+     +------------+     +---------+
+|   FAS   |<--->|    CMS     |<--->|   ASM   |
+|Auth     |     | Core DB    |     |Customer |
++---------+     +------------+     +---------+
+                       |
+                       |
+        +--------------+--------------+
+        |              |              |
+        v              v              v
+      CTA            ITS           TRAMS
+  Collections     Disputes      Batch Posting
+CMS acts as the central repository. (Wikipedia)
+
+3. Core CMS Data Hierarchy
+One of the most important VisionPLUS concepts.
+SYSTEM
+  |
+ORGANIZATION
+  |
+LOGO
+  |
+CUSTOMER
+  |
+ACCOUNT
+  |
+CARD
+System
+Highest level.
+Contains global processing controls.
+Example:
+* Currency
+* Date Processing
+* Batch Controls
+* Interface Controls
+Organization
+Usually represents:
+* Country
+* Bank
+* Business Unit
+Example:
+ORG 001 - UAE
+ORG 002 - Oman
+ORG 003 - Bahrain
+Logo
+Represents a card product.
+Examples:
+Visa Classic
+Visa Gold
+Mastercard Platinum
+Prepaid Travel Card
+Corporate Card
+Each logo contains:
+* Fees
+* Interest rates
+* Billing rules
+* Credit rules
+(Learn Payment Card)
+
+4. Customer vs Account vs Card
+Many beginners confuse these.
+Customer
+Person or company.
+John Smith
+Customer ID: 100001
+Stores:
+* Name
+* Address
+* Phone
+* Email
+* KYC
+
+Account
+Financial relationship.
+Account Number:
+500000123456789
+Stores:
+* Credit limit
+* Balance
+* Billing cycle
+* Interest plan
+One customer may have:
+Customer
+  |
+  +-- Visa Account
+  +-- Mastercard Account
+  +-- Loan Account
+
+Card
+Plastic instrument.
+Card PAN
+4111111111111111
+One account may have:
+Primary Card
+Supplementary Card 1
+Supplementary Card 2
+
+5. Major CMS Segments
+VisionPLUS stores data in segments.
+Understanding segments is critical.
+
+Customer Segment
+Stores:
+* Name
+* Address
+* Contact Details
+* Date of Birth
+
+Account Base Segment (ABS)
+Most important segment.
+Contains:
+* Account Status
+* Current Balance
+* Credit Limit
+* Block Codes
+* Billing Cycle
+
+Card Segment
+Stores:
+* PAN
+* Expiry
+* Emboss Name
+* Card Status
+
+Relationship Segment
+Links:
+Customer ? Account
+Account ? Account
+Primary ? Supplementary
+
+Plan Segment
+Stores:
+* Installment Plans
+* EMI Plans
+* Promotional Financing
+CMS automatically creates plan segments when financial activity is posted. (Learn Payment Card)
+
+6. Account Lifecycle in CMS
+Step 1 – Application
+Comes from CDM.
+Application Submitted
+
+Step 2 – Approval
+CDM approves.
+Approved
+
+Step 3 – Account Creation
+CMS creates:
+Customer
+Account
+Card
+
+Step 4 – Embossing
+CMS sends card details to:
+Embosser
+Card Personalization System
+
+Step 5 – Activation
+Card activated.
+Status changes:
+Inactive
+?
+Active
+
+Step 6 – Usage
+Transactions arrive from:
+Visa
+Mastercard
+ATM
+POS
+E-commerce
+
+Step 7 – Billing
+Monthly statement generated.
+
+Step 8 – Payment
+Payment posted.
+
+Step 9 – Closure
+Account closed.
+
+7. Credit Limit Management
+CMS stores:
+Total Credit Limit
+Available Credit
+Cash Limit
+Retail Limit
+Example:
+Credit Limit     10000
+Outstanding       3000
+Available         7000
+When FAS authorizes:
+Purchase = 1000
+CMS/FAS reduce available credit.
+
+8. Balance Types
+Very important operational concept.
+CMS maintains multiple balances.
+Current Balance
+5000
+Statement Balance
+3500
+Available Credit
+15000
+Cash Balance
+1000
+Installment Balance
+2500
+
+9. Block Codes
+One of the most frequently used CMS features.
+Used to restrict account/card activity.
+Examples:
+BlockMeaningLLost CardSStolen CardFFraudCClosedOOverlimitWhen FAS receives authorization:
+Check Block Code
+?
+Decline
+(Learn Payment Card)
+
+10. Monetary vs Non-Monetary Transactions
+Monetary
+Affects balances.
+Examples:
+* Purchase
+* Cash Advance
+* Payment
+* Fee
+* Interest
+Non-Monetary
+No balance impact.
+Examples:
+* Address Change
+* Phone Change
+* Billing Cycle Change
+* Card Reissue
+CMS processes both types differently. (Learn Payment Card)
+
+11. Billing Cycle Processing
+A critical nightly batch process.
+Example:
+Cycle 01
+Statement Date = 5th
+
+Cycle 02
+Statement Date = 10th
+
+Cycle 03
+Statement Date = 15th
+Multiple cycles distribute workload.
+During billing CMS:
+* Calculates interest
+* Calculates minimum payment
+* Generates statement
+* Creates due date
+* Updates balances
+(Learn Payment Card)
+
+12. Interest Processing
+CMS calculates:
+Purchase Interest
+18% APR
+Cash Advance Interest
+24% APR
+Promotional Interest
+0%
+Interest rules are controlled by product parameters.
+
+13. Fee Processing
+Examples:
+Annual Fee
+100 AED
+Late Payment Fee
+25 AED
+Overlimit Fee
+15 AED
+Card Replacement Fee
+20 AED
+CMS posts these automatically.
+
+14. Payment Allocation Logic
+Customer pays:
+500
+CMS decides where payment goes.
+Example:
+Interest
+?
+Fees
+?
+Cash Advance
+?
+Retail Purchase
+Or any issuer-defined hierarchy.
+
+15. Daily CMS Batch Flow
+Every night:
+Transaction Files
+      ?
+TRAMS
+      ?
+CMS Posting
+      ?
+Balance Update
+      ?
+Interest
+      ?
+Fees
+      ?
+Billing
+      ?
+Reports
+This nightly batch cycle is one of the most important concepts in VisionPLUS operations. (Learn Payment Card)
+
+16. CMS Screens Most Used by Operations Teams
+Common functions include:
+* Account Inquiry
+* Customer Inquiry
+* Card Inquiry
+* Credit Limit Change
+* Address Change
+* Card Replacement
+* Card Reissue
+* Temporary Credit Limit Increase
+* Block/Unblock Card
+* Financial Adjustment
+* Fee Waiver
+* Interest Adjustment
+Usually performed through ASM, but the underlying records reside in CMS. (Scribd)
+
+17. CMS Tables/Files Every Technical Consultant Must Know
+When working on VisionPLUS implementations, migrations, or integrations, focus on:
+Customer Records
+Account Base Segment (ABS)
+Card Segment
+Relationship Segment
+Plan Segment
+Transaction Files
+Statement Files
+Billing Files
+History Files
+Control Records
+These are the records most frequently involved in:
+* ISO8583 integrations
+* Card migrations
+* Product setup
+* Loyalty integrations
+* Collections integrations
+* Regulatory reporting
+
+
+1. CMS Control Record Hierarchy
+The hierarchy is one of the most important concepts in VisionPLUS.
+SYSTEM
+  ?
+  ??? ORGANIZATION
+  ?       ?
+  ?       ??? LOGO
+  ?       ?      ?
+  ?       ?      ??? PLAN
+  ?       ?      ?
+  ?       ?      ??? CUSTOMER
+  ?       ?      ?
+  ?       ?      ??? ACCOUNT
+  ?       ?      ?
+  ?       ?      ??? CARD
+Configuration inheritance generally flows downward.
+SYSTEM
+  ?
+ORGANIZATION
+  ?
+LOGO
+  ?
+PLAN
+  ?
+ACCOUNT
+
+2. SYSTEM Control Record
+The highest level in CMS.
+Contains enterprise-wide settings affecting all portfolios.
+Think:
+Global Configuration
+Examples:
+ParameterDescriptionSystem DateProcessing DateCurrency ControlsSupported currenciesBatch ControlsEnd-of-day processingSecurity ControlsAccess controlCycle ControlsBilling cyclesCountry CodesISO country definitionsGlobal Status CodesCommon statusesPosting RulesFinancial posting controls
+Example
+Suppose your processor serves:
+* UAE
+* Oman
+* Bahrain
+The SYSTEM record may define:
+Base Currency = AED
+
+Supported Currency:
+AED
+OMR
+BHD
+USD
+EUR
+Every organization inherits these definitions.
+
+3. ORGANIZATION Control Record
+Organization represents:
+Bank
+Processor
+Country
+Business Entity
+Depending on implementation.
+
+Example 1 – Multi-Country Processor
+SYSTEM
+
+ORG 001 UAE
+ORG 002 OMAN
+ORG 003 BAHRAIN
+
+Example 2 – Single Bank
+SYSTEM
+
+ORG 001
+BANK OF XYZ
+
+What Organization Controls
+Accounting
+GL Mapping
+Settlement Controls
+Accounting Rules
+
+Regulatory Rules
+Country Rules
+Tax Rules
+Reporting Rules
+
+Card Issuance
+BIN Assignment
+Card Range Assignment
+
+Business Rules
+Delinquency Rules
+Collections Rules
+
+Example
+ORG = UAE
+
+Country = UAE
+Currency = AED
+Tax = 5%
+ORG = OMAN
+
+Country = Oman
+Currency = OMR
+Tax = 0%
+Same processor.
+Different business behavior.
+
+4. LOGO Control Record
+This is the most important control record for product managers.
+A LOGO represents a card product.
+Examples:
+Visa Classic
+Visa Gold
+Visa Platinum
+
+Mastercard Standard
+Mastercard Gold
+
+Corporate Card
+Prepaid Card
+Travel Card
+
+Think of LOGO as
+Product Template
+Every account created under a logo inherits the logo rules.
+
+Example Logo Structure
+LOGO 100
+Visa Classic
+
+Credit Limit = 5000
+APR = 18%
+Annual Fee = 50
+Billing Cycle = 5
+
+LOGO 200
+Visa Platinum
+
+Credit Limit = 50000
+APR = 12%
+Annual Fee = 500
+Airport Lounge = Yes
+
+What is Stored in LOGO
+
+Product Parameters
+Credit Card
+Debit Card
+Prepaid Card
+Loan Product
+
+Interest Parameters
+Purchase APR
+
+Cash APR
+
+Penalty APR
+Example:
+Purchase APR = 18%
+
+Cash APR = 24%
+
+Penalty APR = 30%
+
+Fee Parameters
+Examples:
+Annual Fee
+Overlimit Fee
+Replacement Fee
+Late Fee
+
+Billing Parameters
+Billing Cycle
+Minimum Payment %
+Grace Days
+Example:
+Minimum Payment = 5%
+
+Grace Days = 45
+
+Authorization Parameters
+Used by FAS.
+Cash Advance Allowed
+E-Commerce Allowed
+ATM Allowed
+International Allowed
+
+Risk Parameters
+Velocity Controls
+
+Country Restrictions
+
+MCC Restrictions
+
+Real World Example
+Visa Classic
+LOGO 101
+
+Credit Limit Default = 10000
+APR = 18%
+Annual Fee = 100
+Cash Limit = 30%
+Grace Days = 45
+
+Visa Platinum
+LOGO 102
+
+Credit Limit Default = 100000
+APR = 12%
+Annual Fee = 500
+Cash Limit = 50%
+Grace Days = 55
+Both products can coexist in the same organization.
+
+5. PLAN Control Record
+PLAN is one of the most misunderstood concepts.
+A PLAN defines special financial behavior.
+Think:
+Sub-product
+within a product.
+
+Relationship
+LOGO
+   ?
+   ??? PLAN 01
+   ??? PLAN 02
+   ??? PLAN 03
+
+Examples
+Under Visa Classic:
+PLAN 01
+Retail Purchase
+
+PLAN 02
+Cash Advance
+
+PLAN 03
+EMI
+
+PLAN 04
+Balance Transfer
+
+What PLAN Controls
+Interest Calculation
+Example:
+Retail Purchase
+
+APR = 18%
+
+Cash Advance
+
+APR = 24%
+
+EMI
+
+APR = 10%
+
+Payment Allocation
+Example:
+Payments Applied:
+
+Fees
+?
+Interest
+?
+Cash
+?
+Retail
+
+Statement Behavior
+Show on Statement
+
+Hide from Statement
+
+Separate Statement Section
+
+Installment Processing
+Example:
+12 Months
+
+18 Months
+
+24 Months
+Stored as Plan Rules.
+
+Example
+Customer purchases:
+1000 AED
+Normal Purchase
+Assigned:
+PLAN 01
+
+Customer converts to EMI.
+Now:
+PLAN 03
+CMS automatically applies EMI calculations.
+
+6. Control Record Inheritance
+One of the most important implementation concepts.
+Example:
+SYSTEM
+Currency = AED
+
+ORG
+Country = UAE
+
+LOGO
+APR = 18%
+
+PLAN
+APR = 12%
+
+Customer uses EMI.
+Which APR applies?
+Answer:
+PLAN APR
+
+12%
+Because the lower level overrides the higher level.
+
+Inheritance priority:
+PLAN
+?
+
+LOGO
+?
+
+ORGANIZATION
+?
+
+SYSTEM
+Most specific wins.
+
+7. How New Products are Created
+Suppose business wants:
+Visa Infinite
+The implementation team typically:
+Step 1
+Create Logo
+LOGO 500
+Visa Infinite
+
+Step 2
+Configure
+APR
+Fees
+Billing
+Cash Limits
+
+Step 3
+Create Plans
+Retail
+
+Cash
+
+EMI
+
+Balance Transfer
+
+Step 4
+Assign BIN
+455612
+
+Step 5
+Testing
+Account Creation
+Authorization
+Billing
+Interest
+Statement
+
+Step 6
+Production
+Product becomes available.
+
+8. Control Records and Other VisionPLUS Modules
+FAS
+Uses:
+Authorization Controls
+
+Cash Limits
+
+Velocity Limits
+
+MCC Restrictions
+
+ASM
+Uses:
+Customer Inquiry
+
+Account Maintenance
+
+CTA
+Uses:
+Delinquency Controls
+
+Collection Parameters
+
+ITS
+Uses:
+Chargeback Controls
+
+TRAMS
+Uses:
+Posting Rules
+
+Financial Processing Rules
+
+9. Typical Product Configuration Exercise
+Let's say your bank launches:
+Mastercard Platinum
+Configuration might be:
+ORG = UAE
+
+LOGO = MC Platinum
+
+Credit Limit = 50,000
+
+Annual Fee = 500
+
+Grace Days = 55
+
+Minimum Payment = 5%
+
+Cash Limit = 50%
+Plans:
+01 Retail
+
+APR = 15%
+
+02 Cash
+
+APR = 24%
+
+03 EMI
+
+APR = 9%
+
+04 Balance Transfer
+
+APR = 6%
+Every new customer account created under this logo automatically inherits these rules.
+
+What a VisionPLUS Product Must 
+The most important control records in real implementations are:
+1. Organization Control Record
+2. Logo Control Record
+3. Plan Control Record
+4. Billing Control Record
+5. Interest Control Record
+6. Fee Control Record
+7. Delinquency Control Record
+8. Authorization Control Record
+9. BIN Control Record
+10. Statement Control Record
+These records collectively determine how a card product behaves from account opening through authorization, billing, collections, and closure.
+If FAS authorizes transactions and CMS stores accounts, then the Billing & Statement Processing Engine is what actually converts card usage into receivables, interest income, fees, and collection activities.
+For issuers, this is the most critical business process because:
+Transactions ? Billing ? Statement ? Payment ? Interest ? Revenue
+
+1. What is Billing in CMS?
+Billing is the periodic process that:
+1. Identifies all transactions for an account
+2. Calculates balances
+3. Calculates interest
+4. Calculates fees
+5. Determines minimum payment
+6. Generates statement
+7. Generates due date
+8. Updates delinquency tracking
+
+Simple Example
+Customer activity during month:
+01-Jan Purchase         1,000
+10-Jan Purchase           500
+15-Jan Cash Advance       200
+20-Jan Annual Fee         100
+
+Total Outstanding       1,800
+Billing runs:
+Statement Balance = 1,800
+Minimum Due = 90
+Due Date = 25-Feb
+
+2. Billing Cycle Concept
+Every account belongs to a billing cycle.
+Example:
+CycleStatement Date015th0210th0315th0420th0525th
+Why Multiple Cycles?
+Imagine a bank with:
+5 Million Cards
+Generating all statements in one night would be impossible.
+Therefore:
+Cycle 01 ? 1 Million Accounts
+Cycle 02 ? 1 Million Accounts
+Cycle 03 ? 1 Million Accounts
+Processing load is distributed.
+
+3. Billing Cycle Dates
+Each account contains:
+Cycle Number
+Statement Date
+Due Date Rule
+Grace Period
+
+Example:
+Cycle = 05
+
+Statement Date = 25-Jan
+
+Grace Days = 20
+Generated:
+Due Date = 14-Feb
+
+4. Statement Period
+Example:
+Statement Date:
+31-Jan
+Billing Period:
+01-Jan
+to
+31-Jan
+Transactions included:
+05-Jan Purchase
+15-Jan Purchase
+28-Jan Purchase
+
+Transactions after:
+01-Feb
+go to next statement.
+
+5. Billing Engine Processing Flow
+Nightly billing batch:
+Select Accounts
+       ?
+Calculate Balances
+       ?
+Calculate Interest
+       ?
+Calculate Fees
+       ?
+Calculate Minimum Due
+       ?
+Generate Statement
+       ?
+Update CMS Segments
+This is one of the largest batch jobs in VisionPLUS.
+
+6. Balance Categories
+CMS maintains several balances.
+Current Balance
+Live Balance
+Example:
+3,500 AED
+
+Statement Balance
+Balance at Statement Cutoff
+Example:
+3,000 AED
+
+Available Credit
+Credit Limit - Outstanding
+Example:
+10,000 - 3,000
+
+=
+7,000
+
+Past Due Balance
+Example:
+Customer missed payment
+
+Past Due = 500 AED
+
+7. Grace Period Processing
+One of the most important concepts.
+
+Example:
+Statement Date
+
+31-Jan
+
+Grace:
+20 Days
+
+Due Date:
+20-Feb
+
+If customer pays:
+Full Statement Balance
+before due date:
+Interest = 0
+
+This is called:
+Interest Free Period
+
+8. Finance Charge Calculation
+This is where issuers earn money.
+
+Purchase APR
+Example:
+18%
+
+Daily Rate:
+18 / 365
+
+=
+0.0493%
+
+Outstanding:
+1,000 AED
+for:
+30 Days
+Interest:
+1,000 × 18% × 30 / 365
+
+=
+14.79 AED
+CMS calculates this automatically.
+
+9. Different APR Types
+CMS can support multiple APRs.
+
+Retail APR
+18%
+
+Cash Advance APR
+24%
+
+Penalty APR
+30%
+
+Promotional APR
+0%
+
+Example:
+Purchase ? 18%
+
+Cash Advance ? 24%
+
+EMI ? 10%
+Each may belong to different Plans.
+
+10. Average Daily Balance Method
+Most issuers use:
+Average Daily Balance
+
+Example:
+Day 1-10 = 1000
+
+Day 11-20 = 2000
+
+Day 21-30 = 3000
+
+Average:
+(1000×10 + 2000×10 + 3000×10)
+
+÷ 30
+
+= 2000
+Interest calculated on:
+2000
+rather than end-of-month balance.
+
+11. Minimum Payment Calculation
+One of the most configurable CMS functions.
+
+Example Rule:
+5% of Balance
+
+Statement Balance:
+10,000
+
+Minimum Due:
+500
+
+More realistic formula:
+Interest
++
+Fees
++
+Past Due
++
+1% Principal
+
+Example:
+Interest     100
+Fees          50
+Past Due     200
+Principal    100
+
+Minimum Due = 450
+
+12. Fee Assessment During Billing
+CMS may automatically post fees.
+
+Annual Fee
+500 AED
+
+Late Fee
+50 AED
+
+Overlimit Fee
+25 AED
+
+Returned Payment Fee
+30 AED
+
+Example:
+Customer misses due date
+
+Late Fee posted
+during billing.
+
+13. Statement Generation
+After calculations CMS creates Statement Segment.
+Contains:
+Opening Balance
+
+Purchases
+
+Payments
+
+Cash Advances
+
+Fees
+
+Interest
+
+Closing Balance
+
+Minimum Due
+
+Due Date
+
+Example Statement
+Opening Balance      1000
+
+Purchases            2500
+
+Payments             -500
+
+Fees                  100
+
+Interest               50
+
+Closing Balance      3150
+
+Minimum Due           158
+
+Due Date        20-Feb
+
+14. Delinquency Trigger
+After billing CMS evaluates:
+Was minimum payment made?
+
+If No:
+Account becomes delinquent
+
+Example:
+Minimum Due = 500
+
+Paid = 200
+Result:
+300 Past Due
+
+15. Delinquency Buckets
+Very important for collections.
+
+Bucket 1
+1-30 Days Past Due
+
+Bucket 2
+31-60 Days
+
+Bucket 3
+61-90 Days
+
+Bucket 4
+91-120 Days
+
+Bucket 5
+120+ Days
+
+Example:
+Missed Due Date
+
+Day 35
+
+Bucket = 2
+
+16. Statement Reversal/Rebilling
+Sometimes required.
+Example:
+Interest incorrectly charged
+
+CMS can:
+Reverse Statement
+
+Recalculate
+
+Regenerate
+
+Used during:
+* Production issues
+* Regulatory corrections
+* Product parameter changes
+
+17. End-of-Cycle CMS Updates
+When billing completes, CMS updates:
+Account Base Segment (ABS)
+Current Balance
+
+Statement Balance
+
+Minimum Due
+
+History Segment
+Billing Events
+
+Interest Posting
+
+Fee Posting
+
+Statement Segment
+New Statement Record
+
+Delinquency Segment
+Bucket Status
+
+18. Real VisionPLUS Billing Example
+Customer:
+Credit Limit = 20,000
+Activity:
+Purchases          5,000
+
+Cash Advance       1,000
+
+Fee                  100
+
+Previous Balance   2,000
+
+Payment           (1,500)
+
+Outstanding:
+2,000
++5,000
++1,000
++100
+-1,500
+
+=6,600
+
+Interest:
+Retail Interest      75
+
+Cash Interest        25
+
+Statement Balance:
+6,700
+
+Minimum Due:
+335
+(5%)
+
+Statement Generated:
+Balance      6,700
+
+Minimum Due    335
+
+Due Date   20-Feb
+
+19. Why Billing Knowledge is Critical for Payment Architects
+When implementing:
+* Credit Cards
+* BNPL
+* EMI Conversion
+* Loyalty
+* Open Banking Credit Products
+* Corporate Cards
+* Co-Branded Cards
+you must understand:
+Transaction Posting
+       ?
+Billing
+       ?
+Interest
+       ?
+Statement
+       ?
+Collections
+because almost every customer dispute about balances, fees, or interest traces back to billing rules.
+
+
+
+
+

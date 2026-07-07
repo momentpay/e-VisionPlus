@@ -44,10 +44,8 @@ defmodule VmuCore.CMS.Metro2Generator do
 
   require Logger
   import Ecto.Query
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, Shared.Customer}
-  alias VmuCore.CDM.BureauAdapter
-
-  @bureau_adapter Application.compile_env(:vmu_core, [:cdm, :bureau_adapter], VmuCore.CDM.MockBureauAdapter)
+  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.BlockCodeHistory, Shared.Customer}
+  alias VmuCore.CMS.BureauAdapter
 
   @segment_length "0426"
   @portfolio_type "R"   # Revolving (credit card)
@@ -69,14 +67,16 @@ defmodule VmuCore.CMS.Metro2Generator do
 
     content =
       [header_record(report_date, sys_id) |
-       Enum.map(accounts, &build_base_segment(&1, report_date))] ++
+       Enum.flat_map(accounts, fn a ->
+         [build_base_segment(a, report_date), build_j1_segment(a.customer)]
+       end)] ++
       [trailer_record(length(accounts))]
       |> Enum.join("\n")
 
     File.write!(file_path, content)
     Logger.info("[Metro2] File written: #{file_path}")
 
-    case @bureau_adapter.submit_metro2_file(file_path) do
+    case BureauAdapter.submit_metro2_file(file_path) do
       {:ok, bureau_ref} ->
         Logger.info("[Metro2] File submitted: ref=#{bureau_ref}")
         File.rm(file_path)
@@ -117,13 +117,17 @@ defmodule VmuCore.CMS.Metro2Generator do
   end
 
   defp build_base_segment(%{account: acc, bucket: bucket, customer: cust}, report_date) do
-    balance     = bucket.retail_balance |> decimal_to_minor_units() |> pad_decimal(9)
-    past_due    = bucket.unpaid_fees   |> decimal_to_minor_units() |> pad_decimal(9)
-    credit_limit = acc.credit_limit    |> decimal_to_minor_units() |> pad_decimal(9)
+    balance      = bucket.retail_balance |> decimal_to_minor_units() |> pad_decimal(9)
+    past_due     = bucket.unpaid_fees   |> decimal_to_minor_units() |> pad_decimal(9)
+    credit_limit = acc.credit_limit     |> decimal_to_minor_units() |> pad_decimal(9)
 
     account_status = metro2_account_status(acc.account_status, acc.delinquency_bucket)
     date_reported  = format_date(report_date)
     date_opened    = format_date(acc.inserted_at |> NaiveDateTime.to_date())
+
+    # Metro 2 field 111–118: Date of First Delinquency (MMDDYYYY)
+    # Required when account has ever been 30+ DPD; blank ("        ") if never delinquent.
+    dofd_str = build_dofd(acc.account_id, acc.delinquency_bucket)
 
     [
       @segment_length,
@@ -132,8 +136,8 @@ defmodule VmuCore.CMS.Metro2Generator do
       pad_right(acc.account_id |> String.slice(0, 12), 12),
       @portfolio_type,
       @account_type,
-      "097",       # terms duration — revolving
-      "M",         # monthly
+      "097",        # terms duration — revolving
+      "M",          # monthly
       date_opened,
       credit_limit,
       credit_limit, # highest credit = current limit (simplified)
@@ -145,13 +149,155 @@ defmodule VmuCore.CMS.Metro2Generator do
       "      ",     # special comment (6 spaces)
       " ",          # compliance condition (1 space)
       date_reported,
-      "        ",   # date of first delinquency (blank unless DPD > 0)
+      dofd_str,     # date of first delinquency — 8 chars (MMDDYYYY or 8 spaces)
       "        ",   # date closed
       "        ",   # date of last payment
       account_status,
       pad_right(cust.customer_id |> String.slice(0, 10), 10)
     ]
     |> Enum.join()
+  end
+
+  # Build the 8-character DOFD field (MMDDYYYY) for Metro 2 positions 111–118.
+  #
+  # Strategy:
+  #   1. Query block_code_history for the earliest BLOCKED entry with a delinquency
+  #      reason code (COLLECTIONS_HOLD, OVERLIMIT). This captures when the account
+  #      first became delinquent as recorded by an operator or EOD automation.
+  #   2. If no block history exists but delinquency_bucket > 0, fall back to the
+  #      earliest balance_bucket row where dpd_bucket > 0 (set by AgeBucketsJob).
+  #   3. If the account is current (delinquency_bucket == 0), return 8 spaces.
+  #
+  # Per CDIA Metro 2 spec §4.3: DOFD must be reported once set and must NOT be
+  # cleared even after the account becomes current again.
+  defp build_dofd(account_id, delinquency_bucket) do
+    case fetch_dofd(account_id, delinquency_bucket) do
+      {:ok, date} -> format_date(date)
+      :blank      -> "        "
+    end
+  end
+
+  defp fetch_dofd(_account_id, 0), do: :blank
+
+  defp fetch_dofd(account_id, _bucket) do
+    # Source 1: block_code_history — earliest delinquency-related block
+    delinquency_reason_codes = ~w[COLLECTIONS_HOLD OVERLIMIT]
+
+    earliest_block =
+      Repo.one(
+        from h in BlockCodeHistory,
+          where: h.account_id == ^account_id
+            and h.action == "BLOCKED"
+            and h.reason_code in ^delinquency_reason_codes,
+          order_by: [asc: h.applied_at],
+          limit: 1,
+          select: h.applied_at
+      )
+
+    case earliest_block do
+      %NaiveDateTime{} = dt ->
+        {:ok, NaiveDateTime.to_date(dt)}
+
+      nil ->
+        # Source 2: balance_bucket inserted_at as proxy for first-delinquency date
+        # (AgeBucketsJob sets dpd_bucket; oldest bucket with dpd > 0 approximates DOFD)
+        earliest_bucket =
+          Repo.one(
+            from b in BalanceBucket,
+              where: b.account_id == ^account_id
+                and b.dpd_bucket > 0,
+              order_by: [asc: b.inserted_at],
+              limit: 1,
+              select: b.inserted_at
+          )
+
+        case earliest_bucket do
+          %NaiveDateTime{} = dt -> {:ok, NaiveDateTime.to_date(dt)}
+          nil                   -> :blank
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # J1 Segment — Consumer Name Block (Metro 2 §4.7)
+  # ---------------------------------------------------------------------------
+  #
+  # The J1 segment immediately follows the Base Segment for the same consumer.
+  # It carries the full consumer name in structured fields.
+  #
+  # Field layout (fixed-width, total 212 characters):
+  #   1-4    : Segment identifier — "J1  " (left-justified, space-padded to 4)
+  #   5-34   : Surname / Last Name (30 chars, upper, space-padded)
+  #   35-54  : First Name (20 chars, upper, space-padded)
+  #   55-64  : Middle Name / Initial (10 chars, upper, space-padded)
+  #   65-67  : Suffix (3 chars: JR, SR, II, III, IV, V, space-padded)
+  #   68-68  : Generation Code (1 char: J=Junior, S=Senior, space=N/A)
+  #   69-212 : Reserved / blank-padded to total 212 characters
+  #
+  # Source data: Customer.full_name is parsed into surname/first/middle tokens.
+  # If the customer record has structured name fields (first_name, last_name),
+  # those take precedence.
+
+  defp build_j1_segment(%Customer{} = cust) do
+    {surname, first_name, middle_name, suffix, generation} = parse_consumer_name(cust)
+
+    segment =
+      [
+        "J1  ",
+        pad_right(String.upcase(surname),     30),
+        pad_right(String.upcase(first_name),  20),
+        pad_right(String.upcase(middle_name), 10),
+        pad_right(String.upcase(suffix),       3),
+        generation                                  # 1 char
+      ]
+      |> Enum.join()
+
+    # Pad to exactly 212 characters
+    String.pad_trailing(segment, 212)
+  end
+
+  # Parse a Customer record into {surname, first, middle, suffix, generation_code}.
+  # Prefers structured fields; falls back to splitting full_name by whitespace.
+  defp parse_consumer_name(%Customer{} = cust) do
+    full = (cust.full_name || "") |> String.trim()
+    tokens = String.split(full, ~r/\s+/, trim: true)
+
+    {surname, first, middle} =
+      case tokens do
+        []         -> {"", "", ""}
+        [last]     -> {last, "", ""}
+        [f, l]     -> {l, f, ""}
+        [f, m | rest] ->
+          last = List.last(rest)
+          {last, f, m}
+      end
+
+    # Detect common suffixes in the last token
+    {clean_surname, suffix, generation} = extract_suffix(surname)
+
+    {clean_surname, first, middle, suffix, generation}
+  end
+
+  @suffixes %{
+    "JR"  => {"JR",  "J"},
+    "SR"  => {"SR",  "S"},
+    "II"  => {"II",  " "},
+    "III" => {"III", " "},
+    "IV"  => {"IV",  " "},
+    "V"   => {"V",   " "}
+  }
+
+  defp extract_suffix(surname) do
+    upper = String.upcase(surname)
+    result = Enum.find(@suffixes, fn {k, _} -> String.ends_with?(upper, " " <> k) end)
+
+    case result do
+      {key, {sfx, gen}} ->
+        clean = String.slice(surname, 0, byte_size(surname) - byte_size(key) - 1)
+        {String.trim(clean), sfx, gen}
+      nil ->
+        {surname, "", " "}
+    end
   end
 
   defp metro2_account_status("WRITTEN_OFF", _), do: "97"

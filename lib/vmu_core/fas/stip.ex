@@ -49,10 +49,10 @@ defmodule VmuCore.FAS.STIP do
     case :ets.lookup(@table, {sys_id, logo_id}) do
       [{_, threshold}] ->
         if Decimal.compare(amount, threshold) != :gt do
-          Logger.warninging("[STIP] Offline approval: sys=#{sys_id} logo=#{logo_id} amount=#{amount}")
+          Logger.warning("[STIP] Offline approval: sys=#{sys_id} logo=#{logo_id} amount=#{amount}")
           {:stip_approved, "00"}
         else
-          Logger.warninging("[STIP] Exceeds threshold — declining offline: amount=#{amount} threshold=#{threshold}")
+          Logger.warning("[STIP] Exceeds threshold — declining offline: amount=#{amount} threshold=#{threshold}")
           {:stip_declined, "91"}
         end
 

@@ -4,7 +4,7 @@ defmodule VmuCore.HCS.EmployeeCard do
 
   schema "hcs_employee_cards" do
     field :company_id,          :integer
-    field :employee_account_id, :integer
+    field :employee_account_id, :binary_id
     field :employee_name,       :string
     field :employee_id,         :string
     field :department,          :string

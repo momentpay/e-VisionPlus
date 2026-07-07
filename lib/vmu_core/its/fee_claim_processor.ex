@@ -15,7 +15,7 @@ defmodule VmuCore.ITS.FeeClaimProcessor do
   alias VmuCore.Shared.ParameterEngine
   alias VmuCore.Repo
   import Ecto.Query
-  import Decimal, as: D
+  alias Decimal, as: D
 
   @doc """
   Creates an interchange fee claim for one matched clearing record.

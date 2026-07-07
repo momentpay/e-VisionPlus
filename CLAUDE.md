@@ -181,6 +181,7 @@ stip_thresholds   — Stand-In Processing limits by logo
 | Phase 1 spec | `docs/phase1-implementation-spec.md` | Tactical implementation guide for Phase 1 (6 tasks) |
 | Initial plan | `docs/initial-implementation-plan.txt` | Original scope and current build status |
 | YSP API docs | `docs/ysp-cards-integration-document/` | YSP/Narada APIs — treated as VisionPlus feature reference, not integration target |
+| FAS requirements + tracker | `docs/fas/fas_system_requirements.md`, `docs/fas/FAS_Implementation_Tracker.md` | FAS-specific scope (107 FRs) and its own `FAS-P1`..`FAS-P8` phase tracker — namespaced to avoid colliding with `docs/phase-tracker.md`'s unrelated Phase 1-8 |
 
 ---
 

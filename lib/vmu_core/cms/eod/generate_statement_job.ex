@@ -23,9 +23,25 @@ defmodule VmuCore.CMS.EOD.GenerateStatementJob do
     {:ok, apr} =
       ParameterEngine.get(account.sys_id, account.bank_id, account.logo_id, account.block_id, :apr_percentage)
 
+    # TRAM statement lines (TRAM-P5 5B) — extract the per-transaction line set
+    # BEFORE the balance snapshot so the two describe the same cutoff.
+    # Fail-safe: line extraction must never block the balance-level statement.
+    try do
+      VmuCore.TRAMS.StatementExtraction.extract(account_id, eod_date)
+    rescue
+      e ->
+        Logger.error("[EOD] TRAM statement extraction failed for #{account_id}: " <>
+                     Exception.message(e))
+    end
+
     case StatementGenerator.generate(account_id, eod_date, apr_percentage: apr) do
       {:ok, stmt} ->
         Logger.info("[EOD] Statement: account=#{account_id} balance=#{stmt.statement_balance}")
+
+        # Penalty APR cure evaluation — once per statement cycle (CMS-G1 ADR-C2).
+        # Re-fetch: delinquency_bucket may have been updated earlier in the
+        # EOD chain, and evaluate_cure needs current DPD + cure counter.
+        VmuCore.CMS.PenaltyAprManager.evaluate_cure(Repo.get!(Account, account_id))
 
         %{account_id: account_id, eod_date: eod_date_str}
         |> VmuCore.CMS.EOD.FlushGlJob.new()

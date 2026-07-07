@@ -10,7 +10,7 @@ defmodule VmuCore.Repo.Migrations.CreateItsTables do
     end
 
     create table(:its_copy_requests) do
-      add :dispute_id,         references(:dps_disputes, on_delete: :nilify_all)
+      add :dispute_id,         references(:dps_disputes, column: :dispute_id, type: :uuid, on_delete: :nilify_all)
       add :account_id,         :binary_id, null: false
       add :card_number_token,  :string, size: 64, null: false
       add :transaction_date,   :date, null: false
@@ -40,7 +40,7 @@ defmodule VmuCore.Repo.Migrations.CreateItsTables do
     create index(:its_copy_requests, [:its1_batch_date])
 
     create table(:its_fee_claims) do
-      add :clearing_record_id,   references(:trams_clearing_records, on_delete: :restrict)
+      add :clearing_record_id,   references(:trams_clearing_records, column: :clearing_id, type: :uuid, on_delete: :restrict)
       add :network,              :string, size: 10, null: false
       add :claim_type,           :string, size: 20, null: false
       add :mcc,                  :string, size: 4
@@ -67,7 +67,7 @@ defmodule VmuCore.Repo.Migrations.CreateItsTables do
       add :network,              :string, size: 10, null: false
       add :adjustment_type,      :string, size: 30, null: false
       add :reference_no,         :string, size: 30, null: false
-      add :original_clearing_id, references(:trams_clearing_records, on_delete: :nilify_all)
+      add :original_clearing_id, references(:trams_clearing_records, column: :clearing_id, type: :uuid, on_delete: :nilify_all)
       add :original_txn_date,    :date
       add :adjustment_amount,    :decimal, precision: 18, scale: 2, null: false
       add :currency,             :string, size: 3, null: false, default: "AED"

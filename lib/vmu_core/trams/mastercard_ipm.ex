@@ -23,8 +23,9 @@ defmodule VmuCore.TRAMS.MastercardIpm do
 
   require Logger
   alias VmuCore.TRAMS.ClearingRecord
-  alias VmuCore.{Repo, CMS.Account}
+  alias VmuCore.{Repo, CMS.Account, Shared.CurrencyCodes}
   import Ecto.Query
+  import Bitwise
 
   @record_length 1644
   @header_mti    "0100"
@@ -280,11 +281,13 @@ defmodule VmuCore.TRAMS.MastercardIpm do
     |> Enum.join()
   end
 
-  defp iso4217_numeric_to_alpha("784"), do: "AED"
-  defp iso4217_numeric_to_alpha("840"), do: "USD"
-  defp iso4217_numeric_to_alpha("978"), do: "EUR"
-  defp iso4217_numeric_to_alpha("826"), do: "GBP"
-  defp iso4217_numeric_to_alpha(_),     do: "AED"
+  # Consolidated into Shared.CurrencyCodes (2026-07-07) — this stub only
+  # covered 4 currencies and silently defaulted anything else to "AED",
+  # which would have mislabeled the currency on any non-AED/USD/EUR/GBP
+  # clearing record. Falls back to "AED" only when the numeric code truly
+  # isn't in the shared table, preserving this function's prior behavior
+  # for the currencies it never covered.
+  defp iso4217_numeric_to_alpha(code), do: CurrencyCodes.to_alpha(code) || "AED"
 
   defp parse_mmdd_date(<<>>) do
     Date.utc_today()

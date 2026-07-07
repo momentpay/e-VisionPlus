@@ -8,7 +8,7 @@ defmodule VmuCore.HCS.ConsolidatedStatementGenerator do
   alias VmuCore.CMS.{Account, LedgerEntry}
   alias VmuCore.Repo
   import Ecto.Query
-  import Decimal, as: D
+  alias Decimal, as: D
 
   @doc """
   Generate consolidated statements for all active companies whose billing_cycle_day

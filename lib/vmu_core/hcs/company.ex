@@ -13,7 +13,7 @@ defmodule VmuCore.HCS.Company do
     field :credit_limit,         :decimal
     field :available_limit,      :decimal
     field :max_employee_cards,   :integer, default: 50
-    field :parent_account_id,    :integer
+    field :parent_account_id,    :binary_id
     field :relationship_manager, :string
     field :status,               :string, default: "ACTIVE"
     field :kyc_status,           :string, default: "PENDING"

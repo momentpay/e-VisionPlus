@@ -19,6 +19,7 @@ defmodule VmuCore.CMS.LedgerEntry do
     field :value_date,       :date
     field :narrative,        :string
     field :source_ref,       :string
+    field :extracted_at,     :naive_datetime  # set by CoreBankingAdapter after GL extract (3J)
 
     timestamps()
   end
@@ -26,7 +27,7 @@ defmodule VmuCore.CMS.LedgerEntry do
   @required [:account_id, :idempotency_key, :transaction_code,
              :dr_amount, :cr_amount, :gl_account_dr, :gl_account_cr,
              :posting_date, :value_date]
-  @optional [:currency, :narrative, :source_ref]
+  @optional [:currency, :narrative, :source_ref, :extracted_at]
 
   def changeset(entry, attrs) do
     entry

@@ -1,0 +1,9131 @@
+Excellent approach.
+For someone with your background in:
+* ISO8583
+* Acquiring & Issuing
+* EMV
+* Switch Architecture
+* Settlement Systems
+* Payment HSMs
+* EDC/POS Development
+I would not teach FAS the way a business analyst learns it.
+Instead, I would teach it the way a VisionPLUS/Fiserv Solution Architect, Issuer Processor Architect, or Authorization Platform Lead would learn it.
+
+FAS (Financial Authorization System) Learning Roadmap
+Think of FAS as:
+CMS = System of Record
+
+FAS = Real-Time Decision Engine
+CMS works in batch and account management.
+FAS works in milliseconds.
+Every transaction goes through FAS before approval.
+
+PHASE 1 — FAS FOUNDATION
+These topics explain what FAS is and how it fits inside VisionPLUS.
+1. FAS Architecture Overview
+Topics:
+* What is FAS?
+* Why FAS exists
+* FAS vs CMS
+* Real-time vs Batch
+* Online authorization architecture
+* FAS database structures
+* FAS internal processing flow
+Key outcome:
+Understand how authorization differs from posting.
+
+2. FAS Components & Internal Modules
+Topics:
+* Authorization Engine
+* Card Validation
+* Limit Checking
+* Velocity Engine
+* Stand-In Processing
+* Exception Processing
+* Security Controls
+Understand:
+What internal engines execute during approval.
+
+3. FAS Data Structures
+Topics:
+* Authorization Records
+* Shadow Balance
+* Memo Posting
+* Authorization History
+* Pending Transactions
+Critical concept:
+FAS keeps temporary balances
+before CMS posting occurs.
+
+PHASE 2 — AUTHORIZATION PROCESSING
+This is the heart of FAS.
+
+4. End-to-End Authorization Flow
+Complete flow:
+POS
+ ?
+Acquirer
+ ?
+Visa/Mastercard
+ ?
+FAS
+ ?
+CMS/FAS Data
+ ?
+Decision
+ ?
+Response
+Topics:
+* Message arrival
+* Validation
+* Decision processing
+* Response generation
+
+5. ISO8583 Processing Inside FAS
+This will be very familiar to you.
+Topics:
+* MTI Processing
+* DE2 PAN
+* DE3 Processing Code
+* DE4 Amount
+* DE22 POS Entry Mode
+* DE35 Track 2
+* DE41 Terminal
+* DE42 Merchant
+* DE52 PIN
+* DE55 EMV
+* DE60/61/62
+* DE90 Reversal
+Mapping ISO8583 into FAS decisions.
+
+6. Authorization Decision Tree
+How FAS decides:
+Approve
+Decline
+Partial Approve
+Refer
+Capture
+Topics:
+* Decision hierarchy
+* Rule sequence
+* Override logic
+
+7. Response Code Framework
+Topics:
+* ISO RCs
+* Visa RCs
+* Mastercard RCs
+* Internal RCs
+Examples:
+00 Approved
+
+05 Do Not Honor
+
+51 Insufficient Funds
+
+54 Expired Card
+
+57 Transaction Not Allowed
+
+61 Exceeds Withdrawal Limit
+
+PHASE 3 — CARD & ACCOUNT VALIDATION
+Before money checks happen.
+
+8. Card Validation Engine
+Checks:
+PAN
+Expiry
+Status
+Block Codes
+CVV
+PIN
+Topics:
+* Lost card
+* Stolen card
+* Hot card
+* Expired card
+
+9. Account Validation Engine
+Checks:
+Account Status
+
+Delinquency
+
+Collections
+
+Charge-Off
+
+10. Relationship Validation
+Topics:
+* Primary/Supplementary
+* Corporate Cards
+* Fleet Cards
+* Hierarchical Limits
+
+PHASE 4 — LIMIT MANAGEMENT
+One of the most important FAS areas.
+
+11. Available Credit Calculation
+Topics:
+Credit Limit
+
+Current Balance
+
+Pending Authorizations
+
+Available Credit
+How FAS computes spendable funds.
+
+12. Memo Posting & Authorization Holds
+Topics:
+Hotel
+
+Car Rental
+
+Fuel
+
+E-Commerce
+Temporary holds.
+Critical for issuer implementations.
+
+13. Cash Limit Processing
+Topics:
+ATM Limits
+
+Cash Advance Limits
+
+Daily Limits
+
+14. Overlimit Processing
+Topics:
+* Hard decline
+* Soft decline
+* Overlimit tolerance
+Example:
+Limit 10,000
+
+Tolerance 5%
+
+Approved up to 10,500
+
+PHASE 5 — RISK & FRAUD CONTROLS
+One of the most configurable areas.
+
+15. Velocity Checking Engine
+Topics:
+Transaction Count
+
+Transaction Amount
+
+Daily
+
+Weekly
+
+Monthly
+Examples:
+5 ATM withdrawals/day
+
+10 POS transactions/hour
+
+16. Geographic Controls
+Topics:
+* Country Restrictions
+* Region Restrictions
+* High-Risk Countries
+
+17. MCC Controls
+Topics:
+* Merchant Category Controls
+* Restricted MCCs
+* Blocked Merchants
+Example:
+Gambling
+
+Crypto
+
+Adult Content
+
+18. Fraud Scoring
+Topics:
+* Risk Indicators
+* Behavioral Rules
+* Velocity Patterns
+* Scoring Models
+
+PHASE 6 — EMV & CHIP PROCESSING
+Highly relevant to your EMV work.
+
+19. EMV Authorization Processing
+Topics:
+* Online EMV
+* Offline EMV
+* ARQC Validation
+* TC/AAC/ARPC
+* Issuer Scripts
+
+20. EMV Tag Processing
+Topics:
+* 9F26 ARQC
+* 95 TVR
+* 9F10 IAD
+* 9F36 ATC
+* 82 AIP
+* 9F34 CVM Results
+
+21. PIN Validation
+Topics:
+* Online PIN
+* Offline PIN
+* PIN Try Counter
+* PIN Offset
+
+PHASE 7 — NETWORK PROCESSING
+Issuer network connectivity.
+
+22. Visa Authorization Processing
+Topics:
+* VisaNet
+* SMS
+* BASE I
+* Dual Message
+* Single Message
+
+23. Mastercard Authorization Processing
+Topics:
+* Banknet
+* MIP
+* CIS
+* Dual Message
+
+24. ATM Network Processing
+Topics:
+* Domestic Networks
+* Shared ATM Networks
+* Cash Withdrawal Flows
+
+PHASE 8 — STAND-IN PROCESSING (STIP)
+One of the most important FAS topics.
+
+25. STIP Architecture
+Topics:
+Issuer Down
+
+Processor Down
+
+Network Stand-In
+
+26. FAS Stand-In Processing
+Topics:
+* Local STIP
+* Issuer STIP
+* Network STIP
+
+27. Authorization Fallback Rules
+Topics:
+* Floor Limits
+* Emergency Limits
+* Offline Approvals
+
+PHASE 9 — REVERSALS & EXCEPTIONS
+Very important operationally.
+
+28. Authorization Reversals
+Topics:
+* Full Reversal
+* Partial Reversal
+* Advice Messages
+
+29. Incremental Authorizations
+Topics:
+Hotels
+
+Restaurants
+
+Fuel
+
+30. Completion Processing
+Topics:
+Auth = 100
+
+Completion = 125
+
+31. Duplicate Detection
+Topics:
+* Duplicate Auths
+* Network Retries
+* Timeout Handling
+
+PHASE 10 — SETTLEMENT INTERACTION
+Bridge between FAS and CMS.
+
+32. Authorization vs Clearing
+Most important issuer concept.
+Topics:
+Auth
+ ?
+ Posting
+
+33. Clearing Match Logic
+Topics:
+* Match Authorization
+* Match Completion
+* Exception Handling
+
+34. Unmatched Transactions
+Topics:
+* No Auth Present
+* Expired Auth
+* Forced Posting
+
+PHASE 11 — OPERATIONS & SUPPORT
+What production teams actually do.
+
+35. FAS Monitoring
+Topics:
+* TPS Monitoring
+* Latency
+* Timeouts
+
+36. Exception Queues
+Topics:
+* Suspense
+* Manual Review
+* Authorization Failures
+
+37. Debugging Authorization Failures
+Topics:
+Field Analysis
+
+Decision Trace
+
+Rule Evaluation
+
+Response Codes
+
+PHASE 12 — ADVANCED ARCHITECTURE
+For solution architects.
+
+38. High Availability Architecture
+Topics:
+* Active/Active
+* Active/Passive
+* Disaster Recovery
+
+39. FAS Performance Engineering
+Topics:
+* TPS Sizing
+* Peak Processing
+* Capacity Planning
+
+40. Modern FAS Extensions
+Topics:
+* Tokenization
+* Apple Pay
+* Google Pay
+* Click-to-Pay
+* Open Banking Cards
+* BNPL
+* Real-Time Decisioning APIs
+
+Recommended Learning Order
+For your profile, I recommend:
+Level 1 (Foundation)
+1. FAS Architecture Overview
+2. FAS Components & Internal Modules
+3. FAS Data Structures
+4. End-to-End Authorization Flow
+
+Level 2 (Core Processing)
+5. ISO8583 Processing Inside FAS
+6. Authorization Decision Tree
+7. Card Validation Engine
+8. Available Credit Calculation
+9. Memo Posting & Holds
+
+Level 3 (Issuer Expertise)
+10. Velocity Controls
+11. MCC Controls
+12. Fraud Controls
+13. STIP Architecture
+14. Reversals & Incrementals
+
+Level 4 (EMV & Networks)
+15. EMV Authorization Processing
+16. Visa Processing
+17. Mastercard Processing
+18. ATM Processing
+
+Level 5 (Architect Level)
+19. Clearing Match Logic
+20. Exception Handling
+21. Performance Engineering
+22. Modern Digital Wallet Processing
+
+Excellent. Now we move from the CMS world (system of record) into the real-time authorization world.
+For an issuer processor, FAS is arguably the most critical component because every transaction approval or decline passes through it.
+Topic 1: FAS Architecture Overview
+
+1. What is FAS?
+FAS stands for:
+Financial Authorization System
+It is the real-time authorization engine of VisionPLUS.
+Its job is simple:
+Receive Transaction
+       ?
+Make Decision
+       ?
+Return Response
+All within a few hundred milliseconds.
+
+2. FAS Position Inside VisionPLUS
+Let's first understand where FAS sits.
+                VISA
+                  ?
+                  ?
+             BASE I
+                  ?
+                  ?
+         +----------------+
+         |      FAS       |
+         | Authorization  |
+         +----------------+
+                  ?
+      ?????????????????????????
+      ?           ?           ?
+      ?           ?           ?
+
+   CMS       Fraud Engine   HSM
+ Account       Rules      PIN/CVV
+ Database
+Think of it as:
+CMS = Brain (Memory)
+
+FAS = Nervous System (Reflexes)
+CMS stores data.
+FAS makes instant decisions.
+
+3. Why FAS Exists
+Imagine a POS purchase.
+Customer inserts card.
+Merchant waits.
+Network sends request.
+Response must return in:
+1 - 3 Seconds
+You cannot:
+Run Billing
+Run Interest
+Run Statements
+Run Collections
+during authorization.
+Instead FAS maintains optimized structures for rapid decision making.
+
+4. Core Responsibilities of FAS
+FAS answers:
+Is card valid?
+YES / NO
+
+Is account valid?
+YES / NO
+
+Is credit available?
+YES / NO
+
+Is transaction allowed?
+YES / NO
+
+Is fraud suspected?
+YES / NO
+
+Can network receive approval?
+APPROVE
+DECLINE
+PARTIAL APPROVE
+REFER
+
+5. FAS vs CMS
+This is probably the most important concept.
+CMSFASAccount SystemAuthorization SystemBatch ProcessingReal-Time ProcessingBillingAuthorizationInterestLimit ChecksStatement GenerationTransaction DecisionCollectionsFraud & Risk ChecksFinancial PostingMemo Posting
+Example:
+Customer buys:
+AED 1,000
+FAS:
+Approve
+within milliseconds.
+
+CMS:
+Post Transaction
+Bill Customer
+Calculate Interest
+Generate Statement
+hours later.
+
+6. High-Level FAS Transaction Flow
+Let's follow a real transaction.
+POS Terminal
+      ?
+      ?
+Acquirer
+      ?
+      ?
+Visa/Mastercard
+      ?
+      ?
+FAS
+      ?
+      ?
+Decision
+      ?
+      ?
+Network
+      ?
+      ?
+Merchant
+
+7. Internal FAS Processing Flow
+Inside FAS:
+Receive Message
+       ?
+       ?
+Card Validation
+       ?
+       ?
+Account Validation
+       ?
+       ?
+Limit Validation
+       ?
+       ?
+Risk Validation
+       ?
+       ?
+Authorization Decision
+       ?
+       ?
+Memo Posting
+       ?
+       ?
+Response Generation
+This sequence is the heart of FAS.
+
+8. Major Internal FAS Engines
+Think of FAS as multiple engines working together.
+FAS
+ ?
+ ?? Card Validation Engine
+ ?? Account Validation Engine
+ ?? Limit Engine
+ ?? Velocity Engine
+ ?? Fraud Engine
+ ?? Authorization Engine
+ ?? Stand-In Engine
+ ?? Response Engine
+
+9. Card Validation Engine
+First checkpoint.
+Checks:
+PAN Exists
+Expiry Date
+Status
+Lost Card
+Stolen Card
+Hot Card
+Example:
+Card Status = Lost
+Immediate decline.
+No further processing.
+
+10. Account Validation Engine
+Checks account-level conditions.
+Examples:
+Account Closed
+
+Charge-Off
+
+Collections Block
+
+Fraud Block
+Example:
+Account Status = Charge-Off
+Decline immediately.
+
+11. Limit Engine
+One of the busiest components.
+Checks:
+Credit Limit
+
+Available Credit
+
+Cash Limit
+
+Daily Limit
+Example:
+Available Credit
+
+500 AED
+Request:
+1000 AED
+Result:
+51 Insufficient Funds
+
+12. Velocity Engine
+Protects against excessive usage.
+Example rules:
+Max ATM Transactions = 5/day
+
+Max Purchases = 20/day
+
+Max Amount = 10,000/day
+If exceeded:
+Decline
+
+13. Fraud Engine
+Risk controls.
+Examples:
+Country Check
+
+MCC Check
+
+Velocity Check
+
+Behavior Check
+Example:
+Card Used:
+
+Dubai
+?
+
+2 Minutes Later
+
+Brazil
+Potential fraud.
+
+14. Authorization Engine
+Central decision engine.
+Combines:
+Card Validation
+
+Account Validation
+
+Limit Validation
+
+Fraud Validation
+Produces:
+Approve
+
+Decline
+
+Partial Approve
+
+Refer
+
+15. Memo Posting Engine
+Extremely important.
+FAS generally does NOT perform financial posting.
+Instead:
+Authorization
+        ?
+Memo Posting
+Example:
+Before:
+Credit Limit     10,000
+
+Outstanding       2,000
+
+Available         8,000
+
+Purchase:
+1,000
+
+After Approval:
+Outstanding       2,000
+
+Available         7,000
+Notice:
+Outstanding unchanged
+because clearing has not yet arrived.
+
+16. Authorization History
+FAS stores authorization records.
+Example:
+Date
+Time
+Amount
+Merchant
+Response
+Used for:
+Matching
+
+Disputes
+
+Fraud
+
+Clearing
+
+17. Shadow Balances
+Critical FAS concept.
+CMS balance:
+Posted Balance
+
+FAS balance:
+Posted Balance
++
+Pending Authorizations
+
+Example:
+CMS:
+Balance = 5000
+Pending Authorizations:
+1000
+500
+FAS calculates:
+Effective Exposure
+
+6500
+This prevents overspending.
+
+18. FAS and HSM Integration
+FAS heavily depends on HSM.
+FAS
+ ?
+ ?
+HSM
+Used for:
+PIN Validation
+PIN Block
+
+CVV Validation
+CVV1
+
+CVV2
+
+iCVV
+
+EMV Cryptography
+ARQC
+
+ARPC
+
+Key Management
+ZMK
+
+TMK
+
+DUKPT
+This should feel familiar from your HSM architecture work.
+
+19. FAS and CMS Synchronization
+One of the most misunderstood areas.
+FAS cannot query CMS for every transaction.
+Too slow.
+Therefore FAS maintains:
+Authorization Files
+
+Shadow Records
+
+Memo Records
+optimized for real-time processing.
+
+20. FAS Availability Requirements
+Typical issuer requirement:
+99.99%+
+Downtime means:
+No Authorizations
+
+No ATM Withdrawals
+
+No POS Purchases
+
+No E-Commerce
+which is catastrophic.
+
+21. Typical Production Architecture
+Large issuer setup:
+Visa
+Mastercard
+ATM Network
+        ?
+        ?
+Load Balancer
+        ?
+ ???????????????
+ ?             ?
+
+FAS-1       FAS-2
+
+ ?             ?
+ ???????????????
+        ?
+
+      CMS
+
+        ?
+
+      HSM
+
+22. Real Transaction Example
+Customer:
+Credit Limit = 20,000
+Current Exposure:
+5,000
+Available:
+15,000
+
+Purchase:
+3,000
+
+FAS checks:
+Card
+Valid
+
+Account
+Valid
+
+Available Credit
+15,000 > 3,000
+
+Fraud
+Pass
+
+Decision:
+Approve
+
+Memo Hold:
+Available
+
+15,000
+ ?
+12,000
+
+Response:
+RC=00
+Returned to network.
+All within milliseconds.
+
+Key Concepts You Must Remember
+If there are only five things to remember from FAS Architecture, they are:
+1
+FAS = Real-Time Decision Engine
+2
+CMS = System of Record
+3
+Authorization ? Posting
+4
+FAS Uses Shadow/Memo Balances
+5
+Every Approval Is A Chain Of Validation Engines
+Card
+ ?
+Account
+ ?
+Limits
+ ?
+Fraud
+ ?
+Decision
+
+
+Excellent. Now we move from the logical architecture into the internal machinery of FAS.
+This is where most VisionPLUS consultants start understanding how FAS can authorize transactions in 100–300 milliseconds while CMS may take seconds or minutes for batch updates.
+
+FAS Components & Internal Modules
+Think of FAS as a collection of specialized engines.
+                    FAS
+                     ?
+ ??????????????????????????????????????????
+ ?                   ?                    ?
+ ?                   ?                    ?
+
+Card Engine    Account Engine     Limit Engine
+
+ ?                   ?                    ?
+ ??????????????????????????????????????????
+                ?         ?
+                ?         ?
+
+         Fraud/Velocity Engine
+
+                ?
+                ?
+
+        Authorization Engine
+
+                ?
+                ?
+
+        Memo Posting Engine
+
+                ?
+                ?
+
+         Response Generator
+
+1. Authorization Gateway Layer
+This is the front door of FAS.
+Receives transactions from:
+Visa
+Mastercard
+ATM Networks
+Domestic Switches
+Processors
+Examples:
+Visa BASE I
+Mastercard MIP
+NPCI
+Domestic ATM Network
+Responsibilities:
+Message Reception
+Protocol Validation
+Session Management
+Routing
+
+Example
+Incoming ISO8583:
+MTI 0100
+
+PAN
+Amount
+Merchant
+PIN
+EMV Data
+Gateway receives it and passes it to FAS.
+
+2. Message Parsing Engine
+First processing layer.
+Extracts:
+DE2  PAN
+
+DE3  Processing Code
+
+DE4  Amount
+
+DE22 POS Entry Mode
+
+DE35 Track 2
+
+DE41 Terminal
+
+DE42 Merchant
+
+DE52 PIN
+
+DE55 EMV
+
+DE90 Reversal Data
+Converts raw ISO message into internal FAS structures.
+Think:
+ISO8583
+      ?
+Internal FAS Transaction Object
+
+3. Card Validation Engine
+First major decision engine.
+
+Checks
+Card Exists
+PAN Found?
+
+Expiry Date
+Expired?
+
+Card Status
+Active
+
+Lost
+
+Stolen
+
+Blocked
+
+Expired
+
+Card Range
+Example:
+BIN
+
+455612
+Belongs to:
+Visa Platinum
+Product identified.
+
+Example
+Card Status = Stolen
+Immediate decline.
+No further processing.
+
+4. Account Validation Engine
+Validates the underlying account.
+Checks:
+Account Open
+
+Account Closed
+
+Collections
+
+Charge-Off
+
+Fraud Block
+
+Example
+Card Valid
+
+Account Closed
+Result:
+Decline
+
+5. Product Control Engine
+Uses CMS product configuration.
+Looks up:
+Logo
+
+Plan
+
+Product Controls
+Example:
+Visa Platinum
+Rules:
+International Allowed
+
+Cash Allowed
+
+E-Commerce Allowed
+
+Transaction:
+International ATM
+Product does not allow.
+Decline.
+
+6. Authorization Rules Engine
+This is the brain of FAS.
+Combines all validations.
+
+Evaluates:
+Card
+
+Account
+
+Limits
+
+Velocity
+
+Fraud
+
+MCC
+
+Country
+Produces decision.
+
+Think:
+IF Card Good
+AND Account Good
+AND Funds Available
+AND Risk Acceptable
+
+THEN Approve
+
+7. Shadow Balance Manager
+One of the most important FAS modules.
+
+Problem:
+CMS balance updates occur later.
+How does FAS prevent overspending?
+Answer:
+Shadow Balance
+
+Example
+CMS:
+Balance = 5000
+
+Authorization 1:
+1000
+
+Authorization 2:
+2000
+
+Pending:
+3000
+
+FAS Exposure:
+5000 + 3000
+
+=
+8000
+Not yet posted.
+
+Why It Exists
+Without shadow balances:
+Customer could spend
+same credit multiple times
+before clearing arrives.
+
+8. Memo Posting Manager
+Works with Shadow Balance Manager.
+Creates:
+Authorization Hold
+
+Examples
+Hotel
+AED 5000
+Hold created.
+
+Fuel
+AED 100
+Pre-authorization.
+
+Car Rental
+AED 3000
+Hold created.
+
+Not yet financial.
+
+9. Limit Management Engine
+One of the busiest modules.
+Checks:
+Credit Limit
+
+Cash Limit
+
+Daily Limit
+
+Single Transaction Limit
+
+Example
+Credit Limit
+
+10000
+Exposure:
+9500
+Purchase:
+1000
+Decline.
+
+10. Velocity Control Engine
+Tracks behavior over time.
+
+Examples
+ATM Count
+
+POS Count
+
+Amount Count
+
+Rules:
+ATM Max = 5/day
+
+POS Max = 20/day
+
+Amount = 10,000/day
+
+Customer:
+6th ATM Withdrawal
+Decline.
+
+11. MCC Control Engine
+Merchant Category Code processing.
+
+Examples
+7995 Gambling
+
+6051 Crypto
+
+4829 Money Transfer
+
+Product may prohibit:
+Gambling
+
+Result:
+Decline
+
+12. Geographic Control Engine
+Country-based controls.
+
+Checks:
+Merchant Country
+
+Card Country
+
+Risk Country
+
+Examples
+Allowed:
+UAE
+Saudi
+Oman
+Blocked:
+High Risk Country
+
+Result:
+Decline
+
+13. Fraud Screening Engine
+Evaluates suspicious activity.
+
+Rules:
+Impossible Travel
+Dubai
+?
+2 Minutes
+?
+Brazil
+
+Velocity Fraud
+20 Transactions
+in 5 Minutes
+
+High-Risk MCC
+Gambling
+Crypto
+
+Outcome:
+Approve
+
+Decline
+
+Refer
+
+14. PIN Verification Engine
+Works with HSM.
+
+Flow
+PIN Block
+      ?
+FAS
+      ?
+HSM
+      ?
+Validation
+
+Checks:
+PIN Correct?
+
+PIN Try Counter?
+
+Response:
+55 Wrong PIN
+or
+00 Approved
+
+15. CVV Verification Engine
+Checks:
+CVV1
+
+CVV2
+
+iCVV
+
+Examples
+Magstripe
+CVV1
+E-Commerce
+CVV2
+EMV
+iCVV
+
+16. EMV Validation Engine
+Very important for chip transactions.
+Processes:
+ARQC
+
+TVR
+
+TSI
+
+ATC
+
+IAD
+
+Validates:
+Chip Authenticity
+
+Transaction Authenticity
+
+Works with HSM.
+
+17. STIP Engine
+Stand-In Processing.
+Used when:
+CMS Unavailable
+
+Issuer Unavailable
+
+Processor Unavailable
+
+Can still approve:
+Low Risk Transactions
+based on predefined rules.
+
+18. Authorization History Manager
+Stores:
+Auth ID
+
+Amount
+
+Merchant
+
+Time
+
+Response
+
+Used later for:
+Reversals
+
+Matching
+
+Fraud
+
+Clearing
+
+19. Reversal Manager
+Handles:
+0400
+
+0420
+
+Reversal Advice
+
+Examples
+Timeout
+
+Cancelled Purchase
+
+Network Error
+
+Releases:
+Memo Holds
+
+20. Response Generator
+Final stage.
+Creates:
+0110
+0210
+0430
+responses.
+
+Includes:
+Response Code
+
+Approval Code
+
+Issuer Data
+
+Example
+RC=00
+Approved.
+
+Example
+RC=51
+Insufficient funds.
+
+21. HSM Interface Layer
+One of the most critical modules.
+FAS never performs cryptography itself.
+
+Delegates to HSM:
+PIN Verification
+
+CVV Verification
+
+ARQC Validation
+
+ARPC Generation
+
+Key Translation
+
+For your HSM knowledge, this is where:
+LMK
+ZMK
+TPK
+PVK
+CVK
+DUKPT
+interact with FAS.
+
+22. Internal FAS Database Structures
+FAS maintains optimized real-time records.
+Typically:
+Card Records
+
+Account Records
+
+Shadow Balances
+
+Pending Auths
+
+Velocity Counters
+
+Fraud Counters
+
+Auth History
+These are optimized for:
+Milliseconds
+not batch processing.
+
+23. Complete FAS Processing Chain
+A real transaction:
+Incoming ISO8583
+         ?
+         ?
+Message Parser
+         ?
+         ?
+Card Validation
+         ?
+         ?
+Account Validation
+         ?
+         ?
+Product Controls
+         ?
+         ?
+Limit Checks
+         ?
+         ?
+Velocity Checks
+         ?
+         ?
+Fraud Checks
+         ?
+         ?
+PIN/CVV/EMV
+         ?
+         ?
+Authorization Engine
+         ?
+         ?
+Memo Posting
+         ?
+         ?
+History Update
+         ?
+         ?
+Response Generation
+
+What a Production Support Engineer Actually Uses
+In real issuer operations, the most frequently investigated modules are:
+Card Validation
+Limit Engine
+Shadow Balance Manager
+Velocity Engine
+Fraud Engine
+PIN Validation
+STIP Engine
+Reversal Manager
+because these generate most authorization declines.
+
+Excellent. This topic is where many VisionPLUS architects finally understand why FAS can authorize millions of transactions per day without constantly reading CMS.
+Think of this as the internal memory model of FAS.
+
+FAS Data Structures & Real-Time Records
+Why FAS Needs Its Own Data Structures
+If every authorization required:
+Read CMS Account
+Read CMS Card
+Read CMS Balance
+Read CMS Delinquency
+Read CMS Plans
+Read CMS Transactions
+then authorization would take seconds.
+Instead FAS maintains optimized real-time records:
+FAS Real-Time Files
+        +
+CMS Master Records
+
+High-Level Data Architecture
+                CMS
+                  ?
+                  ? Sync
+                  ?
+
+        ???????????????????
+        ?   FAS Files     ?
+        ???????????????????
+
+           ?     ?      ?
+           ?     ?      ?
+
+      Card    Shadow   Auth
+      File    Balance  History
+
+1. Card Master Record
+One of the most frequently accessed records.
+Every authorization starts here.
+
+Stores
+PAN
+Expiry
+Card Status
+BIN
+Product
+Card Sequence
+CVV Data
+PIN Data Reference
+
+Example:
+PAN          4556121234567890
+
+Status       Active
+
+Expiry       12/28
+
+Product      Visa Platinum
+
+Card Seq     01
+
+Why Needed
+When transaction arrives:
+DE2 PAN
+FAS immediately locates:
+Card Record
+without reading CMS.
+
+2. Account Authorization Record
+Authorization view of account.
+Not the full CMS account.
+
+Stores
+Account Number
+
+Credit Limit
+
+Cash Limit
+
+Available Credit
+
+Status
+
+Collection Status
+
+Example:
+Account
+
+Credit Limit     50,000
+
+Cash Limit       10,000
+
+Available        32,000
+
+Status           Active
+
+Purpose
+Used for:
+Limit Check
+
+Account Status Check
+during authorization.
+
+3. Shadow Balance Record
+One of the most important concepts in FAS.
+
+Problem
+CMS balance:
+Posted Balance
+only updates after clearing/posting.
+
+Customer performs:
+Purchase 1 = 1,000
+
+Purchase 2 = 2,000
+
+Purchase 3 = 3,000
+before clearing arrives.
+
+Without shadow balances:
+FAS sees only CMS balance
+and may over-approve.
+
+Solution
+Maintain:
+Posted Balance
++
+Pending Authorizations
+
+Example
+CMS:
+Current Balance
+
+5,000
+
+Pending:
+1,000
+2,000
+3,000
+
+Shadow Exposure:
+5,000
++
+6,000
+=
+11,000
+
+This is what FAS uses.
+
+Shadow Balance Components
+Typically:
+Posted Balance
+
+Pending Purchases
+
+Pending Cash
+
+Pending Fees
+
+Pending Adjustments
+
+Example
+Posted Balance        5,000
+
+Pending Purchase      1,000
+
+Pending Cash            500
+
+Effective Exposure:
+6,500
+
+4. Available Credit Record
+One of the most frequently calculated values.
+
+Formula:
+Credit Limit
+
+-
+
+Posted Balance
+
+-
+
+Pending Authorizations
+
+Example
+Credit Limit
+
+20,000
+
+Posted:
+5,000
+
+Pending:
+3,000
+
+Available:
+12,000
+
+FAS checks this on every purchase.
+
+5. Pending Authorization Record
+Stores each outstanding authorization.
+Think:
+Authorization Hold
+
+Stores
+Auth ID
+
+PAN
+
+Amount
+
+Merchant
+
+Date
+
+Time
+
+Status
+
+Example
+Auth ID
+
+A123456
+
+Amount
+
+2,000
+
+Merchant
+
+Hilton Dubai
+
+Status
+
+Open
+
+Why Needed
+Supports:
+Completion
+
+Incremental Auth
+
+Reversal
+
+Clearing Match
+
+Example
+Hotel:
+Preauth
+
+5,000
+Stored as pending authorization.
+
+6. Authorization History Record
+Audit trail of all authorization activity.
+
+Stores:
+Approval
+
+Decline
+
+Partial Approval
+
+Referral
+
+Example
+10:05 Approved
+
+AED 500
+
+Merchant ABC
+
+Used for:
+Fraud Investigation
+
+Dispute Review
+
+Network Inquiry
+
+Analytics
+
+7. Velocity Counter Records
+Critical fraud and risk structure.
+
+Instead of scanning transactions:
+Count ATM Txns
+every time,
+FAS maintains counters.
+
+Example
+ATM Today = 4
+
+POS Today = 12
+
+E-Commerce Today = 7
+
+Transaction arrives:
+ATM Withdrawal
+Counter becomes:
+5
+
+Rule:
+Max ATM = 5
+Next transaction:
+Decline
+
+Types of Velocity Counters
+Daily
+Amount
+
+Count
+
+Weekly
+Amount
+
+Count
+
+Monthly
+Amount
+
+Count
+
+Merchant-Based
+MCC Count
+
+Merchant Count
+
+8. Fraud Monitoring Records
+Separate from velocity.
+Stores risk indicators.
+
+Examples
+Last Country
+
+Last Merchant
+
+Last Transaction Time
+
+Risk Score
+
+Transaction:
+Dubai
+
+Next:
+Brazil
+
+2 Minutes Later
+
+Fraud engine reads:
+Last Country
+
+Dubai
+and raises alert.
+
+9. Card Status Records
+Frequently updated.
+
+Possible values:
+Active
+
+Blocked
+
+Lost
+
+Stolen
+
+Expired
+
+Collection Block
+
+Fraud Block
+
+These are optimized for:
+Instant Lookup
+
+10. Product Control Records
+Authorization copy of CMS product setup.
+
+Stores:
+Logo
+
+Plan
+
+Authorization Controls
+
+Example
+Cash Allowed
+
+Y
+
+International
+
+Y
+
+E-Commerce
+
+N
+
+Used without querying CMS.
+
+11. MCC Control Records
+Merchant restrictions.
+
+Example
+7995 Gambling
+
+Blocked
+
+Transaction:
+MCC 7995
+Immediate decline.
+
+12. Country Control Records
+Used by geographic validation.
+
+Example
+Allowed
+
+UAE
+Oman
+Saudi
+
+Blocked
+Country X
+
+Decline.
+
+13. PIN Validation Records
+FAS does not store actual PIN.
+Instead:
+PIN Offset
+
+PIN Verification Data
+
+Used with HSM.
+
+Example
+PVV
+
+Offset
+
+PIN Try Counter
+
+14. EMV Data Records
+Very important for chip transactions.
+Stores:
+ATC History
+
+EMV Risk Flags
+
+Offline Counters
+
+Script Status
+
+Used during:
+ARQC Validation
+
+15. Reversal Records
+Tracks reversals.
+
+Example
+Original:
+Auth A100
+
+Reversal:
+Rev A100
+
+Used to:
+Release Hold
+
+Prevent duplicates.
+
+16. Completion Records
+Especially important for:
+Hotels
+
+Fuel
+
+Restaurants
+
+Car Rentals
+
+Example
+Authorization:
+100
+
+Completion:
+120
+
+Completion record links both transactions.
+
+17. Authorization Matching Records
+Later used during clearing.
+
+Stores:
+Auth ID
+
+RRN
+
+STAN
+
+Approval Code
+
+Clearing arrives:
+Match Authorization
+
+Used to detect:
+Matched
+
+Unmatched
+
+Duplicate
+transactions.
+
+18. STIP Records
+Stand-In Processing structures.
+
+Stores:
+Emergency Limits
+
+Offline Counters
+
+Fallback Rules
+
+Used when:
+Issuer Unavailable
+
+19. Real-Time Synchronization Records
+Critical operational concept.
+
+CMS changes:
+Card Blocked
+
+Need immediate FAS update.
+
+Synchronization updates:
+CMS
+   ?
+FAS Real-Time Files
+
+Otherwise:
+Blocked Card
+could still be approved.
+
+20. Real Authorization Example
+Let's follow actual FAS data updates.
+
+Initial State
+Credit Limit        20,000
+
+Posted Balance       5,000
+
+Pending Auth             0
+
+Available Credit    15,000
+
+Transaction
+Purchase
+
+3,000
+
+FAS Reads
+Card Record
+Status = Active
+
+Account Record
+Status = Active
+
+Available Credit
+15,000
+
+Approval
+RC=00
+
+FAS Updates
+Pending Authorization Record
++3,000
+
+Shadow Balance
+5,000 + 3,000
+
+=
+8,000
+
+Available Credit
+20,000 - 8,000
+
+=
+12,000
+
+Authorization History
+Approved
+
+All of this happens before:
+CMS Posting
+
+Billing
+
+Statement Generation
+
+Architect's View of FAS Records
+When troubleshooting production issues, these are the records most frequently inspected:
+RecordPurposeCard RecordCard validationAccount RecordAccount statusShadow BalanceExposure calculationAvailable CreditSpending powerPending AuthHoldsAuth HistoryInvestigationVelocity CounterFraud limitsMCC ControlsMerchant restrictionsCountry ControlsGeographic controlsReversal RecordsHold releaseMatching RecordsClearing reconciliation
+Why This Topic Matters
+Everything in FAS ultimately revolves around one equation:
+Card Record
+      +
+Account Record
+      +
+Shadow Balance
+      +
+Pending Auth
+      +
+Velocity
+      +
+Fraud
+      =
+Authorization Decision
+Understanding these records is essential before the next major topic:
+FAS End-to-End Authorization Flow & ISO8583 Processing
+There we will trace a real 0100/0110 authorization message field-by-field (DE2, DE3, DE4, DE22, DE35, DE41, DE42, DE52, DE55, DE90, etc.) through the FAS engines and show exactly which FAS data structures are read and updated at each stage. This is usually the favorite topic for payment switch and issuer architects because it connects VisionPLUS directly to Visa, Mastercard, ATM, and POS transaction processing.
+Excellent. We are now entering the level where a VisionPLUS FAS architect, issuer switch architect, or authorization support engineer spends most of their time.
+FAS ISO8583 Processing (Field-by-Field Deep Dive)
+At a high level, FAS does not "process an ISO8583 message."
+Instead, it processes:
+ISO8583 Fields
+       ?
+Business Meaning
+       ?
+Authorization Rules
+       ?
+Decision
+The same transaction may touch:
+* Card Validation Engine
+* Account Validation Engine
+* Limit Engine
+* Velocity Engine
+* Fraud Engine
+* HSM
+* EMV Validation
+* Memo Posting
+depending on which fields are present.
+
+1. Typical Authorization Message
+A POS chip purchase arrives:
+MTI = 0100
+Example:
+DE2   = 4556121234567890
+DE3   = 000000
+DE4   = 000000001000
+DE7   = 0815123045
+DE11  = 123456
+DE14  = 2812
+DE22  = 051
+DE35  = Track2 Data
+DE41  = TERM0001
+DE42  = MERCH0001
+DE49  = AED
+DE52  = PIN Block
+DE55  = EMV Data
+
+2. MTI Processing
+The MTI tells FAS what business function is being requested.
+
+MTI 0100
+Authorization Request
+Triggers:
+Full Authorization Flow
+
+MTI 0110
+Authorization Response
+Generated by FAS.
+
+MTI 0200
+Financial Request
+Often ATM or debit-style processing.
+
+MTI 0400
+Reversal Request
+Triggers:
+Reversal Engine
+
+MTI 0420
+Reversal Advice
+Used when reversal already performed.
+
+3. DE2 – Primary Account Number (PAN)
+Most important field.
+Example:
+4556121234567890
+Used to locate:
+Card Record
+FAS performs:
+PAN Lookup
+
+Card Record retrieved:
+Card Status
+
+Product
+
+Account
+
+BIN
+
+Expiry
+
+Possible failures:
+RC 14
+Invalid Card Number
+
+4. BIN Analysis
+From DE2:
+455612
+FAS identifies:
+Visa Platinum
+
+Issuer
+
+Portfolio
+
+BIN determines:
+Product Controls
+
+Authorization Rules
+
+Network Routing
+
+5. DE3 – Processing Code
+One of the most important routing fields.
+Determines transaction type.
+
+Purchase
+000000
+
+Cash Advance
+010000
+
+Refund
+200000
+
+Balance Inquiry
+310000
+
+FAS routes transaction accordingly.
+Example:
+010000
+Cash transaction.
+Triggers:
+Cash Limit Engine
+instead of purchase limit logic.
+
+6. DE4 – Transaction Amount
+Example:
+000000001000
+Meaning:
+10.00
+or
+1000.00
+depending on currency exponent.
+
+Used by:
+Limit Engine
+
+Velocity Engine
+
+Fraud Engine
+
+Available Credit Calculation
+
+Example:
+Available Credit
+
+500
+Request:
+1000
+Response:
+RC 51
+
+7. DE7 – Transmission Date & Time
+Example:
+0815123045
+Used for:
+Duplicate Detection
+
+Fraud Analysis
+
+Audit Trail
+
+8. DE11 – STAN
+System Trace Audit Number.
+Example:
+123456
+Acts like:
+Transaction Identifier
+inside network processing.
+
+Used for:
+Reversal Matching
+
+Troubleshooting
+
+Authorization Tracking
+
+9. DE14 – Expiry Date
+Example:
+2812
+Meaning:
+Dec-2028
+
+FAS compares:
+DE14
+with
+Card Record Expiry
+
+Failure:
+RC 54
+Expired Card
+
+10. DE22 – POS Entry Mode
+One of the most important fields.
+Determines:
+How Card Was Read
+
+Examples:
+021
+Magstripe
+
+051
+Chip + PIN
+
+071
+Contactless
+
+901
+E-Commerce
+
+Why Important?
+Because FAS decides:
+Need PIN?
+
+Need EMV?
+
+Need CVV?
+
+11. DE35 – Track 2 Data
+Contains:
+PAN
+
+Expiry
+
+Service Code
+Example:
+4556121234567890=281220100000123
+
+Used for:
+Card Validation
+
+Service Code Validation
+
+CVV1 Validation
+
+12. Service Code Analysis
+Extracted from Track 2.
+Example:
+201
+
+May indicate:
+International Allowed
+
+Chip Required
+
+PIN Required
+
+FAS checks compatibility.
+
+13. DE41 – Terminal ID
+Example:
+TERM1234
+Used for:
+Fraud Analysis
+
+Merchant Tracking
+
+Terminal Controls
+
+Can identify:
+ATM
+
+POS
+
+E-Commerce Gateway
+
+14. DE42 – Merchant ID
+Example:
+MERCHANT12345
+Used by:
+Merchant Validation Engine
+
+Can trigger:
+Blocked Merchant
+
+Preferred Merchant
+
+Special Risk Rules
+
+15. DE18 – MCC (Merchant Category Code)
+One of the most important fraud/control fields.
+Example:
+5411 Grocery
+
+5541 Fuel
+
+5812 Restaurant
+
+7995 Gambling
+
+6051 Crypto
+
+FAS checks MCC controls.
+Example:
+7995
+Blocked.
+Response:
+RC 57
+
+16. DE49 – Transaction Currency
+Example:
+AED
+
+USD
+
+EUR
+Used for:
+Cross-Border Controls
+
+Currency Conversion
+
+Product Restrictions
+
+Example:
+Domestic Product
+attempts
+USD Transaction
+Possible decline.
+
+17. DE52 – PIN Block
+Critical security field.
+Example:
+Encrypted PIN Block
+
+Flow:
+FAS
+  ?
+HSM
+  ?
+PIN Verification
+
+Results:
+Correct PIN
+or
+RC 55
+Incorrect PIN
+
+18. DE55 – EMV Data
+The most complex field in modern authorizations.
+Contains TLV data.
+
+Common Tags
+9F26
+ARQC
+Authorization Request Cryptogram.
+
+95
+TVR
+Terminal Verification Results.
+
+9F10
+Issuer Application Data
+
+9F36
+ATC
+Application Transaction Counter.
+
+82
+AIP
+Application Interchange Profile.
+
+9F34
+CVM Results
+
+EMV Validation Flow
+DE55
+    ?
+Extract Tags
+    ?
+HSM ARQC Validation
+    ?
+Risk Evaluation
+    ?
+Generate ARPC
+
+19. DE90 – Original Data Elements
+Used for:
+Reversals
+and
+Advice Matching
+
+Contains:
+Original MTI
+
+Original STAN
+
+Original Date
+
+Original Acquirer
+
+Allows FAS to locate:
+Original Authorization
+
+20. How Fields Map to FAS Engines
+ISO FieldFAS EngineDE2Card ValidationDE3Transaction RoutingDE4Limit EngineDE7Audit/FraudDE11TrackingDE14Card ValidationDE18MCC EngineDE22EMV/CVV/PIN LogicDE35Track ValidationDE41Terminal ControlsDE42Merchant ControlsDE49Currency ControlsDE52PIN ValidationDE55EMV ValidationDE90Reversal Engine
+Complete Example
+Transaction:
+MTI 0100
+
+DE2  = 4556121234567890
+DE3  = 000000
+DE4  = 1000
+DE18 = 5411
+DE22 = 051
+DE41 = TERM001
+DE42 = MERCHANT001
+DE52 = PIN
+DE55 = EMV Data
+
+Processing:
+DE2
+?
+Card Record Found
+
+DE14
+?
+Not Expired
+
+DE22
+?
+EMV Required
+
+DE52
+?
+PIN Valid
+
+DE55
+?
+ARQC Valid
+
+DE18
+?
+MCC Allowed
+
+DE4
+?
+Available Credit OK
+
+Fraud
+?
+Pass
+
+Decision:
+Approve
+
+Response:
+MTI 0110
+
+DE39 = 00
+
+Why This Topic Matters
+When an issuer production issue occurs:
+Customer says:
+
+"My transaction declined."
+Support teams almost always analyze:
+MTI
+DE2
+DE3
+DE4
+DE18
+DE22
+DE41
+DE42
+DE52
+DE55
+DE39
+and then trace exactly which FAS engine generated the decline.
+This is why experienced VisionPLUS authorization specialists become extremely fluent in ISO8583—they can often determine the root cause simply by looking at a few key fields.
+
+Next Recommended Topic
+Now that we understand how ISO8583 fields drive FAS decisions, the next major topic should be:
+Authorization Decision Tree & Response Code Framework
+This is where we examine:
+Card Checks
+      ?
+Account Checks
+      ?
+Limit Checks
+      ?
+Velocity Checks
+      ?
+Fraud Checks
+      ?
+Decision
+      ?
+Response Code
+and learn exactly why FAS returns RC 00, 05, 14, 51, 54, 55, 57, 61, 62, 65, 75, 91, etc., including the internal rule hierarchy and decision precedence used in issuer processing.
+Excellent. We are now entering the area that separates a payment developer from a true issuer authorization specialist.
+When a customer says:
+"My card was declined."
+The real question is:
+Which decision engine declined it?
+
+And why?
+This is exactly what the Authorization Decision Tree & Response Code Framework explains.
+
+1. What is the Authorization Decision Tree?
+FAS does not randomly return a response code.
+It executes a sequence of validation layers.
+Incoming Authorization
+          ?
+          ?
+Card Validation
+          ?
+          ?
+Account Validation
+          ?
+          ?
+Product Validation
+          ?
+          ?
+PIN / CVV / EMV Validation
+          ?
+          ?
+Limit Validation
+          ?
+          ?
+Velocity Validation
+          ?
+          ?
+Fraud Validation
+          ?
+          ?
+Decision
+          ?
+          ?
+Response Code
+The first validation that fails typically determines the response.
+
+2. Decision Hierarchy
+Not all checks have equal priority.
+For example:
+Card Stolen
+and
+Insufficient Credit
+may both be true.
+FAS will usually return:
+RC 43
+Stolen Card
+because security failures take precedence.
+
+Typical Priority Order
+1. Message Format
+2. Card Validation
+3. Account Validation
+4. Security Validation
+5. Product Controls
+6. Limit Checks
+7. Velocity Checks
+8. Fraud Checks
+9. Approval
+
+3. Response Code Architecture
+Response codes originate from:
+* ISO8583
+* Visa
+* Mastercard
+* Issuer-specific rules
+FAS internally may generate:
+Internal Reason
+and then map it to:
+DE39 Response Code
+returned to network.
+
+Example
+Internal reason:
+AVAILABLE_CREDIT_FAILED
+Mapped to:
+RC 51
+
+4. RC 00 – Approved
+Most desired outcome.
+All validations passed.
+Card OK
+
+Account OK
+
+PIN OK
+
+EMV OK
+
+Credit OK
+
+Fraud OK
+Response:
+DE39 = 00
+
+5. RC 05 – Do Not Honor
+One of the most misunderstood codes.
+Often used when issuer does not want to disclose actual reason.
+
+Examples:
+Fraud Suspected
+
+Risk Rule Triggered
+
+Issuer Block
+Response:
+05
+
+Why?
+To avoid revealing issuer controls.
+
+6. RC 14 – Invalid Card Number
+Generated during:
+PAN Validation
+Example:
+PAN Not Found
+or
+Invalid BIN
+Response:
+14
+
+7. RC 41 – Lost Card
+Card status:
+Lost
+Stored in Card Record.
+Response:
+41
+
+Processing stops immediately.
+
+8. RC 43 – Stolen Card
+Card status:
+Stolen
+Response:
+43
+Highest priority security decline.
+
+9. RC 51 – Insufficient Funds
+Credit limit failure.
+
+Example
+Credit Limit
+
+10,000
+Exposure:
+9,500
+Purchase:
+1,000
+Available:
+500
+Response:
+51
+
+Generated by:
+Limit Engine
+
+10. RC 54 – Expired Card
+Generated by:
+Card Validation Engine
+
+Example:
+Card Expiry:
+12/25
+Transaction:
+Jan 2026
+Response:
+54
+
+11. RC 55 – Incorrect PIN
+Generated by:
+PIN Validation Engine
+
+Flow:
+FAS
+ ?
+HSM
+ ?
+PIN Compare
+
+Mismatch:
+55
+
+12. RC 57 – Transaction Not Permitted
+Product controls failure.
+Example:
+E-Commerce Disabled
+Transaction:
+Online Purchase
+Response:
+57
+
+Also used for:
+Blocked MCC
+
+Blocked Country
+
+Restricted Usage
+
+13. RC 61 – Exceeds Withdrawal Limit
+Common ATM decline.
+Example:
+Daily ATM Limit:
+5,000
+Already withdrawn:
+4,800
+Request:
+500
+Response:
+61
+
+Generated by:
+Cash Limit Engine
+
+14. RC 62 – Restricted Card
+Generated when account restrictions exist.
+Examples:
+Collection Block
+
+Fraud Block
+
+Country Restriction
+Response:
+62
+
+15. RC 65 – Activity Limit Exceeded
+Generated by:
+Velocity Engine
+
+Example:
+Rule:
+20 POS Transactions / Day
+Already:
+20
+New transaction:
+Decline
+Response:
+65
+
+16. RC 75 – PIN Tries Exceeded
+Security protection.
+Example:
+3 Wrong PIN Attempts
+Counter exceeded.
+Response:
+75
+Card may become blocked.
+
+17. RC 91 – Issuer Unavailable
+Infrastructure issue.
+Examples:
+Issuer Down
+
+Database Down
+
+Network Failure
+Response:
+91
+
+May trigger:
+STIP
+at network level.
+
+18. Decision Precedence Example
+Transaction:
+Card Expired
+
+AND
+
+No Available Credit
+Which response?
+
+Usually:
+54
+Expired Card
+because card validation occurs before limit checks.
+
+Another Example
+Wrong PIN
+
+AND
+
+Insufficient Funds
+Response:
+55
+PIN failure occurs first.
+
+19. Approval Decision Logic
+Simplified:
+IF Card Valid
+AND Account Valid
+AND PIN Valid
+AND Product Allowed
+AND Limit Available
+AND Velocity OK
+AND Fraud OK
+
+THEN
+Approve
+Response:
+00
+
+20. Partial Approval Logic
+Common in:
+* Prepaid Cards
+* Debit Cards
+* Fuel Transactions
+
+Example:
+Available:
+200
+Request:
+300
+Instead of:
+51
+Issuer may return:
+Approved Amount = 200
+Partial approval.
+
+21. Referral Decisions
+Less common today.
+Example:
+High Amount
+
+Suspicious Activity
+Response:
+Refer To Issuer
+Manual verification required.
+
+22. Real Production Example
+Customer attempts:
+AED 1,500
+
+FAS reads:
+Card Active
+Pass.
+
+Account:
+Open
+Pass.
+
+PIN:
+Correct
+Pass.
+
+EMV:
+Valid ARQC
+Pass.
+
+Available Credit:
+1,000
+Fail.
+
+Response:
+RC 51
+
+Authorization History:
+DECLINE
+
+Reason:
+AVAILABLE_CREDIT_FAILED
+
+Internal FAS Reason Codes vs Network Response Codes
+Internally FAS may store:
+PIN_FAIL
+
+MCC_BLOCK
+
+CREDIT_LIMIT_FAIL
+
+VELOCITY_FAIL
+
+EMV_FAIL
+Mapped externally:
+Internal ReasonDE39PIN_FAIL55EXPIRED_CARD54CREDIT_LIMIT_FAIL51MCC_BLOCK57VELOCITY_FAIL65STOLEN_CARD43This mapping is extremely useful when troubleshooting production issues.
+
+How Support Teams Troubleshoot
+When an issuer receives a complaint:
+"My transaction declined."
+The typical investigation path is:
+Authorization History
+         ?
+Response Code
+         ?
+Internal Reason
+         ?
+Decision Engine
+         ?
+Root Cause
+For example:
+RC = 57
+might lead to:
+Internal Reason:
+
+MCC_BLOCK_7995
+which immediately identifies the problem.
+
+Where We Go Next
+We have now completed:
+? FAS Architecture Overview
+? FAS Components & Internal Modules
+? FAS Data Structures & Real-Time Records
+? End-to-End Authorization Flow
+? ISO8583 Processing
+? Authorization Decision Tree & Response Codes
+The next major FAS topic should be:
+Card Validation Engine Deep Dive
+This is much larger than it appears because it covers:
+* PAN validation
+* BIN tables
+* Card status management
+* Lost/Stolen processing
+* Hot card files
+* Expiry processing
+* CVV/iCVV validation
+* Track-2 validation
+* Service code validation
+* Card sequence numbers
+* Replacement cards
+* Reissue logic
+* EMV card state management
+This engine is typically the first major gate in every authorization and is responsible for many of the security-related declines seen in production.
+Excellent. We are now entering the first real authorization gate inside FAS.
+In production environments, a significant percentage of declines occur before limit checks, fraud checks, or velocity checks even begin because the Card Validation Engine rejects the transaction first.
+
+FAS Card Validation Engine Deep Dive
+What is the Card Validation Engine?
+The Card Validation Engine is responsible for answering one fundamental question:
+Is this card eligible to perform this transaction?
+Before FAS checks:
+* Credit limits
+* Available credit
+* Fraud rules
+* Velocity controls
+it first validates the card itself.
+
+High-Level Processing Flow
+Incoming Authorization
+         ?
+         ?
+PAN Validation
+         ?
+         ?
+BIN Validation
+         ?
+         ?
+Card Record Lookup
+         ?
+         ?
+Card Status Validation
+         ?
+         ?
+Expiry Validation
+         ?
+         ?
+Track/CVV Validation
+         ?
+         ?
+Service Code Validation
+         ?
+         ?
+Card Sequence Validation
+         ?
+         ?
+Card Validation Result
+
+1. PAN Validation
+First check performed.
+Uses:
+DE2 = PAN
+Example:
+4556121234567890
+
+Validation Steps
+Length Check
+Example:
+Visa = 13–19 digits
+Invalid:
+455612123
+Decline.
+
+Numeric Check
+PAN must contain only numeric values.
+Invalid:
+45561212AB567890
+Decline.
+
+Luhn Check
+Most issuers perform:
+MOD-10 Validation
+Used to detect input errors.
+
+Failure Result
+Typically:
+RC 14
+Invalid Card Number
+
+2. BIN Validation
+After PAN validation.
+Example:
+4556121234567890
+BIN:
+455612
+
+FAS identifies:
+Issuer
+Product
+Brand
+Portfolio
+Example:
+Visa Platinum
+
+Why BIN Matters
+BIN determines:
+Authorization Rules
+
+Product Controls
+
+Card Type
+
+Network Routing
+
+3. Card Record Lookup
+Once BIN is valid, FAS retrieves:
+Card Master Record
+Contains:
+PAN
+
+Expiry
+
+Status
+
+Account
+
+Product
+
+Card Sequence
+
+If card record not found:
+RC 14
+
+4. Card Status Validation
+One of the most important checks.
+
+Common Card Statuses
+Active
+Normal Usage
+Allowed.
+
+Blocked
+Temporary Restriction
+Decline.
+
+Lost
+Customer Reported Lost
+Response:
+RC 41
+
+Stolen
+Card Reported Stolen
+Response:
+RC 43
+
+Expired
+Card Life Ended
+Response:
+RC 54
+
+Fraud Block
+Fraud Investigation
+Usually:
+RC 62
+
+Collection Block
+Severe Delinquency
+Decline.
+
+5. Hot Card Processing
+Historically one of the most important issuer controls.
+Hot Card means:
+Card Must Never Be Approved
+
+Examples:
+Lost
+
+Stolen
+
+Fraud
+
+Legal Block
+
+Hot card file checked immediately.
+
+Result:
+Immediate Decline
+No limit processing occurs.
+
+6. Expiry Date Validation
+Uses:
+DE14
+Example:
+2812
+Meaning:
+December 2028
+
+Compared against:
+Card Record Expiry
+
+Failure:
+RC 54
+
+Example
+Card:
+12/25
+Transaction:
+Jan 2026
+Decline.
+
+7. Replacement Card Logic
+Very important operationally.
+
+Example:
+Original Card:
+Card Seq 01
+Lost.
+Replacement issued:
+Card Seq 02
+
+Old card:
+Inactive
+
+New card:
+Active
+
+Transaction arrives on old card.
+Result:
+Decline
+
+8. Card Sequence Number Validation
+VisionPLUS tracks:
+Card Sequence
+Used when:
+Multiple Reissues
+exist.
+
+Example:
+Seq 01
+Seq 02
+Seq 03
+Only latest valid.
+
+Prevents:
+Use Of Obsolete Cards
+
+9. Track-2 Validation
+Uses:
+DE35
+Example:
+4556121234567890=281220100000123
+
+Checks:
+PAN Match
+
+Expiry Match
+
+Service Code
+
+Mismatch:
+Decline
+
+10. Service Code Validation
+Extracted from Track-2.
+Example:
+201
+
+Service Code defines:
+International Usage
+
+PIN Requirements
+
+Chip Requirements
+
+Example
+Card says:
+Chip Required
+Transaction:
+Magstripe
+Possible decline.
+
+11. CVV1 Validation
+Typically for:
+Magstripe Transactions
+
+Flow:
+Track Data
+      ?
+CVV1 Calculation
+      ?
+HSM Validation
+
+Failure:
+Counterfeit Card Suspected
+Decline.
+
+12. CVV2 Validation
+Primarily for:
+E-Commerce
+
+Customer enters:
+123
+
+FAS:
+HSM Validation
+
+Mismatch:
+Decline
+
+13. iCVV Validation
+EMV-specific.
+Stored on chip.
+
+Used for:
+Chip Authentication
+
+Helps detect:
+Chip Data Copied To Magstripe
+
+Very important anti-counterfeit control.
+
+14. EMV Card State Validation
+For chip cards.
+Uses:
+ATC
+
+ARQC
+
+Application State
+
+Checks:
+Chip Behavior
+
+Counter Progression
+
+Application Status
+
+Example:
+ATC Regression
+Potential fraud.
+
+15. Tokenized Card Validation
+Modern wallets.
+Examples:
+Apple Pay
+
+Google Pay
+
+Samsung Pay
+
+PAN may be:
+DPAN
+instead of FPAN.
+
+Validation includes:
+Token Status
+
+Wallet Status
+
+Token Controls
+
+16. Supplementary Card Validation
+Example:
+Primary Card
+
+Supplementary Card
+
+Additional controls:
+Card-Level Limits
+
+Relationship Rules
+
+Example:
+Child Card
+may have:
+500 AED Daily Limit
+
+17. Corporate Card Validation
+Checks:
+Employee Card
+
+Department Limit
+
+Corporate Status
+
+Example:
+Employee Active
+
+Company Suspended
+Decline.
+
+18. Card Validation Response Codes
+Most common outputs:
+ConditionRCInvalid PAN14Lost Card41Stolen Card43Expired Card54Restricted Card62Security Violation63CVV Failure05 / 63PIN Tries Exceeded75
+19. Real Production Example
+Incoming Authorization:
+MTI 0100
+
+PAN 4556121234567890
+
+DE14 2512
+
+DE35 Track2
+
+Card Record:
+Status = Stolen
+
+Card Validation Engine:
+PAN Valid
+
+BIN Valid
+
+Card Found
+
+Status Check Failed
+
+Decision:
+RC 43
+
+Processing Stops.
+
+Notice:
+No Account Check
+
+No Limit Check
+
+No Fraud Check
+because Card Validation already failed.
+
+20. Internal Card Validation Decision Tree
+PAN Present?
+      ?
+      ?? No ? RC14
+      ?
+      ?
+BIN Valid?
+      ?
+      ?? No ? RC14
+      ?
+      ?
+Card Record Found?
+      ?
+      ?? No ? RC14
+      ?
+      ?
+Card Status Active?
+      ?
+      ?? Lost ? RC41
+      ?? Stolen ? RC43
+      ?? Expired ? RC54
+      ?? Blocked ? RC62
+      ?
+      ?
+Expiry Valid?
+      ?
+      ?? No ? RC54
+      ?
+      ?
+Track/CVV Valid?
+      ?
+      ?? No ? RC63
+      ?
+      ?
+Card Validation Passed
+
+Why This Module Is Critical
+The Card Validation Engine is the first security perimeter of FAS.
+Its objectives are:
+Reject Invalid Cards
+
+Reject Lost Cards
+
+Reject Stolen Cards
+
+Reject Counterfeit Cards
+
+Reject Expired Cards
+
+Reject Replaced Cards
+
+Reject Invalid Track Data
+before any financial exposure occurs.
+
+Excellent.
+If the Card Validation Engine answers:
+"Is the card valid?"
+then the Account Validation Engine answers:
+"Is the underlying account allowed to transact?"
+This distinction is extremely important in VisionPLUS.
+A card can be perfectly valid:
+Card Status = Active
+Expiry = Valid
+CVV = Valid
+but still be declined because:
+Account = Closed
+Account = Charged-Off
+Account = Collection Block
+
+FAS Account Validation Engine Deep Dive
+
+1. Position in Authorization Flow
+Incoming Authorization
+        ?
+        ?
+Card Validation
+        ?
+        ?
+Account Validation
+        ?
+        ?
+Product Validation
+        ?
+        ?
+Limit Validation
+Only if Card Validation succeeds does FAS proceed to Account Validation.
+
+2. What Is an Account?
+Remember from CMS:
+Customer
+    ?
+    ?
+Account
+    ?
+ ???????
+ ?  ?  ?
+
+Card1
+Card2
+Card3
+Example:
+Account Number: 500012345
+
+Primary Card
+
+Supplementary Card
+
+Virtual Card
+All cards share the same account.
+
+3. Why Account Validation Exists
+Example:
+Card Status = Active
+but:
+Account Closed Yesterday
+Card validation passes.
+Account validation fails.
+Decline returned.
+
+4. Account Authorization Record
+FAS does not read full CMS records.
+Instead it uses an authorization view.
+Typical fields:
+Account Number
+
+Account Status
+
+Credit Limit
+
+Cash Limit
+
+Available Credit
+
+Collection Status
+
+Charge-Off Status
+
+Relationship Information
+
+5. Account Status Validation
+First major account check.
+
+Active
+Status = Active
+Authorization continues.
+
+Closed
+Status = Closed
+Decline.
+
+Suspended
+Status = Suspended
+Usually decline.
+
+Frozen
+Status = Frozen
+No new activity allowed.
+
+Example
+Account Status = Closed
+Response:
+RC 62
+Restricted Card
+
+6. Delinquency Validation
+One of the most common issuer controls.
+FAS checks:
+Days Past Due
+
+Bucket
+
+Collection Status
+
+Example:
+DPD = 15
+Issuer policy:
+Allow Transactions
+
+Example:
+DPD = 90
+Policy:
+Block New Spending
+Decline.
+
+7. Delinquency-Based Authorization Matrix
+Example configuration:
+DPDAuthorization0-29Allowed30-59Allowed60-89Restricted90+Blocked
+Example:
+Account
+
+DPD = 95
+Purchase:
+1,000 AED
+Result:
+RC 62
+
+8. Collection Block Validation
+Very common in production.
+Account enters:
+Collections Queue
+
+Collections team sets:
+Collection Block
+
+FAS checks:
+Collection Indicator
+
+If enabled:
+Decline All Spending
+
+Example
+Collection Status
+
+ACTIVE
+Result:
+RC 62
+
+9. Charge-Off Validation
+One of the most important checks.
+Account:
+180+ DPD
+
+CMS:
+Charge-Off Process
+
+Account status becomes:
+Charged-Off
+
+FAS rule:
+No New Spending
+
+Authorization:
+Immediate Decline
+
+Example
+Account Status
+
+CHARGE_OFF
+Response:
+RC 62
+
+10. Fraud Block Validation
+Sometimes card itself remains active.
+But account is blocked.
+
+Reason:
+Fraud Investigation
+
+Example:
+Card = Active
+
+Account = Fraud Block
+
+Card validation passes.
+Account validation fails.
+
+11. Bankruptcy Validation
+Some issuers maintain:
+Bankruptcy Status
+
+Example:
+Customer Filed Bankruptcy
+
+New spending prohibited.
+
+Authorization:
+Decline
+
+12. Legal Block Validation
+Example:
+Court Order
+
+Regulatory Action
+
+Compliance Restriction
+
+Account may be:
+Legally Restricted
+
+Result:
+Decline
+
+13. Account Relationship Validation
+Very important in VisionPLUS.
+
+Example:
+Primary Account
+with
+Supplementary Cards
+
+If primary account blocked:
+All Supplementary Cards
+may be blocked automatically.
+
+Example
+Primary Account
+
+Collection Status = Active
+
+Supplementary card attempts purchase.
+Result:
+Decline
+
+14. Corporate Account Validation
+Corporate hierarchy example:
+Corporate Account
+      ?
+ ???????????
+ ?    ?    ?
+
+Emp1 Emp2 Emp3
+
+Checks:
+Corporate Status
+
+Department Status
+
+Employee Status
+
+Example:
+Employee Active
+
+Company Suspended
+
+Decline.
+
+15. Fleet Account Validation
+Common in fuel card products.
+Checks:
+Vehicle Status
+
+Fleet Status
+
+Fuel Controls
+
+Example:
+Vehicle Removed From Fleet
+Decline.
+
+16. Credit Account Controls
+Account-level restrictions.
+Examples:
+Cash Block
+
+International Block
+
+ATM Block
+
+E-Commerce Block
+
+Example:
+Cash Advance Request
+Account:
+Cash Block = Y
+Decline.
+
+17. Cash Access Validation
+Separate from credit validation.
+
+Example:
+Credit Line = 50,000
+
+Cash Line = 5,000
+
+Account may permit:
+Retail Purchases
+but deny:
+ATM Withdrawals
+
+18. Temporary Restriction Validation
+Example:
+Travel Fraud Alert
+
+Investigation
+
+Risk Review
+
+Temporary account restriction.
+
+Result:
+Authorization Declined
+until cleared.
+
+19. Real-Time Synchronization
+Critical operational topic.
+
+Collections team updates CMS:
+Collection Block
+
+Must propagate to FAS.
+CMS
+  ?
+FAS Authorization Files
+
+If synchronization fails:
+Blocked Accounts
+might still transact.
+
+20. Typical Account Validation Response Codes
+ConditionRCAccount Closed62Collection Block62Charge-Off62Fraud Block62Legal Restriction62Delinquency Restriction62Cash Restriction57Product Restriction57
+21. Real Production Example
+Authorization:
+Purchase = AED 2,000
+Card Validation:
+PAN Valid
+
+Status Active
+
+Expiry Valid
+Pass.
+
+Account Validation:
+Account Status = Active
+
+DPD = 120
+
+Collection Block = Y
+Fail.
+
+Response:
+RC 62
+
+Notice:
+Limit Check Never Executed
+
+Fraud Check Never Executed
+
+Velocity Check Never Executed
+because Account Validation stopped the flow.
+
+22. Internal Account Validation Decision Tree
+Account Found?
+      ?
+      ?? No ? RC62
+      ?
+      ?
+Account Active?
+      ?
+      ?? Closed ? RC62
+      ?? Suspended ? RC62
+      ?? Frozen ? RC62
+      ?
+      ?
+Collection Block?
+      ?
+      ?? Yes ? RC62
+      ?
+      ?
+Charge-Off?
+      ?
+      ?? Yes ? RC62
+      ?
+      ?
+Fraud Block?
+      ?
+      ?? Yes ? RC62
+      ?
+      ?
+Relationship Valid?
+      ?
+      ?? No ? RC62
+      ?
+      ?
+Account Validation Passed
+
+Card Validation vs Account Validation
+Card ValidationAccount ValidationPANAccount StatusExpiryDelinquencyLost/StolenCollection BlockTrack DataCharge-OffCVVRelationship ControlsiCVVCorporate ControlsService CodeCash Access Controls
+Why This Module Matters
+Many issuer production incidents involve situations like:
+Customer:
+"My card is active."
+And they are correct.
+The card is active.
+But:
+Account = Collection Block
+Therefore FAS declines.
+Understanding the separation between Card-Level Controls and Account-Level Controls is one of the most important concepts in issuer authorization processing.
+
+Next Logical Topic
+Now that we have covered:
+? Card Validation Engine
+? Account Validation Engine
+the next major FAS gate is:
+Product Control & Authorization Rules Engine
+This is where VisionPLUS evaluates:
+* Logo Controls
+* Plan Controls
+* Product Controls
+* Transaction Permissions
+* MCC Rules
+* Country Rules
+* ATM Permissions
+* E-Commerce Permissions
+* Contactless Permissions
+* Cash Advance Permissions
+and decides:
+Even if the card and account are valid...
+is this transaction type allowed for this product?
+This engine is often the source of RC 57 (Transaction Not Permitted) and many portfolio-specific authorization behaviors.
+Excellent.
+At this stage, we have already validated:
+Card Exists
+Card Active
+
+Account Exists
+Account Active
+Now FAS asks a different question:
+Does this product allow this transaction?
+This is the responsibility of the:
+FAS Product Control & Authorization Rules Engine
+This engine is one of the most configurable areas of VisionPLUS.
+Many production authorization issues come from:
+Incorrect Product Configuration
+
+Incorrect MCC Rules
+
+Incorrect Country Controls
+
+Incorrect ATM Controls
+
+Incorrect E-Commerce Controls
+rather than card or account problems.
+
+1. Position in Authorization Flow
+Card Validation
+      ?
+      ?
+Account Validation
+      ?
+      ?
+Product Control Engine
+      ?
+      ?
+Limit Engine
+      ?
+      ?
+Fraud Engine
+Only after Card and Account validations pass does Product Control execute.
+
+2. What is a Product in VisionPLUS?
+From CMS perspective:
+SYSTEM
+   ?
+ORGANIZATION
+   ?
+LOGO
+   ?
+PLAN
+Product behavior is inherited from these structures.
+
+Example:
+Visa Classic
+
+Visa Gold
+
+Visa Platinum
+
+Corporate Visa
+
+Prepaid Visa
+Each product may have different authorization rules.
+
+3. Product Control Philosophy
+Think of Product Controls as:
+What the card CAN do
+while Limit Engine determines:
+How much the card CAN spend
+
+Example:
+Card Active
+
+Credit Available
+But:
+E-Commerce Disabled
+Result:
+Decline
+even though funds exist.
+
+4. Product Authorization Record
+FAS maintains authorization-oriented product data.
+Typical fields:
+Logo
+
+Plan
+
+Product Type
+
+Country Rules
+
+MCC Rules
+
+ATM Rules
+
+POS Rules
+
+Cash Rules
+
+Contactless Rules
+
+5. Transaction Type Controls
+One of the most common validations.
+
+POS Purchase Allowed
+POS = Y
+Allowed.
+
+POS Purchase Not Allowed
+POS = N
+Decline.
+
+Common in:
+ATM-only cards
+
+Fleet cards
+
+Special-purpose products
+
+6. ATM Authorization Controls
+Example:
+ATM Access = Y
+Customer can withdraw cash.
+
+Example:
+ATM Access = N
+Authorization:
+Cash Withdrawal
+Response:
+RC 57
+
+7. Cash Advance Controls
+Very important.
+
+Example:
+Credit Limit = 50,000
+
+Product:
+Cash Advance Disabled
+
+Customer requests:
+ATM Cash Withdrawal
+
+Response:
+RC 57
+
+8. E-Commerce Controls
+One of the most frequently modified controls.
+
+Example:
+E-Commerce = Enabled
+Authorization continues.
+
+Example:
+E-Commerce = Disabled
+Transaction:
+Amazon Purchase
+Decline.
+
+Typical response:
+RC 57
+
+9. Contactless Controls
+Modern products may separately control:
+Tap & Pay
+
+Example:
+Contactless Enabled
+Allowed.
+
+Example:
+Contactless Disabled
+Transaction:
+NFC Tap
+Decline.
+
+10. Card Present vs Card Not Present Controls
+Product may support:
+Card Present
+but prohibit:
+Card Not Present
+
+Examples:
+Internet
+
+Mail Order
+
+Telephone Order
+
+Transaction declined despite sufficient funds.
+
+11. International Usage Controls
+One of the most common issuer controls.
+
+Example:
+Domestic Only Product
+Allowed:
+India
+
+Transaction:
+USA
+Result:
+RC 57
+
+12. Country Restriction Controls
+More granular than international controls.
+
+Allowed:
+India
+
+Singapore
+
+UAE
+
+Blocked:
+Country X
+Country Y
+
+Authorization from blocked country:
+Decline
+
+13. MCC Control Engine
+One of the most important product controls.
+
+Uses:
+DE18
+Merchant Category Code.
+
+Examples:
+5411 Grocery
+
+5541 Fuel
+
+5812 Restaurant
+
+7995 Gambling
+
+6051 Crypto
+
+MCC Allow List
+Example:
+Only Fuel Merchants Allowed
+Used in:
+Fleet Cards
+
+Purchase:
+Restaurant
+Declined.
+
+MCC Block List
+Example:
+7995 Gambling
+Blocked.
+
+Transaction:
+Online Betting
+Response:
+RC 57
+
+14. Merchant Controls
+Specific merchants may be blocked.
+
+Example:
+Merchant ABC
+Blocked.
+
+Transaction:
+Merchant ABC
+Decline.
+
+15. Fuel Product Controls
+Common in fleet products.
+
+Allowed:
+Fuel MCCs
+
+Blocked:
+Hotels
+
+Restaurants
+
+Retail
+
+Authorization:
+Restaurant
+Declined.
+
+16. Corporate Product Controls
+Corporate products often have additional restrictions.
+
+Examples:
+Business Travel Only
+
+No Personal Spending
+
+Restricted MCCs
+
+Employee attempts:
+Personal Merchant
+Decline.
+
+17. Installment Product Controls
+Some products allow:
+EMI Conversion
+Others do not.
+
+Authorization may be approved.
+But later:
+Installment Conversion
+not permitted.
+
+18. Currency Controls
+Uses:
+DE49
+Currency Code.
+
+Example:
+AED
+Allowed.
+
+Example:
+Crypto Settlement Currency
+Blocked.
+
+19. Transaction Amount Controls
+Products may define:
+Minimum Amount
+
+Maximum Amount
+
+Example:
+Single Transaction Max
+
+25,000
+
+Transaction:
+50,000
+Decline.
+
+20. Authorization Rule Matrix
+Example product:
+Visa Platinum
+Rules:
+ControlSettingPOSYesATMYesE-CommerceYesContactlessYesInternationalYesCash AdvanceYesGambling MCCNoCrypto MCCNo
+21. Real Authorization Example
+Transaction:
+DE3 = Purchase
+
+DE18 = 7995
+
+Amount = 1,000
+
+Card Validation:
+Pass
+
+Account Validation:
+Pass
+
+Product Controls:
+MCC 7995
+
+Blocked
+
+Decision:
+RC 57
+
+Notice:
+Limit Engine Never Executed
+
+Fraud Engine Never Executed
+because Product Controls failed first.
+
+22. Internal Product Rule Decision Tree
+Transaction Type Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+ATM Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+E-Commerce Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+Country Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+MCC Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+Merchant Allowed?
+        ?
+        ?? No ? RC57
+        ?
+        ?
+Product Validation Passed
+
+Most Common RCs from Product Controls
+ConditionRCATM Not Allowed57E-Commerce Disabled57Contactless Disabled57MCC Blocked57Merchant Blocked57Country Blocked57Cash Advance Disabled57Product Restriction57This is why RC 57 (Transaction Not Permitted) is one of the most common and often confusing response codes in issuer processing.
+
+Why This Engine Matters
+Many support tickets sound like:
+"My card works at supermarkets
+but fails on online gambling sites."
+The root cause is often:
+Product Rule
+not:
+Card Issue
+
+Account Issue
+
+Credit Limit Issue
+
+Next Major FAS Topic
+Now that we have covered:
+? Card Validation Engine
+? Account Validation Engine
+? Product Control & Authorization Rules Engine
+the next critical authorization gate is:
+Limit Management & Available Credit Engine
+This is arguably the heart of issuer authorization because it covers:
+* Credit Limit Calculation
+* Available Credit Calculation
+* Shadow Balances
+* Memo Posting
+* Cash Limits
+* Temporary Limit Increases
+* Overlimit Processing
+* Partial Approvals
+* Pending Authorization Exposure
+* Real-Time Credit Decisioning
+This is the engine responsible for most RC 51 (Insufficient Funds) and RC 61 (Exceeds Withdrawal Limit) responses.
+Excellent.
+We are now entering what many issuer authorization teams consider the heart of FAS.
+Because after:
+? Card Validation
+? Account Validation
+? Product Controls
+the next question becomes:
+Can the issuer financially approve this transaction?
+This is handled by the:
+FAS Limit Management & Available Credit Engine
+This engine is responsible for most:
+RC 51
+Insufficient Funds
+and
+RC 61
+Exceeds Withdrawal Limit
+responses.
+
+1. Position in Authorization Flow
+Card Validation
+      ?
+      ?
+Account Validation
+      ?
+      ?
+Product Controls
+      ?
+      ?
+Limit Management Engine
+      ?
+      ?
+Velocity Engine
+      ?
+      ?
+Fraud Engine
+Only after previous validations pass does FAS perform financial exposure calculations.
+
+2. Core Objective
+The Limit Engine answers:
+If this transaction is approved,
+will the account exceed its permitted exposure?
+
+3. Types of Limits in FAS
+Most issuers maintain multiple limits simultaneously.
+Credit Limit
+
+Cash Limit
+
+Daily Limit
+
+Single Transaction Limit
+
+Temporary Limit
+
+Corporate Limit
+
+Supplementary Limit
+FAS evaluates several of them during a single authorization.
+
+4. Credit Limit
+The primary limit.
+Example:
+Credit Limit
+
+50,000 AED
+Configured in CMS and synchronized to FAS.
+
+Example Account:
+Credit Limit       50,000
+
+Posted Balance     10,000
+Remaining exposure:
+40,000
+But this is not yet Available Credit.
+
+5. Why Posted Balance Alone Is Not Enough
+Imagine:
+Purchase #1 = 5,000
+
+Purchase #2 = 3,000
+
+Purchase #3 = 2,000
+All approved.
+Clearing has not yet arrived.
+CMS still shows:
+Posted Balance = 10,000
+
+Without additional controls:
+Customer could overspend
+before posting occurs.
+
+6. Shadow Balance Concept
+One of the most important FAS concepts.
+FAS maintains:
+Shadow Balance
+which includes pending authorizations.
+
+Formula:
+Shadow Exposure
+
+=
+Posted Balance
++
+Pending Authorizations
+
+Example:
+Posted Balance      10,000
+
+Pending Auths        8,000
+
+Exposure:
+18,000
+
+This is what FAS uses.
+
+7. Available Credit Calculation
+This calculation occurs on nearly every purchase.
+Conceptually:
+
+Example:
+Credit Limit       50,000
+
+Posted Balance     10,000
+
+Pending Auths       8,000
+
+Available:
+32,000
+
+Transaction:
+35,000
+
+Response:
+RC 51
+
+8. Memo Posting
+When approval occurs:
+FAS does NOT create a financial posting.
+Instead:
+Authorization Hold
+is created.
+
+Example:
+Before:
+Available Credit
+
+32,000
+
+Purchase:
+5,000
+
+After approval:
+Available Credit
+
+27,000
+
+No CMS posting yet.
+
+9. Pending Authorization Records
+Each authorization creates:
+Pending Authorization Record
+Contains:
+Auth ID
+
+Amount
+
+Merchant
+
+Date
+
+Status
+
+Example:
+Auth A123
+
+Amount 5,000
+
+Status OPEN
+
+Used for:
+Completion
+
+Reversal
+
+Matching
+
+Clearing
+
+10. Authorization Hold Lifecycle
+Example:
+Auth 5,000
+
+FAS:
+Creates Hold
+
+Possible outcomes:
+Clearing Arrives
+
+Reversal Arrives
+
+Expires
+
+Then hold removed.
+
+11. Cash Limit Management
+Separate from credit limit.
+
+Example:
+Credit Limit
+
+50,000
+
+Cash Limit:
+10,000
+
+Customer may have:
+40,000 Available Credit
+but only:
+10,000 Cash Access
+
+Example
+ATM Withdrawal:
+15,000
+
+Result:
+RC 61
+
+12. Daily Cash Limit
+Very common.
+Example:
+Daily ATM Limit
+
+5,000
+
+Already withdrawn:
+4,500
+
+Request:
+1,000
+
+Result:
+RC 61
+
+13. Single Transaction Limit
+Issuer may define:
+Max Single Purchase
+
+25,000
+
+Purchase:
+30,000
+
+Decline.
+
+14. Temporary Credit Limit Increase
+Very common.
+
+Normal:
+Credit Limit
+
+20,000
+
+Temporary increase:
++10,000
+
+Effective Limit:
+30,000
+
+FAS uses effective limit immediately.
+
+15. Supplementary Card Limits
+Example:
+Account Limit
+
+50,000
+
+Child card:
+Daily Limit
+
+2,000
+
+Purchase:
+3,000
+
+Decline even though account limit is available.
+
+16. Corporate Hierarchy Limits
+Corporate structures often include:
+Company Limit
+
+Department Limit
+
+Employee Limit
+
+Example:
+Company Limit
+
+1,000,000
+
+Employee Limit:
+5,000
+
+Employee purchase:
+7,000
+Decline.
+
+17. Overlimit Processing
+One of the most configurable areas.
+
+Traditional model:
+Hard Decline
+
+Example:
+Available
+
+500
+Request:
+1,000
+Response:
+RC 51
+
+18. Overlimit Tolerance
+Some issuers allow:
+Temporary Overlimit
+
+Example:
+Credit Limit
+
+10,000
+
+Tolerance:
+5%
+
+Effective:
+10,500
+
+Purchase causing exposure:
+10,300
+Approved.
+
+19. Partial Approval Logic
+Common in:
+Prepaid
+
+Debit
+
+Fuel
+
+Available:
+200
+
+Request:
+300
+
+Instead of:
+Decline
+Issuer may return:
+Approved Amount = 200
+
+20. Authorization Reversal Impact
+Original authorization:
+5,000
+
+Available Credit:
+Reduced
+
+Reversal received.
+
+FAS:
+Removes Hold
+
+Available Credit restored.
+
+21. Authorization Expiry
+Not every authorization clears.
+Example:
+Hotel Hold
+
+No clearing received.
+
+After configured period:
+7 Days
+15 Days
+30 Days
+
+FAS:
+Releases Hold
+
+Available credit increases.
+
+22. Incremental Authorization Impact
+Common for:
+Hotels
+
+Car Rentals
+
+Fuel
+
+Original:
+5,000
+
+Increment:
++2,000
+
+Exposure:
+7,000
+
+Shadow balance updated.
+
+23. Real Authorization Example
+Initial:
+Credit Limit       20,000
+
+Posted Balance      5,000
+
+Pending Auths       2,000
+
+Available:
+13,000
+
+Purchase:
+10,000
+
+Check:
+13,000 > 10,000
+Pass.
+
+Approval:
+RC 00
+
+After approval:
+Pending Auths
+
+2,000 ? 12,000
+
+Exposure:
+17,000
+
+Available:
+3,000
+
+24. Internal Limit Engine Decision Tree
+Account Limit Available?
+        ?
+        ?? No ? RC51
+        ?
+        ?
+Cash Limit Available?
+        ?
+        ?? No ? RC61
+        ?
+        ?
+Single Transaction Limit OK?
+        ?
+        ?? No ? RC61/57
+        ?
+        ?
+Supplementary Limit OK?
+        ?
+        ?? No ? RC61
+        ?
+        ?
+Corporate Limit OK?
+        ?
+        ?? No ? RC61
+        ?
+        ?
+Limit Validation Passed
+
+Most Common Response Codes
+ConditionRCInsufficient Credit51Cash Limit Exceeded61Daily Withdrawal Exceeded61Transaction Limit Exceeded61Overlimit Not Allowed51Supplementary Limit Exceeded61
+Why This Engine Is the Heart of FAS
+Every issuer ultimately carries credit risk.
+The Limit Engine is the protection layer that ensures:
+Approved Exposure
+      ?
+Permitted Exposure
+Without:
+* Shadow Balances
+* Memo Posting
+* Available Credit Calculations
+* Cash Limits
+an issuer could approve far more spending than intended before clearing and posting occur.
+
+Next Recommended Topic
+Now that we understand how FAS decides whether funds are available, the next major authorization gate is:
+Velocity Control & Spending Pattern Engine
+This covers:
+* Daily transaction counts
+* Daily amount limits
+* ATM frequency controls
+* POS frequency controls
+* E-commerce velocity
+* Merchant velocity
+* Country velocity
+* Time-window controls
+* Behavioral spending patterns
+This is where many RC 61, RC 65, and fraud-prevention declines originate.
+
+Excellent.
+We now move into one of the most powerful risk-control mechanisms inside FAS.
+The Limit Engine answers:
+Can the customer afford this transaction?
+The Velocity Engine answers:
+Is the customer's behavior normal?
+A customer may have:
+Available Credit = 100,000
+and still be declined because their transaction pattern appears suspicious.
+
+FAS Velocity Control & Spending Pattern Engine
+
+1. What is Velocity Control?
+Velocity Control measures:
+How often?
+
+How much?
+
+How quickly?
+
+How many times?
+a card/account is being used within a defined period.
+
+Think of it as:
+Behavioral Risk Control
+rather than
+Financial Risk Control
+
+2. Position in Authorization Flow
+Card Validation
+      ?
+Account Validation
+      ?
+Product Controls
+      ?
+Limit Engine
+      ?
+Velocity Engine
+      ?
+Fraud Engine
+      ?
+Authorization Decision
+
+Notice:
+Funds Available
+does NOT guarantee approval.
+Velocity controls may still decline.
+
+3. Why Velocity Controls Exist
+Example:
+Customer normally performs:
+2 Purchases Per Day
+
+Suddenly:
+20 Purchases
+in 10 Minutes
+
+Credit may exist.
+But behavior is abnormal.
+Velocity engine intervenes.
+
+4. Velocity Data Structures
+FAS maintains counters.
+Instead of scanning all transactions every time.
+Example:
+POS Count Today
+
+ATM Count Today
+
+E-Commerce Count Today
+
+Daily Spend Amount
+
+Weekly Spend Amount
+Stored in:
+Velocity Records
+
+5. Velocity Dimensions
+Most issuers use multiple dimensions.
+Count
+
+Amount
+
+Time
+
+Merchant
+
+Country
+
+Channel
+
+Each may have separate rules.
+
+6. Transaction Count Velocity
+Most common rule.
+Example:
+Max POS Transactions
+
+20 Per Day
+
+Current Count:
+20
+New transaction arrives.
+
+Result:
+Decline
+
+Typical Response:
+RC 65
+Activity Limit Exceeded
+
+7. Transaction Amount Velocity
+Instead of count.
+Controls:
+Total Spend Amount
+
+Example:
+Daily Spend Limit
+
+50,000
+
+Already Spent:
+48,000
+New Purchase:
+5,000
+
+Result:
+Decline
+
+8. Daily Velocity Controls
+Most common.
+Tracks:
+Count Per Day
+
+Amount Per Day
+
+Examples:
+ATM = 5/day
+
+POS = 20/day
+
+E-Commerce = 10/day
+
+Counters reset daily.
+
+9. Weekly Velocity Controls
+Tracks:
+Weekly Amount
+
+Weekly Count
+
+Example:
+Max Spend
+
+200,000/week
+
+Useful for:
+Corporate Cards
+
+High Limit Products
+
+10. Monthly Velocity Controls
+Used for:
+Prepaid
+
+Gift Cards
+
+Travel Cards
+
+Example:
+Monthly Load Amount
+
+100,000
+
+Exceeded:
+Decline
+
+11. ATM Velocity Controls
+One of the most common fraud controls.
+Example:
+ATM Transactions
+
+Max 5/day
+
+Customer:
+Withdrawal #6
+
+Response:
+RC 61
+or
+RC 65
+depending on issuer configuration.
+
+12. ATM Amount Velocity
+Example:
+ATM Daily Amount
+
+10,000
+
+Already Withdrawn:
+9,500
+Request:
+1,000
+
+Decline.
+
+13. POS Velocity Controls
+Tracks:
+Retail Purchases
+
+Example:
+Max POS Transactions
+
+50/day
+
+Protects against:
+Compromised Card Usage
+
+14. E-Commerce Velocity Controls
+Very important.
+Card-not-present fraud often occurs online.
+
+Example:
+Max Online Transactions
+
+10/hour
+
+Current:
+10
+New Purchase:
+Decline
+
+15. Time Window Controls
+More advanced.
+Example:
+5 Transactions
+
+within
+
+5 Minutes
+
+Rule triggered.
+
+Possible response:
+RC 05
+Do Not Honor
+
+Fraud suspected.
+
+16. Merchant Velocity Controls
+Tracks usage at specific merchants.
+
+Example:
+10 Purchases
+
+Same Merchant
+
+within
+
+30 Minutes
+
+Potential:
+Card Testing Attack
+
+Decline.
+
+17. MCC Velocity Controls
+Tracks usage by Merchant Category.
+
+Example:
+Cash Equivalent MCCs
+such as:
+Money Transfer
+
+Crypto
+
+Gambling
+
+Multiple attempts.
+Velocity triggered.
+
+Decline.
+
+18. Country Velocity Controls
+One of the most useful controls.
+Tracks:
+Countries Used
+
+Example:
+India
+
+Five minutes later:
+Brazil
+
+Velocity anomaly detected.
+
+May escalate to:
+Fraud Engine
+
+19. Geographic Velocity
+Example:
+Bangalore
+
+One minute later:
+London
+
+Impossible travel.
+
+Flag raised.
+
+20. Channel Velocity
+Tracks by transaction channel.
+Examples:
+ATM
+
+POS
+
+E-Commerce
+
+Wallet
+
+Rule:
+ATM + E-Commerce Spike
+within short period.
+
+Potential fraud.
+
+21. Velocity Counters
+Internally FAS maintains counters.
+Example:
+ATM Count Today = 4
+
+POS Count Today = 12
+
+E-Commerce Count Today = 7
+
+Transaction arrives.
+Counter updated.
+
+Rules evaluated.
+
+No database scan required.
+
+22. Velocity Engine Processing Flow
+Transaction Arrives
+         ?
+         ?
+Identify Channel
+         ?
+         ?
+Read Counters
+         ?
+         ?
+Apply Rules
+         ?
+         ?
+Threshold Exceeded?
+         ?
+      Yes ? No
+         ?
+         ?
+Decline / Continue
+
+23. Soft Velocity vs Hard Velocity
+Hard Velocity
+Immediate decline.
+Example:
+ATM > 5/day
+
+Response:
+RC 61
+
+Soft Velocity
+Flag only.
+Transaction still approved.
+Example:
+Spend Amount
+
+80% Of Threshold
+
+Fraud monitoring alerted.
+
+24. Velocity and Fraud Engine Relationship
+Important distinction.
+Velocity:
+Rule-Based
+Examples:
+5 ATMs/day
+
+20 POS/day
+
+Fraud Engine:
+Behavior-Based
+Examples:
+Unusual Country
+
+Risk Score
+
+Behavioral Model
+
+Velocity often feeds Fraud Engine.
+
+25. Real Production Example
+Customer:
+ATM Withdrawal #1
+ATM Withdrawal #2
+ATM Withdrawal #3
+ATM Withdrawal #4
+ATM Withdrawal #5
+
+Rule:
+Max ATM
+
+5/day
+
+Attempt:
+ATM Withdrawal #6
+
+Velocity Counter:
+Current = 5
+
+Result:
+Velocity Failure
+
+Response:
+RC 61
+
+Authorization Stops.
+
+26. E-Commerce Fraud Example
+Customer normally:
+1 Online Purchase/day
+
+Suddenly:
+15 Transactions
+
+in
+
+3 Minutes
+
+Velocity Engine:
+Threshold Exceeded
+
+Action:
+Decline
+or
+Send To Fraud Review
+
+27. Corporate Card Example
+Rule:
+Employee
+
+Max Transactions
+
+25/day
+
+Current:
+24
+
+New Transaction:
+#25
+Approved.
+
+Next:
+#26
+Declined.
+
+28. Typical Velocity-Based Response Codes
+ConditionResponseDaily Count Exceeded65Daily Amount Exceeded65ATM Frequency Exceeded61 / 65Merchant Velocity05Country Velocity05Fraud-Related Velocity05Excessive Activity65
+29. Internal Velocity Decision Tree
+Read Velocity Counters
+         ?
+         ?
+Daily Count OK?
+         ?
+      No ? Yes
+         ?
+       RC65
+         ?
+         ?
+Daily Amount OK?
+         ?
+      No ? Yes
+         ?
+       RC65
+         ?
+         ?
+ATM Limits OK?
+         ?
+      No ? Yes
+         ?
+       RC61
+         ?
+         ?
+Merchant Velocity OK?
+         ?
+      No ? Yes
+         ?
+      RC05
+         ?
+         ?
+Country Velocity OK?
+         ?
+      No ? Yes
+         ?
+      RC05
+         ?
+         ?
+Velocity Passed
+
+Why Velocity Controls Are Critical
+Without velocity controls:
+Valid Card
+
+Valid Account
+
+Available Credit
+could still allow:
+100 Transactions
+
+in 10 Minutes
+after card compromise.
+Velocity controls are the first behavioral defense layer before advanced fraud scoring.
+
+FAS Journey So Far
+We have now covered:
+? FAS Architecture Overview
+? FAS Components & Internal Modules
+? FAS Data Structures & Real-Time Records
+? End-to-End Authorization Flow
+? ISO8583 Processing
+? Decision Tree & Response Codes
+? Card Validation Engine
+? Account Validation Engine
+? Product Control Engine
+? Limit Management Engine
+? Velocity Control Engine
+
+Next Recommended Topic
+The next logical topic is:
+Fraud Detection & Risk Scoring Engine
+This is where FAS moves beyond fixed thresholds and starts evaluating:
+* Risk Scores
+* Behavioral Patterns
+* Country Risk
+* Merchant Risk
+* Device Risk
+* Card Testing Detection
+* Velocity Aggregation
+* Fraud Rule Matrices
+* Real-Time Risk Decisions
+This engine is typically responsible for many:
+RC 05
+Do Not Honor
+responses and represents the issuer's most advanced real-time authorization controls.
+Excellent.
+This topic is where VisionPLUS FAS, EMV, ISO8583, and HSMs all converge.
+Given your background in:
+* HSM architecture
+* EMV
+* ISO8583
+* Payment switches
+* Acquiring & Issuing
+this is one of the most important FAS topics because it explains exactly how FAS performs cryptographic validation without ever exposing sensitive card secrets.
+
+FAS PIN, CVV, EMV & HSM Integration Layer
+Big Picture
+During authorization, FAS is responsible for making decisions.
+However:
+FAS
+?
+Cryptographic Processor
+FAS delegates all cryptographic operations to the HSM.
+
+Architecture:
+Authorization Request
+         ?
+         ?
+        FAS
+         ?
+         ?
+        HSM
+         ?
+         ?
+Cryptographic Validation
+         ?
+         ?
+Result Returned
+         ?
+         ?
+Authorization Decision
+
+1. Why FAS Uses an HSM
+Card systems must never expose:
+PINs
+
+PVKs
+
+CVKs
+
+Master Keys
+
+EMV Keys
+
+Cryptograms
+inside application code.
+Therefore:
+FAS
+handles business logic,
+while:
+HSM
+handles cryptography.
+
+2. Security Domains in FAS
+The security layer generally consists of:
+PIN Validation
+
+CVV Validation
+
+EMV Validation
+
+Key Translation
+
+Key Management
+All performed through HSM calls.
+
+3. PIN Verification Overview
+One of the most common HSM operations.
+
+Authorization contains:
+DE52
+Encrypted PIN Block.
+Example:
+PIN Block = 16 Hex Bytes
+
+FAS cannot read the PIN.
+Instead:
+FAS
+ ?
+HSM
+ ?
+PIN Verification
+
+4. PIN Verification Flow
+Transaction:
+Cardholder enters PIN
+
+POS encrypts PIN.
+
+Authorization contains:
+DE52 PIN Block
+
+FAS sends:
+PIN Block
+PAN
+PVK Reference
+to HSM.
+
+HSM verifies PIN.
+Returns:
+VALID
+or
+INVALID
+
+5. PIN Offset Method
+Classic issuer PIN storage method.
+
+Cardholder PIN:
+1234
+
+HSM calculates:
+Natural PIN
+using PVK.
+
+Stored:
+PIN Offset
+
+Verification compares:
+Entered PIN
+against:
+Calculated PIN + Offset
+
+6. PVV Method
+Used heavily in Visa environments.
+PVV:
+PIN Verification Value
+
+Stored:
+PVV
+instead of actual PIN.
+
+Verification performed inside HSM.
+
+7. PIN Try Counter
+Maintained for security.
+Example:
+Max PIN Attempts = 3
+
+Attempts:
+1 Wrong
+
+2 Wrong
+
+3 Wrong
+
+Result:
+RC 75
+PIN Tries Exceeded
+
+Card may become blocked.
+
+8. Online PIN vs Offline PIN
+Critical EMV distinction.
+
+Online PIN
+PIN
+ ?
+Issuer
+ ?
+HSM
+Validated by FAS/HSM.
+
+Offline PIN
+PIN
+ ?
+Chip
+Validated by EMV card.
+No issuer validation.
+
+9. CVV Validation Overview
+Protects against counterfeit cards.
+
+Types:
+CVV1
+
+CVV2
+
+iCVV
+
+Each serves different purposes.
+
+10. CVV1 Validation
+Typically used in:
+Magstripe Transactions
+
+Data comes from:
+Track 2
+
+FAS extracts:
+PAN
+
+Expiry
+
+Service Code
+
+Sent to HSM.
+
+HSM recalculates CVV1.
+
+Comparison:
+Match
+or
+Fail
+
+Failure suggests:
+Counterfeit Card
+
+11. CVV2 Validation
+Used for:
+E-Commerce
+
+Customer manually enters:
+3-digit CVV2
+
+Authorization includes:
+CVV2 Value
+
+FAS:
+HSM Validation
+
+Result:
+Pass / Fail
+
+12. iCVV Validation
+EMV-specific security feature.
+
+Stored inside chip.
+Not same as CVV1.
+
+Purpose:
+Detect Track Data Cloning
+
+Example:
+Chip data copied to magstripe.
+
+iCVV mismatch.
+
+Fraud detected.
+
+13. HSM and CVV Keys
+Typical keys:
+CVKA
+
+CVKB
+
+Used for:
+CVV Generation
+
+CVV Validation
+
+Keys never leave HSM.
+
+14. EMV Authorization Overview
+This is where things become interesting.
+EMV transactions contain:
+DE55
+
+Contains TLV tags.
+Example:
+9F26 ARQC
+
+95 TVR
+
+82 AIP
+
+9F10 IAD
+
+9F36 ATC
+
+15. ARQC Validation
+Most important EMV authorization operation.
+ARQC:
+Authorization Request Cryptogram
+
+Generated by chip.
+
+Purpose:
+Prove Card Authenticity
+
+Flow:
+Card
+ ?
+Generates ARQC
+ ?
+Authorization
+ ?
+FAS
+ ?
+HSM
+ ?
+Validation
+
+16. ARQC Verification Process
+HSM receives:
+ARQC
+
+ATC
+
+PAN
+
+Session Data
+
+HSM derives:
+Session Key
+
+Recalculates cryptogram.
+
+Comparison:
+Match
+or
+Fail
+
+Failure:
+Decline
+
+17. ARPC Generation
+After approval.
+Issuer must respond.
+Generates:
+Authorization Response Cryptogram
+
+Flow:
+Approve
+ ?
+Generate ARPC
+ ?
+Send To Card
+
+Chip verifies issuer authenticity.
+
+18. ATC Validation
+EMV Tag:
+9F36
+
+Application Transaction Counter.
+
+Expected:
+100
+
+101
+
+102
+
+Unexpected:
+95
+
+96
+
+97
+
+Possible replay attack.
+
+Fraud score increases.
+
+19. TVR Analysis
+EMV Tag:
+95
+Terminal Verification Results.
+
+Shows:
+Offline PIN Failed
+
+Chip Read Error
+
+Fallback Occurred
+
+Used by issuer risk logic.
+
+20. Issuer Script Processing
+Issuer can send commands to chip.
+Examples:
+Block Application
+
+Change Parameters
+
+Reset Counters
+
+Delivered through:
+Issuer Scripts
+
+21. DUKPT Processing
+Common in ATM/POS environments.
+DUKPT:
+Derived Unique Key Per Transaction
+
+Benefits:
+Unique Key
+Per Transaction
+
+Used for:
+PIN Encryption
+
+22. Key Hierarchy Overview
+Typical hierarchy:
+LMK
+ ?
+ ??? ZMK
+ ?
+ ??? TMK
+ ?
+ ??? PVK
+ ?
+ ??? CVK
+ ?
+ ??? EMV Keys
+
+LMK
+Local Master Key
+Inside HSM only.
+Never exported.
+
+ZMK
+Zone Master Key
+Used for key exchange.
+
+PVK
+PIN Verification Key
+Used for PIN verification.
+
+CVK
+Card Verification Key
+Used for CVV generation.
+
+23. Typical HSM Commands Used by FAS
+Examples:
+PIN Verify
+
+CVV Verify
+
+ARQC Verify
+
+ARPC Generate
+
+Key Translate
+Actual command names vary by vendor:
+* Thales
+* Futurex
+* Atalla
+* Utimaco
+
+24. Real Authorization Example
+Incoming EMV Purchase:
+MTI 0100
+
+DE52 PIN Block
+
+DE55 EMV Data
+
+Card Validation:
+Pass
+
+PIN Validation:
+HSM Verify PIN
+Pass.
+
+EMV Validation:
+ARQC Validation
+Pass.
+
+Limit Validation:
+Pass
+
+Fraud Validation:
+Pass
+
+Approval:
+RC 00
+
+Issuer generates:
+ARPC
+
+Response:
+MTI 0110
+returned to network.
+
+25. Common Security-Related Response Codes
+ConditionRCIncorrect PIN55PIN Tries Exceeded75Expired Card54Security Violation63Suspected Fraud59 / 05Do Not Honor05
+End-to-End Security Flow
+Authorization
+      ?
+      ?
+PIN Verification
+      ?
+      ?
+CVV Validation
+      ?
+      ?
+EMV Validation
+      ?
+      ?
+ARQC Validation
+      ?
+      ?
+Fraud Evaluation
+      ?
+      ?
+Authorization Decision
+      ?
+      ?
+ARPC Generation
+      ?
+      ?
+Response
+
+Why This Topic Matters
+For a VisionPLUS authorization architect, this layer is where:
+ISO8583
++
+EMV
++
+HSM
++
+FAS
+become one integrated real-time authorization platform.
+Many complex production issues ultimately trace back to:
+* PIN verification failures
+* PVV/PIN Offset mismatches
+* CVV validation failures
+* ARQC validation failures
+* Key synchronization problems
+* HSM connectivity issues
+* EMV script processing issues
+
+Next Recommended Topic
+At this point we have covered the core authorization engines. The next major FAS topic should be:
+STIP (Stand-In Processing) & Authorization Resiliency Architecture
+This includes:
+* What happens when CMS is down
+* What happens when FAS loses connectivity
+* Visa STIP
+* Mastercard Stand-In
+* Local issuer stand-in
+* Emergency limits
+* Offline approvals
+* Network fallback logic
+* Authorization continuity during outages
+This is one of the most important operational and architecture topics in large issuer environments.
+Excellent.
+This is one of the most important topics in issuer processing because it answers a critical business question:
+What happens when the issuer cannot be reached?
+Without STIP, every outage would mean:
+No ATM Withdrawals
+
+No POS Purchases
+
+No E-Commerce Transactions
+
+No Card Usage
+For a large bank, even a few minutes of outage can affect thousands of transactions.
+
+STIP (Stand-In Processing) & Authorization Resiliency Architecture
+
+1. What is STIP?
+STIP stands for:
+Stand-In Processing
+It is the capability to make authorization decisions when the normal issuer authorization path is unavailable.
+
+Normal flow:
+Merchant
+   ?
+Network
+   ?
+FAS
+   ?
+Decision
+
+During outage:
+Merchant
+   ?
+Network
+   ?
+STIP
+   ?
+Decision
+
+2. Why STIP Exists
+Card networks require high availability.
+Typical issuer target:
+99.99%
+or higher.
+Even with:
+* Redundant FAS servers
+* DR sites
+* Load balancing
+outages still occur.
+Examples:
+Network Failure
+
+Database Failure
+
+FAS Failure
+
+Data Center Failure
+
+Communication Failure
+
+3. Types of STIP
+Three major categories exist.
+Issuer STIP
+
+Network STIP
+
+Local Processor STIP
+
+4. Issuer STIP
+Implemented within issuer infrastructure.
+
+Architecture:
+Issuer Network
+      ?
+      ?
+Issuer STIP Engine
+      ?
+      ?
+Decision
+
+Advantages:
+Issuer Controls Rules
+
+Issuer Limits
+
+Issuer Policies
+
+5. Network STIP
+Implemented by payment networks.
+Examples:
+* Visa STIP
+* Mastercard Stand-In
+
+Flow:
+Merchant
+     ?
+Network
+     ?
+Issuer Unavailable
+     ?
+Network STIP
+     ?
+Decision
+
+Network temporarily acts as issuer.
+
+6. Local Processor STIP
+Some processors maintain:
+Local Authorization Cache
+
+Allows limited approval decisions.
+Useful for:
+Domestic Switches
+
+Regional Processors
+
+7. When STIP is Triggered
+Common triggers:
+
+Issuer Timeout
+Example:
+0100 Sent
+
+No response received.
+Example:
+Timeout > 2 Seconds
+
+STIP activated.
+
+FAS Unavailable
+Example:
+Authorization Server Down
+
+STIP activated.
+
+Network Communication Failure
+Example:
+Link Failure
+
+Network uses STIP.
+
+Data Center Failure
+Example:
+Primary Site Down
+
+STIP continues processing.
+
+8. STIP Data Sources
+A major challenge:
+No Real-Time CMS Access
+during outage.
+
+Therefore STIP uses:
+Cached Limits
+
+Historical Usage
+
+Card Status Tables
+
+Emergency Rules
+
+9. STIP Decision Philosophy
+STIP is designed to be:
+Safe
+not
+Perfect
+
+Goal:
+Minimize Customer Impact
+
+Minimize Fraud Exposure
+
+10. Emergency Credit Limits
+Common STIP rule.
+Example:
+Normal:
+Credit Limit
+
+50,000
+
+STIP:
+Emergency Limit
+
+5,000
+
+Even without issuer access:
+Small Transactions
+can continue.
+
+11. Floor Limits
+Classic STIP mechanism.
+
+Rule:
+Approve Automatically
+Below Threshold
+
+Example:
+Floor Limit
+
+1,000
+
+Transaction:
+500
+Approved.
+
+Transaction:
+10,000
+Declined.
+
+12. STIP Approval Rules
+Typical logic:
+Card Active
+
+Amount Below Threshold
+
+No Hot Card
+
+No Excessive Usage
+
+Approve.
+
+13. STIP Decline Rules
+Immediate decline if:
+Lost Card
+
+Stolen Card
+
+Fraud Block
+
+Hot Card
+
+Even during outage.
+
+14. Hot Card Files
+Critical for STIP.
+Networks maintain:
+Hot Card Database
+
+Contains:
+Lost
+
+Stolen
+
+Blocked Cards
+
+Used when issuer unavailable.
+
+15. STIP Counters
+Networks maintain:
+STIP Transaction Count
+
+STIP Amount Total
+
+Example:
+Max STIP Transactions
+
+3
+
+After threshold:
+Decline
+
+16. STIP Amount Controls
+Example:
+Max STIP Amount
+
+5,000
+
+Transaction:
+6,000
+
+Declined.
+
+17. Visa STIP Example
+Scenario:
+Issuer Timeout
+
+Visa receives:
+0100
+
+Visa checks:
+Card Status
+
+Historical Profile
+
+STIP Limits
+
+Decision:
+Approve
+or
+Decline
+
+Response sent to merchant.
+
+18. Mastercard Stand-In Example
+Similar concept.
+
+Checks:
+Risk Profile
+
+Previous Authorizations
+
+Stand-In Rules
+
+Produces authorization decision.
+
+19. Offline EMV vs STIP
+Often confused.
+
+Offline EMV
+Decision made by:
+Chip
+
+No issuer involvement.
+
+STIP
+Decision made by:
+Network
+
+or
+
+Issuer Stand-In
+
+Not the same thing.
+
+20. Authorization During Outage
+Normal:
+POS
+ ?
+Network
+ ?
+FAS
+ ?
+Approve
+
+Outage:
+POS
+ ?
+Network
+ ?
+Issuer Timeout
+ ?
+STIP
+ ?
+Approve
+
+Customer often never notices.
+
+21. Resiliency Architecture
+Large issuer architecture:
+          Load Balancer
+                ?
+      ?????????????????????
+      ?                   ?
+      ?                   ?
+
+    FAS-A             FAS-B
+
+      ?                   ?
+      ?????????????????????
+                ?
+
+           CMS Cluster
+
+                ?
+
+            HSM Pair
+
+Goal:
+Avoid STIP Activation
+through redundancy.
+
+22. Disaster Recovery Architecture
+Example:
+Primary Site
+
+Failure:
+Switch To DR Site
+
+If DR unavailable:
+Network STIP
+becomes last line of defense.
+
+23. Authorization Reconciliation After STIP
+Important operational process.
+
+Issuer returns online.
+
+Network provides:
+STIP Authorization History
+
+Issuer reconciles:
+Approvals
+
+Declines
+
+Amounts
+
+against actual account status.
+
+24. STIP Risks
+Major risk:
+Approving Without Real-Time Data
+
+Example:
+Actual balance:
+49,500
+of:
+50,000 Limit
+
+STIP may not know.
+
+Approves:
+5,000
+
+Overlimit exposure created.
+
+25. STIP Risk Mitigation
+Therefore STIP uses:
+Low Limits
+
+Hot Card Files
+
+Velocity Controls
+
+Historical Profiles
+
+to reduce exposure.
+
+26. Real Production Example
+Card:
+Credit Limit
+
+20,000
+
+Issuer becomes unavailable.
+
+Customer purchase:
+800
+
+Network STIP rules:
+Max STIP Amount
+
+1,000
+
+Card not hot.
+
+Decision:
+Approve
+
+Later issuer recovers.
+
+Transaction reconciled.
+
+27. Typical STIP Decision Tree
+Issuer Reachable?
+        ?
+     Yes?No
+        ?
+        ?
+     Normal Auth
+        ?
+        ?
+      STIP
+        ?
+        ?
+Card Hot?
+        ?
+     Yes?No
+        ?
+    Decline
+        ?
+        ?
+Amount Below Limit?
+        ?
+     No ? Yes
+        ?
+    Decline
+        ?
+        ?
+Velocity OK?
+        ?
+     No ? Yes
+        ?
+    Decline
+        ?
+        ?
+Approve
+
+28. Common STIP Response Outcomes
+ConditionResultAmount Below STIP LimitApproveAmount Above STIP LimitDeclineHot CardDeclineExcessive STIP UsageDeclineIssuer TimeoutSTIP InvokedIssuer RecoveryReconciliation
+Architect's View of STIP
+Think of STIP as:
+Business Continuity
+for Card Authorizations
+Without STIP:
+Issuer Outage
+=
+Card Program Outage
+With STIP:
+Issuer Outage
+?
+Immediate Customer Impact
+
+FAS Coverage Status
+We have now covered the major real-time authorization engines:
+? Card Validation
+? Account Validation
+? Product Controls
+? Limit Management
+? Velocity Controls
+? Fraud Detection
+? PIN/CVV/EMV/HSM Integration
+? STIP & Authorization Resiliency
+
+Next Recommended Topic
+The next major FAS area is:
+Authorization Reversals, Incrementals, Completions & Exception Processing
+This covers:
+* MTI 0400 / 0420 Reversals
+* Authorization Hold Release
+* Partial Reversals
+* Incremental Authorizations
+* Hotel Processing
+* Car Rental Processing
+* Fuel Pre-Authorization
+* Completion Messages
+* Unmatched Authorizations
+* Duplicate Detection
+* Expired Holds
+This is one of the most operationally important areas because it directly impacts:
+Available Credit
+
+Shadow Balances
+
+Customer Complaints
+
+Settlement Matching
+and is heavily used in issuer production support.
+
+Excellent.
+This topic is where many issuer production issues originate.
+Most customer complaints like:
+My available credit is wrong
+
+I was charged twice
+
+The hotel released my room but funds are still blocked
+
+The fuel station held more money than expected
+
+My transaction was reversed but limit not restored
+usually involve:
+Reversals
+
+Incrementals
+
+Completions
+
+Exception Processing
+rather than core authorization failures.
+
+Authorization Reversals, Incrementals, Completions & Exception Processing
+
+1. Why This Topic Exists
+Remember:
+Authorization
+?
+Financial Posting
+FAS creates:
+Authorization Hold
+not a financial transaction.
+
+Example:
+Hotel Authorization
+
+10,000
+creates:
+Pending Hold
+
+The actual charge may be:
+8,500
+or
+12,000
+later.
+
+Therefore additional message types are required.
+
+2. Authorization Lifecycle
+A complete lifecycle may look like:
+Authorization
+      ?
+      ?
+Incremental Auth
+      ?
+      ?
+Completion
+      ?
+      ?
+Clearing
+      ?
+      ?
+Posting
+
+Or:
+Authorization
+      ?
+      ?
+Reversal
+      ?
+      ?
+Hold Released
+
+3. Authorization Hold Refresher
+Initial state:
+Credit Limit
+
+20,000
+
+Purchase:
+5,000
+
+FAS:
+Creates Hold
+
+Available Credit:
+15,000
+
+No financial posting yet.
+
+PART 1 — AUTHORIZATION REVERSALS
+
+4. What is a Reversal?
+A reversal removes or reduces an authorization hold.
+
+Purpose:
+Undo Previous Authorization
+
+Common ISO messages:
+0400
+
+0420
+
+5. Why Reversals Occur
+Examples:
+Customer Cancelled
+
+Terminal Timeout
+
+Duplicate Authorization
+
+Merchant Error
+
+Communication Failure
+
+6. Full Reversal Example
+Authorization:
+5,000
+
+Hold created:
+5,000
+
+Merchant cancels.
+
+Reversal:
+5,000
+
+Result:
+Hold Removed
+
+Available Credit restored.
+
+7. Partial Reversal Example
+Authorization:
+10,000
+
+Merchant only needs:
+7,000
+
+Partial reversal:
+3,000
+
+Remaining hold:
+7,000
+
+8. Reversal Matching
+FAS must locate original authorization.
+Uses:
+STAN
+
+RRN
+
+Approval Code
+
+DE90
+
+Match found:
+Hold Updated
+
+No match:
+Exception Queue
+
+PART 2 — INCREMENTAL AUTHORIZATIONS
+
+9. What is an Incremental Authorization?
+Increase an existing authorization.
+
+Original:
+5,000
+
+Need more funds:
++2,000
+
+New exposure:
+7,000
+
+10. Why Incrementals Exist
+Very common in:
+Hotels
+
+Car Rentals
+
+Cruise Lines
+
+Hospitality
+
+Final amount often unknown initially.
+
+11. Hotel Example
+Check-in:
+Room Estimate
+
+10,000
+
+Authorization:
+10,000
+
+Guest extends stay.
+
+Incremental:
++5,000
+
+Exposure:
+15,000
+
+12. Car Rental Example
+Initial rental:
+5,000
+
+Additional days:
+2,000
+
+Incremental auth:
++2,000
+
+Total:
+7,000
+
+PART 3 — COMPLETION PROCESSING
+
+13. What is Completion?
+Completion finalizes an authorization.
+
+Authorization:
+Estimated Amount
+
+Completion:
+Actual Amount
+
+14. Completion Example
+Authorization:
+100
+
+Restaurant:
+Tip Added
+
+Actual:
+120
+
+Completion:
+120
+
+15. Fuel Example
+Preauthorization:
+500
+
+Actual fuel purchase:
+220
+
+Completion:
+220
+
+Remaining:
+280 Released
+
+16. Completion Matching
+Completion must locate:
+Original Authorization
+
+Using:
+RRN
+
+Approval Code
+
+STAN
+
+Then:
+Convert Hold
+into final transaction amount.
+
+PART 4 — AUTHORIZATION EXPIRY
+
+17. Why Holds Expire
+Not all merchants send:
+Completion
+
+Clearing
+
+If hold never expires:
+Customer Loses Available Credit
+
+18. Hold Expiry Rules
+Typical examples:
+Merchant TypeHold DurationRetail7 DaysFuel3 DaysHotel30 DaysCar Rental30 DaysIssuer configurable.
+
+19. Expiry Processing
+Hold:
+5,000
+
+No completion.
+
+No clearing.
+
+Expiry reached.
+
+FAS:
+Remove Hold
+
+Available credit restored.
+
+PART 5 — DUPLICATE DETECTION
+
+20. Duplicate Authorization Problem
+Network timeout.
+Merchant retries.
+
+Customer sees:
+Same Purchase
+
+Authorized Twice
+
+Potential double hold.
+
+21. Duplicate Detection Logic
+FAS compares:
+PAN
+
+Amount
+
+Merchant
+
+Time Window
+
+STAN
+
+Possible duplicate:
+Reject
+
+Or Ignore
+
+22. Duplicate Completion Detection
+Completion arrives twice.
+
+FAS detects:
+Already Processed
+
+Prevents double posting.
+
+PART 6 — UNMATCHED TRANSACTIONS
+
+23. Unmatched Completion
+Completion arrives.
+
+Original authorization missing.
+
+Example:
+Completion = 5,000
+
+No authorization found.
+
+Result:
+Exception Processing
+
+24. Unmatched Reversal
+Reversal arrives.
+
+Original auth missing.
+
+Result:
+Exception Queue
+
+Manual review may be required.
+
+PART 7 — EXCEPTION PROCESSING
+
+25. Exception Queues
+Common operational queues:
+Unmatched Reversal
+
+Unmatched Completion
+
+Duplicate Auth
+
+Duplicate Completion
+
+Expired Hold
+
+Support teams review these daily.
+
+26. Common Production Issues
+
+Hold Not Released
+Cause:
+Missing Reversal
+
+Available Credit Incorrect
+Cause:
+Expired Hold Not Processed
+
+Double Hold
+Cause:
+Duplicate Authorization
+
+Double Charge
+Cause:
+Duplicate Completion
+
+27. Real Production Scenario
+Hotel:
+Authorization:
+10,000
+
+Guest extends stay.
+Incremental:
+5,000
+
+Total hold:
+15,000
+
+Final bill:
+12,000
+
+Completion:
+12,000
+
+FAS:
+Release 3,000
+
+Customer exposure:
+12,000
+Correct.
+
+28. Complete Authorization Event Model
+Authorization
+      ?
+      ?????? Reversal
+      ?
+      ?????? Incremental
+      ?
+      ?????? Completion
+      ?
+      ?????? Clearing
+      ?
+      ?????? Expiry
+
+29. FAS Data Structures Used
+This topic heavily uses:
+Pending Authorization Records
+
+Shadow Balances
+
+Authorization History
+
+Matching Records
+
+Exception Records
+
+30. Response Codes Commonly Seen
+EventTypical ResultSuccessful ReversalHold ReleasedDuplicate AuthIgnore/RejectDuplicate CompletionRejectUnmatched CompletionExceptionUnmatched ReversalExceptionIncremental ApprovedHold IncreasedCompletion ApprovedHold Converted
+Why This Topic Is Critical
+Most issuer support cases involving:
+Available Credit
+
+Pending Holds
+
+Hotel Transactions
+
+Fuel Transactions
+
+Car Rentals
+
+Double Authorizations
+are rooted in this area.
+Understanding reversals, incrementals, completions, expiry, and exception handling is essential for operating a real-world issuer platform.
+
+Recommended Next FAS Topic
+We have now covered nearly all core authorization processing.
+The next major area is:
+Authorization-to-Clearing Bridge & Settlement Interaction
+This covers:
+* Authorization vs Clearing
+* Dual Message Systems
+* Clearing File Processing
+* Matching Logic
+* Posting Eligibility
+* Unmatched Clearing
+* Forced Posting
+* Financial Adjustments
+* Settlement Reconciliation
+* How FAS hands transactions to CMS/FAS Posting
+This is the bridge between:
+Real-Time FAS
+        ?
+Batch CMS Posting
+and completes the full transaction lifecycle from authorization to financial posting.
+Excellent.
+This topic is where many people new to VisionPLUS get confused because they assume:
+Authorization = Charge
+But in card processing:
+Authorization ? Financial Posting
+The authorization system (FAS) and the financial accounting system (CMS/FAS Posting Interface) are connected through the Authorization-to-Clearing Bridge.
+This bridge is one of the most important concepts in issuer processing.
+
+Authorization-to-Clearing Bridge & Settlement Interaction
+
+1. The Complete Transaction Lifecycle
+Let's start with the full picture.
+Cardholder Purchase
+        ?
+        ?
+Authorization (FAS)
+        ?
+        ?
+Authorization Hold
+        ?
+        ?
+Clearing
+        ?
+        ?
+Matching
+        ?
+        ?
+Settlement
+        ?
+        ?
+Posting
+        ?
+        ?
+Billing
+This is the complete issuer transaction journey.
+
+2. Authorization vs Clearing
+Authorization
+Purpose:
+Can this transaction be approved?
+FAS checks:
+* Card status
+* Account status
+* Limits
+* Fraud
+* Velocity
+Result:
+Approve / Decline
+
+Clearing
+Purpose:
+What amount should actually be posted?
+Clearing creates the financial obligation.
+
+Example:
+Authorization:
+100 AED
+Restaurant adds tip:
+20 AED
+Clearing:
+120 AED
+Posted amount becomes:
+120 AED
+
+3. Dual Message vs Single Message Systems
+Understanding this distinction is critical.
+
+Dual Message System
+Used by:
+* Visa Credit
+* Mastercard Credit
+Flow:
+Authorization
+        ?
+        ?
+Clearing Later
+
+Example:
+Day 1
+Authorization
+Day 2
+Clearing
+
+Single Message System
+Common in:
+* Debit
+* ATM
+Flow:
+Authorization
++
+Financial Posting
+same message.
+
+4. Authorization Hold Creation
+Example:
+Credit Limit
+
+50,000
+Purchase:
+5,000
+
+FAS creates:
+Authorization Hold
+
+5,000
+
+Available credit:
+45,000
+
+No financial posting yet.
+
+5. What is Clearing?
+Clearing is the formal financial record sent by the network.
+Typical clearing data includes:
+PAN
+
+Amount
+
+Merchant
+
+Currency
+
+RRN
+
+Approval Code
+
+Settlement Data
+
+Networks send clearing files or clearing messages.
+
+6. Clearing Arrival
+Example:
+Authorization:
+5,000
+Approved yesterday.
+
+Today:
+Clearing arrives.
+5,000
+
+FAS must determine:
+Which authorization
+does this belong to?
+
+7. Authorization Matching Engine
+One of the most important post-auth functions.
+
+FAS matches:
+Clearing Record
+to
+Authorization Record
+
+8. Matching Keys
+Common matching fields:
+PAN
+
+RRN
+
+Approval Code
+
+Merchant
+
+Amount
+
+Authorization Date
+
+Example:
+Authorization:
+RRN = 123456789
+
+Clearing:
+RRN = 123456789
+
+Match found.
+
+9. Matched Clearing
+Best-case scenario.
+Authorization:
+5,000
+
+Clearing:
+5,000
+
+FAS:
+Remove Hold
+and
+Generate Posting Record
+
+10. Clearing Amount Differences
+Very common.
+
+Authorization:
+100
+
+Restaurant Tip:
+20
+
+Clearing:
+120
+
+Difference:
+20
+must be handled.
+
+11. Tolerance Processing
+Issuers define:
+Tolerance %
+
+Example:
+15%
+
+Authorization:
+100
+
+Clearing:
+110
+
+Within tolerance.
+Automatically accepted.
+
+12. Excessive Difference
+Authorization:
+100
+
+Clearing:
+500
+
+Difference too large.
+
+Result:
+Exception
+or
+Forced Posting Review
+
+13. Unmatched Clearing
+Major operational topic.
+
+Clearing arrives.
+
+No authorization found.
+
+Possible reasons:
+Authorization Expired
+
+Authorization Missing
+
+Offline Transaction
+
+Data Issue
+
+14. Forced Posting
+Issuer may still post.
+
+Example:
+Authorization Missing
+
+Clearing valid.
+
+Issuer performs:
+Forced Posting
+
+Creates financial transaction without authorization match.
+
+15. Authorization Expired Before Clearing
+Example:
+Authorization:
+5,000
+
+Hold expires after:
+7 Days
+
+Day 10:
+Clearing arrives.
+
+FAS:
+No Active Hold
+but may still post.
+
+16. Partial Clearing
+Authorization:
+10,000
+
+Final amount:
+8,000
+
+FAS:
+Post 8,000
+
+Release 2,000
+
+17. Multiple Clearing Records
+Common in hospitality.
+
+Authorization:
+20,000
+
+Clearing #1:
+12,000
+
+Clearing #2:
+5,000
+
+Remaining:
+3,000 Released
+
+18. Currency Conversion
+Authorization:
+USD
+
+Settlement:
+INR
+
+Clearing contains:
+Settlement Amount
+
+Settlement Currency
+
+Used during posting.
+
+19. Settlement Processing
+Settlement is network-to-issuer financial reconciliation.
+
+Example:
+Visa
+calculates:
+Net Debit
+
+Net Credit
+
+Fees
+
+Interchange
+
+Issuer receives settlement position.
+
+20. Settlement File Components
+Typically include:
+Transaction Amount
+
+Currency
+
+Interchange
+
+Assessments
+
+Adjustments
+
+Fees
+
+21. FAS to CMS Bridge
+Critical VisionPLUS concept.
+
+FAS handles:
+Authorization
+
+Matching
+
+Clearing
+
+CMS handles:
+Financial Accounting
+
+Balances
+
+Billing
+
+Statements
+
+Bridge:
+FAS
+ ?
+ ?
+Posting Interface
+ ?
+ ?
+CMS
+
+22. Posting Record Generation
+After successful match:
+FAS generates:
+Financial Posting Record
+
+Contains:
+Account
+
+Amount
+
+Currency
+
+Merchant
+
+Posting Date
+
+Sent to CMS.
+
+23. CMS Posting
+CMS updates:
+Current Balance
+
+Outstanding Balance
+
+Interest Base
+
+Billing Cycle Data
+
+This is when the customer actually owes money.
+
+24. Real Example
+Day 1:
+Authorization:
+2,000
+
+Available Credit:
+Reduced by 2,000
+
+Day 3:
+Clearing arrives.
+2,000
+
+FAS:
+Match Authorization
+
+Release Hold
+
+Create Posting Record
+
+CMS:
+Post 2,000
+
+Customer balance increases.
+
+25. Exception Queues
+Operations teams monitor:
+Unmatched Clearing
+
+Duplicate Clearing
+
+Amount Mismatch
+
+Expired Authorizations
+
+Forced Posting
+
+These are some of the most common daily operational queues.
+
+26. Reconciliation Controls
+Issuer reconciles:
+Authorization Totals
+
+Clearing Totals
+
+Settlement Totals
+
+Ensures:
+Nothing Lost
+
+Nothing Duplicated
+
+27. Common Production Problems
+Hold Still Present
+Cause:
+Clearing Not Matched
+
+Double Posting
+Cause:
+Duplicate Clearing
+
+Balance Wrong
+Cause:
+Forced Posting
+
+Amount Difference
+
+Adjustment Error
+
+Available Credit Wrong
+Cause:
+Authorization Hold Not Released
+
+28. End-to-End Bridge Architecture
+Authorization
+      ?
+      ?
+Authorization Hold
+      ?
+      ?
+Clearing Received
+      ?
+      ?
+Matching Engine
+      ?
+      ?
+Matched?
+   ???????
+   ?     ?
+ Yes     No
+   ?     ?
+   ?     ?
+Posting  Exception
+   ?
+   ?
+CMS
+   ?
+   ?
+Billing
+
+29. Key VisionPLUS Components Involved
+ComponentResponsibilityFASAuthorizationAuthorization HistoryStores approvalsMatching EngineAuth-to-clearing matchingSettlement InterfaceSettlement processingPosting InterfaceCreates posting recordsCMSFinancial accountingBilling EngineStatement generation
+Why This Topic Matters
+This bridge is where:
+Real-Time World
+meets
+Financial Accounting World
+Many issuer production incidents occur not because authorization failed, but because:
+* Clearing did not match
+* Posting did not occur
+* Holds were not released
+* Settlement differences existed
+Understanding this bridge is essential before moving into the financial side of VisionPLUS.
+
+Recommended Next Topic
+At this point, we have covered almost the entire FAS authorization lifecycle.
+The next major FAS topic should be:
+FAS–CMS Posting Interface & Financial Transaction Generation
+This is where we dive into:
+* Financial Transaction Records (FTRs)
+* Transaction Codes
+* Posting Interfaces
+* Debit/Credit Mapping
+* Memo-to-Financial Conversion
+* Real-Time vs Batch Posting
+* GL Impact
+* Merchant Category Posting Rules
+* Reversals & Financial Adjustments
+* How FAS feeds CMS for Billing and Interest
+This topic serves as the final bridge from the authorization world into the CMS accounting and billing world.
+
+Excellent.
+This topic is the final bridge between FAS (Authorization World) and CMS (Accounting World).
+Everything we have learned so far in FAS ultimately exists for one purpose:
+Create Financial Transactions
+that can be posted to the cardholder account.
+Up to now:
+Authorization
+Hold
+Incremental
+Completion
+Clearing
+have all been operational events.
+Now we move into:
+Accounting Events
+which impact:
+* Customer Balance
+* Statement Balance
+* Interest Calculation
+* Fees
+* General Ledger
+* Regulatory Reporting
+
+FAS–CMS Posting Interface & Financial Transaction Generation
+
+1. The Big Picture
+The complete VisionPLUS transaction lifecycle:
+Cardholder Purchase
+         ?
+         ?
+FAS Authorization
+         ?
+         ?
+Authorization Hold
+         ?
+         ?
+Clearing
+         ?
+         ?
+Matching
+         ?
+         ?
+Financial Transaction Generation
+         ?
+         ?
+CMS Posting
+         ?
+         ?
+Billing
+         ?
+         ?
+Interest
+         ?
+         ?
+Statement
+This topic focuses on the middle section:
+Clearing
+      ?
+Financial Transaction Generation
+      ?
+CMS Posting
+
+2. Why FAS Cannot Directly Update Account Balances
+FAS is designed for:
+Real-Time Decisions
+not accounting.
+FAS handles:
+Authorizations
+
+Reversals
+
+Fraud Decisions
+
+EMV
+
+PIN Verification
+CMS handles:
+Accounting
+
+Balances
+
+Interest
+
+Fees
+
+Statements
+Therefore a bridge is required.
+
+3. Posting Interface Architecture
+Typical architecture:
+         FAS
+
+          ?
+
+Authorization History
+Matching Engine
+Clearing Engine
+
+          ?
+          ?
+
+ Posting Interface
+
+          ?
+          ?
+
+         CMS
+
+          ?
+
+Account Ledger
+Billing
+Interest
+
+4. What is a Financial Transaction?
+After clearing is matched:
+FAS creates:
+Financial Transaction Record
+Often called:
+FTR
+(Financial Transaction Record)
+
+This becomes the official accounting transaction.
+
+5. FTR Contents
+Typical fields:
+Account Number
+
+Card Number
+
+Transaction Amount
+
+Currency
+
+Merchant
+
+Posting Date
+
+Transaction Code
+
+Debit/Credit Indicator
+
+Reference Numbers
+
+Example:
+Account      50001234
+
+Amount       5,000
+
+Currency     AED
+
+Merchant     Carrefour
+
+Tran Code    Purchase
+
+DR/CR        Debit
+
+6. Transaction Codes (Tran Codes)
+One of the most important concepts in VisionPLUS.
+Every financial transaction receives a code.
+Examples:
+TransactionTran CodePurchasePurchase CodeCash AdvanceCash CodePaymentPayment CodeFeeFee CodeInterestInterest CodeAdjustmentAdjustment CodeReversalReversal Code
+7. Why Transaction Codes Matter
+Transaction codes determine:
+Balance Type
+
+Interest Treatment
+
+Statement Description
+
+GL Mapping
+
+Same amount.
+Different transaction code.
+Different accounting treatment.
+
+Example:
+1,000 Purchase
+and
+1,000 Payment
+have opposite effects.
+
+8. Debit vs Credit Mapping
+CMS requires:
+DR
+
+CR
+classification.
+
+Purchase:
+Debit
+Increases balance.
+
+Payment:
+Credit
+Reduces balance.
+
+Example:
+EventDR/CRPurchaseDRCash AdvanceDRFeeDRInterestDRPaymentCRRefundCR
+9. Memo-to-Financial Conversion
+One of the most important concepts.
+
+Authorization creates:
+Memo Record
+
+Memo means:
+Potential Exposure
+
+Clearing creates:
+Financial Transaction
+
+Therefore:
+Memo
+      ?
+Financial
+conversion occurs.
+
+10. Example
+Authorization:
+5,000
+
+Hold created.
+
+No balance impact.
+
+Clearing arrives.
+
+FTR generated:
+Purchase
+5,000
+
+CMS posts:
+Balance +5,000
+
+11. Posting Date vs Transaction Date
+Critical billing concept.
+
+Transaction Date:
+Customer Purchased
+
+Posting Date:
+CMS Posted
+
+Example:
+Purchase
+
+01-Jan
+
+Posted:
+03-Jan
+
+Interest calculations often use:
+Posting Date
+
+12. Merchant Category Mapping
+Posting treatment may depend on MCC.
+Example:
+Cash Equivalent MCC
+
+Posted as:
+Cash Advance
+instead of retail purchase.
+
+Interest behavior changes.
+
+13. Purchase Posting Example
+Authorization:
+2,000
+
+Clearing:
+2,000
+
+FTR:
+Purchase
+
+CMS:
+Current Balance
+
++2,000
+
+14. Cash Advance Posting Example
+ATM Withdrawal:
+5,000
+
+FTR:
+Cash Advance
+
+CMS:
+Cash Balance
+
++5,000
+
+May begin accruing interest immediately.
+
+15. Fee Posting Example
+Fee generated:
+Late Fee
+
+500
+
+FTR:
+Fee Transaction
+
+CMS:
+Fee Balance
+
++500
+
+16. Interest Posting Example
+Billing cycle calculates:
+Interest
+
+325
+
+Generated as:
+Interest Transaction
+
+Posted into account.
+
+17. Refund Posting Example
+Merchant refund:
+1,000
+
+FTR:
+Credit Adjustment
+
+CMS:
+Balance -1,000
+
+18. Reversal Posting Example
+Original purchase:
+2,000
+
+Merchant reversal:
+2,000
+
+Posting:
+Credit Transaction
+
+Net effect:
+Zero
+
+19. Batch Posting Architecture
+Traditional VisionPLUS implementation:
+FAS
+ ?
+Posting File
+ ?
+CMS Batch Posting
+
+Usually processed:
+Nightly
+or multiple cycles daily.
+
+20. Near Real-Time Posting
+Modern implementations:
+FAS
+ ?
+Posting Interface
+ ?
+CMS
+within seconds.
+
+Balances updated faster.
+
+21. Financial Transaction Lifecycle
+Clearing
+     ?
+     ?
+Generate FTR
+     ?
+     ?
+Assign Tran Code
+     ?
+     ?
+Determine DR/CR
+     ?
+     ?
+Create Posting Record
+     ?
+     ?
+CMS Posting
+
+22. Posting Validation
+Before CMS accepts posting:
+Checks include:
+Account Exists
+
+Currency Valid
+
+Tran Code Valid
+
+Posting Date Valid
+
+Failures enter:
+Posting Exceptions
+
+23. Posting Exception Queue
+Common operational queue.
+Examples:
+Invalid Account
+
+Invalid Tran Code
+
+Currency Error
+
+Duplicate Posting
+
+Requires investigation.
+
+24. General Ledger (GL) Mapping
+One FTR may generate multiple GL entries.
+Example:
+Purchase:
+Customer Receivable +5,000
+
+GL:
+DR Customer Receivable
+
+CR Settlement Account
+
+CMS drives accounting entries.
+
+25. Multi-Currency Posting
+Authorization:
+USD 100
+
+Settlement:
+INR 8,500
+
+CMS stores:
+Original Amount
+
+Settlement Amount
+
+Conversion Information
+
+26. Real Production Example
+Day 1:
+Authorization:
+10,000
+
+Hold:
+10,000
+
+Day 2:
+Clearing:
+10,000
+
+FAS:
+Match Authorization
+
+Generate Purchase FTR
+
+Posting Interface:
+Send To CMS
+
+CMS:
+Current Balance
+
++10,000
+
+Billing:
+Transaction Eligible
+for Statement
+
+27. End-to-End FAS–CMS Integration Model
+Authorization
+       ?
+       ?
+Authorization Hold
+       ?
+       ?
+Clearing
+       ?
+       ?
+Matching
+       ?
+       ?
+FTR Generation
+       ?
+       ?
+Posting Interface
+       ?
+       ?
+CMS Ledger Update
+       ?
+       ?
+Billing
+       ?
+       ?
+Interest
+       ?
+       ?
+Statement
+
+28. Common Production Issues
+Hold Released But Not Posted
+Cause:
+Posting Interface Failure
+
+Transaction Posted Twice
+Cause:
+Duplicate Clearing
+
+Duplicate FTR
+
+Balance Incorrect
+Cause:
+Posting Exception
+
+Interest Wrong
+Cause:
+Incorrect Tran Code
+
+Statement Missing Transaction
+Cause:
+Posting Date Missed Cycle Cutoff
+
+29. Key Files & Records Involved
+ComponentPurposeAuthorization HistoryStores approvalsPending Authorization FileHolds memo transactionsClearing FileNetwork financial recordsMatching FileAuth/Clearing linkageFTR FileFinancial transaction generationPosting Interface FileCMS inputCMS Transaction LedgerFinancial accounting
+Why This Topic Matters
+This is the exact point where:
+FAS
+stops being an authorization system and becomes a feeder into:
+CMS
+for:
+* Balances
+* Interest
+* Fees
+* Statements
+* Accounting
+* General Ledger
+Without understanding the Posting Interface, it is impossible to understand how a card transaction eventually appears on a customer statement.
+
+Next Recommended Topic
+We have now essentially completed the full FAS transaction lifecycle.
+The next major advanced FAS topic should be:
+FAS Authorization Files, VSAM Structures & Internal Data Stores
+This is a highly technical VisionPLUS topic covering:
+* CAF (Card Authorization File)
+* Account Authorization File
+* Velocity Files
+* Hot Card Files
+* Authorization History Files
+* Pending Authorization Files
+* Stand-In Files
+* Cross-Reference Files
+* VSAM KSDS/ESDS Structures
+* Real-time file access patterns
+This topic is particularly valuable for architects, production support engineers, and migration/conversion teams because it explains where FAS actually stores and retrieves authorization data internally.
+Excellent.
+We are now moving into the internals of VisionPLUS FAS, where we stop talking about business processing and start talking about:
+How FAS actually stores and retrieves data.
+This is the area that separates:
+Functional Users
+from
+FAS Architects
+Production Support Engineers
+Performance Tuning Teams
+Migration Teams
+because every authorization decision ultimately comes from data stored in internal FAS files.
+
+FAS Authorization Files, VSAM Structures & Internal Data Stores
+
+1. Why FAS Uses Specialized Files
+Remember the authorization SLA:
+100–300 milliseconds
+for a complete decision.
+FAS cannot perform:
+Multiple Database Joins
+Large Table Scans
+Complex Queries
+for every transaction.
+Instead it uses:
+Pre-optimized online files
+designed for extremely fast retrieval.
+Historically these are implemented using:
+VSAM KSDS
+VSAM ESDS
+Memory Tables
+Control Tables
+on z/OS.
+
+2. FAS Data Storage Philosophy
+FAS stores only information required for:
+Real-Time Authorization
+Examples:
+Card Status
+
+Available Limits
+
+Velocity Counters
+
+Hot Card Information
+
+Authorization History
+
+Items like:
+Statements
+
+Billing Cycles
+
+Interest Calculations
+
+General Ledger
+belong to CMS.
+
+3. Major FAS Internal Files
+A typical FAS environment contains:
+CAF
+Account Authorization File
+Authorization History File
+Pending Authorization File
+Velocity File
+Hot Card File
+Stand-In File
+Cross Reference File
+Control Files
+These files work together to make an authorization decision.
+
+4. Card Authorization File (CAF)
+The most important FAS file.
+Think of CAF as:
+Card-Centric Authorization Master
+
+Purpose:
+Store card-level authorization information.
+
+Typical contents:
+PAN
+
+Card Status
+
+Expiry Date
+
+Product
+
+Card Block Codes
+
+PIN Verification Data
+
+Fraud Indicators
+
+5. CAF Example Record
+Example:
+PAN              455612XXXXXX1234
+
+Status           Active
+
+Expiry           1228
+
+Product          Gold
+
+PIN Flag         Y
+
+Block Code       Blank
+
+During authorization:
+Incoming PAN
+      ?
+      ?
+CAF Lookup
+      ?
+      ?
+Card Validation
+
+6. CAF Access Pattern
+Lookup key:
+PAN
+
+VSAM KSDS:
+Key = PAN
+
+Retrieval time:
+Milliseconds
+
+7. Account Authorization File (AAF)
+While CAF is card-centric:
+AAF is account-centric.
+
+Contains:
+Account Number
+
+Credit Limit
+
+Available Credit
+
+Account Status
+
+Delinquency Status
+
+Charge-Off Indicators
+
+Used by:
+Account Validation Engine
+
+Limit Engine
+
+8. AAF Example
+Account      50001234
+
+Credit Limit 100,000
+
+Available    72,500
+
+Status       Active
+
+Delq         Current
+
+Authorization flow:
+CAF
+ ?
+Get Account
+ ?
+AAF Lookup
+
+9. Card-to-Account Cross Reference File
+Important because:
+Card
+?
+Account
+in VisionPLUS.
+
+One account may have:
+Primary Card
+
+Supplementary Card
+
+Virtual Card
+
+Cross-reference file maps:
+PAN
+   ?
+Account
+
+10. Authorization History File
+Stores previously approved transactions.
+Purpose:
+Fraud Analysis
+
+Duplicate Detection
+
+Research
+
+Typical contents:
+PAN
+
+Amount
+
+Merchant
+
+Approval Code
+
+Date/Time
+
+Response Code
+
+11. Authorization History Usage
+Used for:
+Duplicate Detection
+
+Velocity Calculations
+
+Customer Disputes
+
+Fraud Review
+
+Example:
+Same Merchant
+
+Same Amount
+
+Within Seconds
+Potential duplicate.
+
+12. Pending Authorization File
+One of the most important operational files.
+Stores:
+Authorization Holds
+
+Examples:
+Hotel Hold
+
+Fuel Hold
+
+Retail Hold
+
+Not yet posted.
+
+13. Pending Authorization Record
+PAN
+
+Amount
+
+Auth Date
+
+Approval Code
+
+Expiry Date
+
+Merchant
+
+Used to calculate:
+Available Credit
+
+14. Pending Authorization Example
+Credit Limit:
+50,000
+
+Pending Holds:
+5,000
+
+2,000
+
+Available Credit:
+43,000
+
+Computed using pending auth file.
+
+15. Velocity File
+Contains counters used by Velocity Engine.
+Examples:
+Daily POS Count
+
+Daily ATM Count
+
+Daily Spend Amount
+
+Weekly Spend Amount
+
+Allows instant evaluation.
+
+16. Velocity Record Example
+ATM Count Today       3
+
+POS Count Today      12
+
+Online Count Today    5
+
+Daily Amount      18,000
+
+Authorization updates these counters in real time.
+
+17. Hot Card File
+Critical security file.
+Contains:
+Lost Cards
+
+Stolen Cards
+
+Blocked Cards
+
+Fraud Cards
+
+Used before approval.
+
+18. Hot Card Processing
+Authorization:
+PAN Received
+
+Check:
+Hot Card File
+
+Match found:
+Immediate Decline
+
+No further processing required.
+
+19. Fraud/Risk Files
+Support Fraud Engine.
+Examples:
+Risk Scores
+
+Country Risk
+
+Merchant Risk
+
+Fraud Flags
+
+Used to calculate:
+Risk Decision
+
+20. Stand-In File
+Used during STIP.
+Contains:
+Emergency Limits
+
+Card Status
+
+Stand-In Parameters
+
+Allows processing when issuer unavailable.
+
+21. Control Files
+Contain authorization rules.
+Examples:
+Response Code Tables
+
+Product Rules
+
+Country Tables
+
+MCC Tables
+
+Fraud Parameters
+
+Think of these as:
+Configuration Files
+for FAS.
+
+22. VSAM Fundamentals
+Most traditional VisionPLUS implementations use:
+VSAM
+Virtual Storage Access Method.
+
+Common file types:
+KSDS
+
+ESDS
+
+RRDS
+
+23. KSDS
+Key Sequenced Data Set.
+Most common FAS structure.
+
+Characteristics:
+Indexed
+
+Fast Lookup
+
+Direct Access
+
+Example:
+PAN ? CAF Record
+
+24. ESDS
+Entry Sequenced Data Set.
+Records stored sequentially.
+
+Common usage:
+History Files
+
+Audit Files
+
+25. RRDS
+Relative Record Data Set.
+Access by record number.
+
+Less common in authorization processing.
+
+26. Internal Authorization Lookup Flow
+Incoming PAN
+        ?
+        ?
+CAF Lookup
+        ?
+        ?
+Cross Reference
+        ?
+        ?
+AAF Lookup
+        ?
+        ?
+Velocity File
+        ?
+        ?
+Hot Card File
+        ?
+        ?
+Decision
+
+27. Performance Considerations
+Authorization volume:
+Millions of Transactions Daily
+
+Therefore:
+File Design
+=
+Performance
+
+Poorly designed files cause:
+High Response Times
+
+Timeouts
+
+Network Retries
+
+28. Common Production Issues
+VSAM Record Not Found
+Result:
+Card Not Located
+
+File Corruption
+Result:
+Authorization Failure
+
+Index Problem
+Result:
+Slow Response Time
+
+Synchronization Issue
+Example:
+CAF Updated
+
+AAF Not Updated
+
+Produces inconsistent decisions.
+
+29. Disaster Recovery Considerations
+Critical files replicated to:
+Primary Site
+
+DR Site
+
+Includes:
+CAF
+
+AAF
+
+Velocity
+
+Pending Auth
+
+Hot Card
+
+to support uninterrupted authorization.
+
+30. End-to-End Internal Data Access Model
+Authorization Request
+          ?
+          ?
+        CAF
+          ?
+          ?
+ Cross Reference
+          ?
+          ?
+        AAF
+          ?
+          ?
+ Velocity File
+          ?
+          ?
+ Hot Card File
+          ?
+          ?
+ Fraud Files
+          ?
+          ?
+ Authorization Decision
+          ?
+          ?
+ Auth History Update
+          ?
+          ?
+ Pending Auth Update
+
+Production Support View
+When an authorization fails, support teams typically investigate in this order:
+1. CAF
+2. Cross Reference
+3. AAF
+4. Pending Authorization File
+5. Velocity File
+6. Hot Card File
+7. Authorization History
+because nearly every authorization decision can be traced back to one of these files.
+
+FAS Coverage Status
+At this stage, we have covered:
+? FAS Architecture
+? Real-Time Records
+? Authorization Engines
+? Fraud & Risk
+? EMV/HSM Integration
+? STIP
+? Reversals & Completions
+? Clearing & Settlement
+? FAS–CMS Posting Interface
+? FAS Internal Files & VSAM Structures
+
+
+Excellent choice.
+We have already discussed EMV briefly inside the PIN, CVV, EMV & HSM Integration Layer, but that was from the FAS/HSM perspective.
+Now we're going to study EMV as a complete ecosystem.
+This is one of the most important topics in modern card payments because almost every chip card transaction today follows EMV rules.
+
+EMV Authorization Processing Deep Dive
+1. What is EMV?
+EMV stands for:
+Europay
+Mastercard
+Visa
+Originally developed jointly by these organizations.
+Today EMV is governed by the EMVCo standards.
+
+Why EMV Was Created
+Magstripe cards were vulnerable to:
+Card Cloning
+
+Counterfeit Cards
+
+Track Data Theft
+Magstripe data is static.
+Example:
+Track 2 Data
+remains unchanged from transaction to transaction.
+If stolen:
+Fraudster can clone card
+
+EMV introduced:
+Dynamic Cryptography
+meaning every transaction generates unique security data.
+
+2. EMV Architecture
+An EMV transaction involves:
+Chip Card
+     ?
+Terminal
+     ?
+Acquirer
+     ?
+Network
+     ?
+Issuer FAS
+     ?
+HSM
+
+Each component contributes to authentication.
+
+3. EMV Transaction Goals
+EMV attempts to answer:
+Is the card genuine?
+
+Is the terminal genuine?
+
+Is the issuer genuine?
+
+Has the transaction been altered?
+
+4. High-Level EMV Flow
+Card Inserted
+      ?
+      ?
+Application Selection
+      ?
+      ?
+Read Card Data
+      ?
+      ?
+Offline Authentication
+      ?
+      ?
+Cardholder Verification
+      ?
+      ?
+Terminal Risk Management
+      ?
+      ?
+Generate ARQC
+      ?
+      ?
+Online Authorization
+      ?
+      ?
+Issuer Response
+      ?
+      ?
+Generate ARPC
+      ?
+      ?
+Transaction Complete
+
+5. Application Selection
+A chip card may contain multiple applications.
+Examples:
+Visa Credit
+
+Visa Debit
+
+Mastercard Credit
+
+Domestic Scheme
+Each application has an:
+AID
+Application Identifier
+
+Example:
+A0000000031010
+(Visa Credit)
+
+Terminal selects the appropriate application.
+
+6. Reading Card Data
+Terminal reads EMV tags from the chip.
+Examples:
+TagMeaning5APAN5F24Expiry Date82AIP84DF Name95TVR9ATransaction Date9F02Amount9F10IAD9F26ARQC9F36ATC
+These tags later become part of:
+DE55
+inside ISO8583.
+
+7. Application Interchange Profile (AIP)
+Tag:
+82
+
+Defines capabilities supported by the card.
+Examples:
+Offline PIN
+
+DDA
+
+CDA
+
+Issuer Authentication
+
+Think of AIP as:
+Card Capability Matrix
+
+8. Application File Locator (AFL)
+Tells terminal:
+Which records to read
+from the chip.
+
+Without AFL:
+Terminal wouldn't know
+where EMV data resides.
+
+9. Offline Data Authentication (ODA)
+One of EMV's core security features.
+Purpose:
+Verify card authenticity
+before contacting issuer.
+
+Types:
+SDA
+
+DDA
+
+CDA
+
+10. SDA (Static Data Authentication)
+Oldest method.
+Uses:
+Static Digital Signature
+
+Weakness:
+Static Data
+can be copied.
+
+Today SDA is largely obsolete.
+
+11. DDA (Dynamic Data Authentication)
+Much stronger.
+Uses:
+Public Key Cryptography
+
+Card generates:
+Dynamic Challenge Response
+
+Prevents simple cloning.
+
+12. CDA (Combined DDA/Application Cryptogram)
+Modern preferred method.
+Combines:
+Card Authentication
++
+Transaction Authentication
+
+Provides strongest protection.
+
+13. Cardholder Verification Method (CVM)
+Purpose:
+Verify Cardholder
+
+Methods:
+Offline PIN
+
+Online PIN
+
+Signature
+
+No CVM
+
+Stored in:
+CVM List
+on the chip.
+
+14. Offline PIN
+Validated:
+Card ? Chip
+
+Issuer not involved.
+
+Advantages:
+Works Offline
+
+Disadvantages:
+Issuer Cannot Validate PIN
+
+15. Online PIN
+Validated:
+Cardholder
+      ?
+Terminal
+      ?
+Issuer
+      ?
+HSM
+
+This is what we covered earlier in the PIN verification section.
+
+16. Terminal Verification Results (TVR)
+Tag:
+95
+
+One of the most important EMV tags.
+TVR records:
+What happened
+during transaction.
+
+Examples:
+Offline PIN Failed
+
+Chip Read Error
+
+Expired Application
+
+Fallback Used
+
+Issuer uses TVR for risk decisions.
+
+17. Transaction Status Information (TSI)
+Tag:
+9B
+
+Records:
+What checks were performed.
+
+Example:
+Offline Authentication Performed
+
+Cardholder Verification Performed
+
+18. Application Transaction Counter (ATC)
+Tag:
+9F36
+
+Counter increments:
+Every Transaction
+
+Example:
+1001
+
+1002
+
+1003
+
+Issuer uses ATC to detect:
+Replay Attacks
+
+Card Cloning
+
+19. Issuer Application Data (IAD)
+Tag:
+9F10
+
+Contains issuer-specific EMV information.
+
+Examples:
+CVR
+
+Risk Flags
+
+Issuer Parameters
+
+Highly important for issuer authorization.
+
+20. Generate AC Command
+This is where EMV becomes issuer-centric.
+Card generates:
+Application Cryptogram
+
+Possible outputs:
+AAC
+
+TC
+
+ARQC
+
+21. AAC (Application Authentication Cryptogram)
+Meaning:
+Offline Decline
+
+Card itself declines.
+
+Issuer never receives authorization.
+
+22. TC (Transaction Certificate)
+Meaning:
+Offline Approval
+
+Common for:
+Transit
+
+Low Value Transactions
+
+Issuer may never be contacted.
+
+23. ARQC (Authorization Request Cryptogram)
+Most important issuer EMV concept.
+Meaning:
+Online Authorization Required
+
+Card creates:
+Dynamic Cryptogram
+using:
+Transaction Data
+
+ATC
+
+Keys
+
+ARQC proves:
+Card Is Genuine
+
+24. DE55 Construction
+Terminal packages EMV tags.
+Example:
+9F26 ARQC
+
+9F36 ATC
+
+95 TVR
+
+82 AIP
+
+9F10 IAD
+
+Placed into:
+ISO8583 DE55
+
+Sent to issuer.
+
+25. FAS Receives EMV Authorization
+Flow:
+Terminal
+      ?
+Network
+      ?
+FAS
+
+FAS extracts:
+DE55
+
+Parses all EMV tags.
+
+26. ARQC Validation
+FAS sends:
+ARQC
+
+PAN
+
+ATC
+
+Transaction Data
+to HSM.
+
+HSM:
+Derives Session Keys
+and recalculates cryptogram.
+
+If:
+ARQC Match
+Card is authenticated.
+
+If:
+ARQC Fail
+Transaction usually declines.
+
+27. Issuer Risk Management
+After ARQC validation:
+Issuer evaluates:
+TVR
+
+ATC
+
+Amount
+
+Fraud Rules
+
+Velocity Rules
+
+Now FAS performs all the authorization engines we've already studied.
+
+28. Issuer Authentication
+After approval:
+Issuer must prove:
+I am the legitimate issuer.
+
+Generated:
+ARPC
+Authorization Response Cryptogram
+
+29. ARPC Generation
+FAS ? HSM:
+Generate ARPC
+
+ARPC returned to card.
+
+Card validates issuer authenticity.
+
+30. Issuer Scripts
+Issuer may send commands to the chip.
+Examples:
+Block Card
+
+Change Parameters
+
+Update Counters
+
+Delivered via:
+Issuer Script Templates
+inside authorization response.
+
+31. Complete EMV Online Flow
+Insert Card
+      ?
+Read Chip Data
+      ?
+Offline Authentication
+      ?
+Cardholder Verification
+      ?
+Terminal Risk Management
+      ?
+Generate ARQC
+      ?
+Build DE55
+      ?
+Send 0100
+      ?
+FAS Parses DE55
+      ?
+ARQC Validation
+      ?
+Fraud & Risk Checks
+      ?
+Approval Decision
+      ?
+Generate ARPC
+      ?
+Send 0110
+      ?
+Card Verifies ARPC
+      ?
+Transaction Complete
+
+Why EMV Is Critical for Issuers
+Before EMV:
+Static Data
+After EMV:
+Dynamic Cryptography
+EMV dramatically reduced:
+* Counterfeit fraud
+* Card cloning
+* Track-data replay attacks
+and fundamentally changed how issuer authorization works.
+

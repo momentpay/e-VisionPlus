@@ -17,8 +17,12 @@ defmodule VmuCore.CDM.BehavioralRescorer do
 
   require Logger
   import Ecto.Query
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.InternalGlPoster}
-  alias VmuCore.Shared.{ParameterEngine, AccountStateCoordinator}
+  # AccountStateCoordinator lives in CMS, not Shared — the old alias made
+  # apply_action(:suspend | :upgrade | :downgrade) crash at runtime with
+  # UndefinedFunctionError (found during module documentation review 2026-07-04)
+  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.InternalGlPoster,
+                 CMS.AccountStateCoordinator}
+  alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
 
   @impl Oban.Worker

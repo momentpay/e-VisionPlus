@@ -74,12 +74,21 @@ defmodule VmuCore.CTA.CardActivation do
   end
 
   defp do_activate(account_id, method) do
+    # Fetch the embossing order to sync emboss_name back to the CMS account
+    emboss_name = fetch_emboss_name(account_id)
+
+    account_updates =
+      [account_status: "ACTIVE", updated_at: NaiveDateTime.utc_now()]
+      |> then(fn updates ->
+        if emboss_name, do: Keyword.put(updates, :emboss_name, emboss_name), else: updates
+      end)
+
     Repo.update_all(
       from(a in Account, where: a.account_id == ^account_id),
-      set: [account_status: "ACTIVE", updated_at: NaiveDateTime.utc_now()]
+      set: account_updates
     )
 
-    # Update embossing order status
+    # Mark embossing order as DELIVERED
     Repo.update_all(
       from(o in "cta_embossing_orders",
         where: o.account_id == ^account_id and o.order_status in ["DISPATCHED", "DELIVERED"]),
@@ -88,7 +97,29 @@ defmodule VmuCore.CTA.CardActivation do
 
     AccountStateCoordinator.refresh(account_id)
 
-    Logger.info("[CTA] Card activated: account=#{account_id} method=#{method}")
+    Logger.info("[CTA] Card activated: account=#{account_id} method=#{method} emboss_name=#{emboss_name}")
     :ok
+  end
+
+  # Pull the cardholder_name from the most recent embossing order for this account.
+  # Returns nil if no order exists (card will be activated without emboss_name sync).
+  defp fetch_emboss_name(account_id) do
+    result =
+      Repo.one(
+        from o in "cta_embossing_orders",
+          where: o.account_id == ^account_id,
+          order_by: [desc: o.inserted_at],
+          limit: 1,
+          select: o.cardholder_name
+      )
+
+    case result do
+      name when is_binary(name) and byte_size(name) > 0 ->
+        # Uppercase and truncate to 26 chars per card emboss spec
+        name |> String.upcase() |> String.slice(0, 26)
+
+      _ ->
+        nil
+    end
   end
 end

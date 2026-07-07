@@ -8,7 +8,7 @@ defmodule VmuCore.HCS.CompanyOnboarding do
   alias VmuCore.CMS.Account
   alias VmuCore.Repo
   import Ecto.Query
-  import Decimal, as: D
+  alias Decimal, as: D
 
   @doc """
   Creates a corporate parent CMS account and the HCS Company master record.

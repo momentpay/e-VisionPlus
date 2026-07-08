@@ -403,7 +403,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
 
       <%= if @mode == :list do %>
         <.render_list blocks={@blocks} banks={@banks} logos={@logos}
-          myself={@myself} filter_bank={@filter_bank} filter_logo={@filter_logo} />
+          myself={@myself} filter_bank={@filter_bank} filter_logo={@filter_logo} can_edit={@can_edit} />
       <% else %>
         <.render_form
           form_data={@form_data} overrides={@overrides}

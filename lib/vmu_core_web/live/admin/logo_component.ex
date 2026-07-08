@@ -463,7 +463,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
 
       <%= case @mode do %>
         <% :list -> %>
-          <.render_list logos={@logos} banks={@banks} myself={@myself} filter_bank={@filter_bank} />
+          <.render_list logos={@logos} banks={@banks} myself={@myself} filter_bank={@filter_bank} can_edit={@can_edit} />
         <% :plans -> %>
           <.render_plans
             plans_logo={@plans_logo}
@@ -473,6 +473,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
             plan_result={@plan_result}
             plan_form_open={@plan_form_open}
             myself={@myself}
+            can_edit={@can_edit}
           />
         <% _ -> %>
           <.render_form

@@ -269,7 +269,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       <% end %>
 
       <%= if @mode == :list do %>
-        <.render_list orgs={@orgs} myself={@myself} />
+        <.render_list orgs={@orgs} myself={@myself} can_edit={@can_edit} />
       <% else %>
         <.render_form
           form_data={@form_data}

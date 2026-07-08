@@ -87,6 +87,34 @@ defmodule VmuCore.FAS.HSM do
               :ok | {:error, :wrong_pin} | {:error, :pin_blocked} | {:error, :pin_not_set}
 
   @doc """
+  Change the stored PIN for a card, verifying the old PIN first (CTA self-service
+  channels — IVR/app/web/ATM).
+
+  Unlike `verify_pin/3`, this takes **plaintext PIN digits** rather than an
+  encoded ISO 9564 PIN block: self-service channels only ever know the card's
+  `pan_token` (this system never stores or transmits the raw PAN outside a
+  live network authorization message), so there is no PAN available to decode
+  an ISO block against. The calling channel is responsible for capturing and
+  validating PIN digit input; this callback hashes and stores them the same
+  way `verify_pin/3` reads them, so a PIN changed here is immediately what
+  authorization-time `verify_pin/3` checks against.
+
+  - `pan_token` — SHA-256 hex of PAN (same lookup key `verify_pin/3` uses)
+  - `old_pin`   — current plaintext PIN digits, to verify before changing
+  - `new_pin`   — new plaintext PIN digits to store
+
+  Returns:
+    `:ok`                        — old PIN verified, new PIN stored, try counter reset
+    `{:error, :wrong_pin}`       — old PIN incorrect; try counter incremented
+    `{:error, :pin_blocked}`     — try counter exceeded max; card PIN locked
+    `{:error, :pin_not_set}`     — no PIN record found for this pan_token
+    `{:error, :invalid_pin_format}` — new_pin isn't 4-6 numeric digits
+  """
+  @callback change_pin(pan_token :: String.t(), old_pin :: String.t(), new_pin :: String.t()) ::
+              :ok | {:error, :wrong_pin} | {:error, :pin_blocked} | {:error, :pin_not_set} |
+              {:error, :invalid_pin_format}
+
+  @doc """
   Build DE55 issuer script TLV for the 0110 response.
 
   `commands` is a list of atoms describing script actions:
@@ -122,6 +150,10 @@ defmodule VmuCore.FAS.HSM do
   @doc "Delegates `verify_pin/3` to the configured adapter."
   def verify_pin(pin_block_hex, pan, pan_token),
     do: adapter().verify_pin(pin_block_hex, pan, pan_token)
+
+  @doc "Delegates `change_pin/3` to the configured adapter."
+  def change_pin(pan_token, old_pin, new_pin),
+    do: adapter().change_pin(pan_token, old_pin, new_pin)
 
   @doc "Delegates `build_issuer_scripts/2` to the configured adapter."
   def build_issuer_scripts(pan_token, commands),

@@ -30,7 +30,9 @@ defmodule VmuCore.IVR.IvrSession do
 
   alias VmuCore.CMS.{Account, AccountStateCoordinator}
   alias VmuCore.Shared.Customer
-  alias VmuCore.CTA.{PinIssuance, CardActivation}
+  alias VmuCore.CTA.CardActivation
+  alias VmuCore.Shared.ModuleConfigEngine
+  alias VmuCore.FAS.HSM
   alias VmuCore.Repo
   import Ecto.Query
 
@@ -139,6 +141,23 @@ defmodule VmuCore.IVR.IvrSession do
   end
 
   @impl true
+  def handle_call({:change_pin, old_pin, new_pin}, _from,
+        %{authenticated: true, account_id: aid, pan_token: pan_token} = s) do
+    if ivr_pin_change_enabled?(aid) do
+      result = HSM.change_pin(pan_token, old_pin, new_pin)
+
+      case result do
+        :ok -> Logger.info("[IVR] PIN changed: account=#{aid}")
+        _   -> Logger.warning("[IVR] PIN change failed: account=#{aid} reason=#{inspect(result)}")
+      end
+
+      {:reply, result, %{s | state: :completed}, @session_timeout_ms}
+    else
+      {:reply, {:error, :channel_not_enabled}, s, @session_timeout_ms}
+    end
+  end
+
+  @impl true
   def handle_call(_msg, _from, %{authenticated: false} = s) do
     {:reply, {:error, :not_authenticated}, s, @session_timeout_ms}
   end
@@ -154,6 +173,22 @@ defmodule VmuCore.IVR.IvrSession do
   # ---------------------------------------------------------------------------
 
   defp via(session_id), do: {:via, Registry, {VmuCore.IVR.SessionRegistry, session_id}}
+
+  # cta.pin_set_channels_enabled (Module Configuration Framework) — this is the
+  # first real consumer of this key: gates whether "ivr" is an enabled PIN-set
+  # channel for this account's bank/logo (default enabled — see config_catalog.ex).
+  defp ivr_pin_change_enabled?(account_id) do
+    case Repo.get(Account, account_id) do
+      %Account{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} ->
+        {:ok, channels} =
+          ModuleConfigEngine.get("cta", "pin_set_channels_enabled", sys_id, bank_id, logo_id)
+
+        "ivr" in channels
+
+      nil ->
+        false
+    end
+  end
 
   defp find_account_by_last_four(last_four) do
     case Repo.one(from a in Account, where: a.last_four == ^last_four, limit: 1) do

@@ -89,7 +89,10 @@ defmodule VmuCore.CTA.ConfigCatalog do
         allowed: ~w[ivr app web atm],
         default: ["ivr", "app"],
         scope: :bank,
-        description: "Channels through which a cardholder may set/change their PIN."
+        description:
+          "Channels through which a cardholder may set/change their PIN. Wired for " <>
+            "\"ivr\" (VmuCore.IVR.IvrSession); \"app\"/\"web\"/\"atm\" have no PIN-change " <>
+            "endpoint yet, so including them here has no effect until one exists."
       }
     ]
   end

@@ -135,10 +135,10 @@ natural follow-up, not built here — see §5.
 | `renewal_lead_time_days` | integer | logo | `30` | Renewal lead time | ✅ `card_expiry_sweep_job.ex` |
 | `renewal_dormancy_suppression` | boolean | logo | `true` | Dormancy suppression rule | ✅ `card_expiry_sweep_job.ex` |
 | `wallet_tokenization_mode` | enum `[disabled, scheme_token, own_token]` | logo | `disabled` | Wallet tokenization scope | ⬜ no wallet/tokenization code exists |
-| `pin_set_channels_enabled` | list `[ivr, app, web, atm]` | bank | `[ivr, app]` | PIN set channels | ⬜ dead IVR PIN-change handler, no consumer |
+| `pin_set_channels_enabled` | list `[ivr, app, web, atm]` | bank | `[ivr, app]` | PIN set channels | ✅ "ivr" only — `VmuCore.IVR.IvrSession` (`app`/`web`/`atm` have no endpoint) |
 
 See `docs/cta/CTA_Gap_Implementation_Tracker.md` CTA-P4.4 for the wiring detail and why
-the four ⬜ rows have nothing to wire into yet.
+the three remaining ⬜ rows have nothing to wire into yet.
 
 ### ASM (`lib/vmu_core/asm/config_catalog.ex`)
 
@@ -243,3 +243,18 @@ operator for the masking check) — see `CTA_Gap_Implementation_Tracker.md` CTA-
 also caught a second latent bug purely by trying to exercise the code for real:
 `EmbossingFileGenerator.pending_orders/0` selected a nonexistent `o.id` column (the
 real PK is `order_id`) — would have crashed on any actual embossing run.
+
+**`pin_set_channels_enabled` follow-up, same day:** initially listed as deferred
+(no working consumer), but investigating *why* revealed `IvrSession.change_pin/3` was
+a dead public API (no matching `handle_call` clause) aliasing `CTA.PinIssuance` — a
+disconnected duplicate PIN system, never wired to anything, using a different PIN-block
+encoding than the real one `FAS.Authorization` actually verifies against
+(`FAS.HSM.verify_pin/3` → `CMS.CardPin`'s PBKDF2 hash). Wiring the dead stub would have
+"fixed" the crash without affecting real PIN verification at all — worse than doing
+nothing, since it would look complete without being real. Instead extended the real
+system: `HSM.change_pin/3` takes plaintext PIN digits (self-service channels never
+have the raw PAN needed to decode an ISO 9564 block) and reuses `verify_pin`'s exact
+lockout logic against `CMS.CardPin`. This is the pattern to follow whenever a
+"deferred, no consumer" key's investigation surfaces a *disconnected* stub rather than
+*no* code at all: prefer extending the real system over wiring the dead one, even
+though it's more work.

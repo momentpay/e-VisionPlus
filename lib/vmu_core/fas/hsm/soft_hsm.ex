@@ -152,6 +152,46 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   end
 
   # ---------------------------------------------------------------------------
+  # PIN Change (self-service channels — plaintext digits, no PAN available)
+  # ---------------------------------------------------------------------------
+
+  @impl VmuCore.FAS.HSM
+  def change_pin(pan_token, old_pin, new_pin) do
+    if valid_pin_format?(new_pin) do
+      case Repo.one(from p in CardPin, where: p.pan_token == ^pan_token) do
+        nil ->
+          {:error, :pin_not_set}
+
+        %CardPin{pin_locked_at: locked_at} when not is_nil(locked_at) ->
+          {:error, :pin_blocked}
+
+        %CardPin{} = card_pin ->
+          case check_and_update_pin(card_pin, old_pin) do
+            :ok -> store_new_pin(card_pin, new_pin)
+            error -> error
+          end
+      end
+    else
+      {:error, :invalid_pin_format}
+    end
+  end
+
+  defp valid_pin_format?(pin), do: is_binary(pin) and String.match?(pin, ~r/^\d{4,6}$/)
+
+  defp store_new_pin(%CardPin{} = card_pin, new_pin) do
+    new_salt = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
+    new_hash = pbkdf2_hash(new_pin, new_salt)
+
+    card_pin
+    |> CardPin.changeset(%{pin_hash: new_hash, pin_salt: new_salt, try_counter: 0, pin_locked_at: nil})
+    |> Repo.update()
+    |> case do
+      {:ok, _}    -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Issuer Scripts (7H)
   # ---------------------------------------------------------------------------
 

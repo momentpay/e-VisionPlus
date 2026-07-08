@@ -133,7 +133,7 @@ principle this phase follows).
 | P4.4.1 | `card_replacement_pan_policy` — replaces the hardcoded `@new_pan_reasons` list in `resolve_replacement_pan/3`; `HotCardCache.refresh()`/account-block-clear now driven by whether the PAN actually changed (per the resolved policy), not a static reason list. Caught catalog default gap: FRAUD was missing from the default map (would have silently fallen back to "same") — added `"FRAUD" => "new"` to match prior behavior. | `lib/vmu_core/cta/card_lifecycle.ex`, `lib/vmu_core/cta/config_catalog.ex` | ✅ |
 | P4.4.2 | `renewal_lead_time_days` + `renewal_dormancy_suppression` — replaces the single global `Application.get_env(:cta_renewal_lead_days, 30)` and the always-on `is_nil(a.dormant_since)` filter; both now resolved **per candidate** (per bank/logo) since one sweep batch spans many logos | `lib/vmu_core/cta/oban/card_expiry_sweep_job.ex` | ✅ |
 | P4.4.3 | `emboss_file_template` — v1 scope: field-width/value overrides (pan/expiry/name/service_code/sequence/cvc2/track2/logo_id widths + record_length) merged over the built-in 128-char layout, resolved per order (per bank/logo). Not a full upload-and-map wizard (see Module_Configuration_Framework.md §6). | `lib/vmu_core/cta/embossing_file_generator.ex` | ✅ |
-| P4.4.4 | `pin_set_channels_enabled` — **not wired**. Investigation found `IvrSession.change_pin/3` has no matching `handle_call` clause at all (dead public API — a pre-existing gap, not something this phase introduced) and `PinIssuance.change_pin/3` is never called from anywhere in the codebase. There is no working PIN-change path for any channel to gate. Moved to the deferred/no-consumer list alongside `emboss_delivery_channel`/`emboss_encryption_method`/`wallet_tokenization_mode`. | — | ⬜ deferred |
+| P4.4.4 | `pin_set_channels_enabled` (ivr) — **✅ wired same day, follow-up.** Initial investigation found `IvrSession.change_pin/3` had no matching `handle_call` clause at all (dead public API) and `CTA.PinIssuance.change_pin/3` was never called from anywhere — a disconnected duplicate of the real PIN system, not the real one. Rather than wire the dead stub, extended `VmuCore.FAS.HSM` with a real `change_pin/3` (plaintext-digit PIN change against `cms_card_pins`, same table/lockout logic `verify_pin/3` uses at authorization time) and added the missing `handle_call` clause in `IvrSession`, gated by this config key. `app`/`web`/`atm` remain deferred — no endpoint exists for those channels. See `docs/fas/FAS_Implementation_Tracker.md` 2026-07-08 addendum for full detail. | `lib/vmu_core/fas/hsm/{hsm,soft_hsm,production_hsm}.ex`, `lib/vmu_core/ivr/ivr_session.ex` | ✅ |
 | P4.4.5 | **Bug found + fixed during verification:** `EmbossingFileGenerator.pending_orders/0` selected a nonexistent `o.id` column (actual PK is `order_id`) — would have crashed with a Postgres "column does not exist" error on any real embossing run. Never previously exercised end-to-end. | `lib/vmu_core/cta/embossing_file_generator.ex` | ✅ |
 
 **Verification (2026-07-08):** live end-to-end tests against real accounts/cards (full
@@ -142,16 +142,20 @@ logo's policy to `LOST => "same"`, a second LOST replacement correctly kept the 
 PAN with no `new_pan_token` required; (2) default emboss record is 128 chars; after
 overriding `pan_width`/`name_width` at logo scope, the generated record showed the
 narrower fields with total length still 128 (verified actual record content, not just
-length). Reverted all test overrides after.
+length); (3) `HSM.change_pin/3` — wrong old PIN increments try counter; correct old
+PIN + valid new PIN updates the hash/salt and resets the counter; the old PIN then
+correctly fails and the new PIN correctly succeeds on a subsequent call (proves the
+change is real); invalid PIN format rejected; disabling "ivr" at bank scope correctly
+removes it from the resolved channel list. Reverted all test overrides after.
 
-**Deferred (config-only, no consumer today, not actioned):** `emboss_delivery_channel`
-(no real file delivery exists — `BureauAdapter.submit_embossing_file/1` is a stub),
-`emboss_encryption_method` (no encryption exists anywhere), `wallet_tokenization_mode`
-(no wallet/tokenization code exists anywhere), `pin_set_channels_enabled` (dead IVR
-PIN-change handler, see P4.4.4). Wiring these means building real subsystems
-(SFTP/email delivery, PGP encryption, wallet token integration, a working IVR/app/web/
-atm PIN-change flow), not rewiring an existing hardcode — explicitly out of scope for
-this phase, by user decision.
+**Still deferred (config-only, no consumer today, not actioned):**
+`emboss_delivery_channel` (no real file delivery exists —
+`BureauAdapter.submit_embossing_file/1` is a stub), `emboss_encryption_method` (no
+encryption exists anywhere), `wallet_tokenization_mode` (no wallet/tokenization code
+exists anywhere). Wiring these means building real subsystems (SFTP/email delivery,
+PGP encryption, wallet token integration), not rewiring an existing hardcode —
+explicitly out of scope, by user decision. (`pin_set_channels_enabled` was in this
+list initially but is now wired for "ivr" — see P4.4.4.)
 
 ## Overall
 
@@ -161,12 +165,13 @@ this phase, by user decision.
 | CTA-P2 Lifecycle | 4 | 4 |
 | CTA-P3 UI & Controls | 3 | 3 |
 | CTA-P4 Module Configuration | 3 | 3 |
-| CTA-P4.4 Config Wiring (4/5 wireable; 4 deferred, no consumer) | 5 | 4 |
-| **TOTAL** | **20** | **19** |
+| CTA-P4.4 Config Wiring (5/5 wireable; 3 deferred, no consumer) | 5 | 5 |
+| **TOTAL** | **20** | **20** |
 
-**CTA gap plan + module configuration complete as of 2026-07-08.** The one open item
-(P4.4.4, `pin_set_channels_enabled`) is deliberately deferred, not incomplete work —
-it requires building a working PIN-change flow first, which doesn't exist for any
-channel today.
+**CTA gap plan + module configuration complete (20/20) as of 2026-07-08.** The 3
+remaining config-only keys (`emboss_delivery_channel`, `emboss_encryption_method`,
+`wallet_tokenization_mode`) are deliberately deferred, not incomplete work — each
+requires building a real subsystem (file delivery, encryption, wallet tokenization)
+that doesn't exist today, by explicit user decision.
 
 **CTA gap plan + module configuration complete (15/15) as of 2026-07-08.**

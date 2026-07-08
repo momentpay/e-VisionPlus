@@ -66,6 +66,12 @@ defmodule VmuCore.FAS.HSM.ProductionHSM do
   end
 
   @impl VmuCore.FAS.HSM
+  def change_pin(_pan_token, _old_pin, _new_pin) do
+    Logger.warning("[ProductionHSM] change_pin not implemented — stub")
+    {:error, :not_implemented}
+  end
+
+  @impl VmuCore.FAS.HSM
   def build_issuer_scripts(_pan_token, _commands) do
     Logger.warning("[ProductionHSM] build_issuer_scripts not implemented — stub")
     {:error, :not_implemented}

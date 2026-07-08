@@ -308,9 +308,29 @@ exception queues. Leverages existing LiveDashboard and mw_risk PubSub.
 | CardPin schema | `lib/vmu_core/cms/card_pin.ex` | ✅ Created in FAS-P7 — schema for `cms_card_pins`; reset/increment/lock changesets |
 | EMV parser | `lib/vmu_core/fas/iso8583/emv_parser.ex` | ✅ Created in FAS-P7 — BER-TLV recursive parser; lenient on unknown tags |
 | EMV handler | `lib/vmu_core/fas/emv_handler.ex` | ✅ Created in FAS-P7 — ARQC verify + ARPC build + issuer scripts + DE55 inject |
-| HSM behaviour | `lib/vmu_core/fas/hsm/hsm.ex` | ✅ Created in FAS-P7 — 5-callback behaviour + delegation helpers |
-| SoftHSM (dev) | `lib/vmu_core/fas/hsm/soft_hsm.ex` | ✅ Created in FAS-P7 — 3DES CVV, ISO 9564 PIN, ARQC, issuer scripts via `:crypto` |
-| ProductionHSM (stub) | `lib/vmu_core/fas/hsm/production_hsm.ex` | ✅ Created in FAS-P7 — skeleton for TCP/PKCS#11 vendor HSM |
+| HSM behaviour | `lib/vmu_core/fas/hsm/hsm.ex` | ✅ Created in FAS-P7 — 5-callback behaviour + delegation helpers; **+`change_pin/3` added 2026-07-08** (CTA-P4.4 follow-up — see below) |
+| SoftHSM (dev) | `lib/vmu_core/fas/hsm/soft_hsm.ex` | ✅ Created in FAS-P7 — 3DES CVV, ISO 9564 PIN, ARQC, issuer scripts via `:crypto`; **+`change_pin/3` 2026-07-08** — plaintext-digit PIN change against `cms_card_pins`, reuses `verify_pin`'s lockout logic |
+| ProductionHSM (stub) | `lib/vmu_core/fas/hsm/production_hsm.ex` | ✅ Created in FAS-P7 — skeleton for TCP/PKCS#11 vendor HSM; **+`change_pin/3` stub 2026-07-08** |
+
+**2026-07-08 addendum — `HSM.change_pin/3` (self-service PIN change, real path, not a stub):**
+Discovered while fixing a dead `VmuCore.IVR.IvrSession.change_pin/3` API (no matching
+`handle_call` clause existed at all — pre-existing bug) that `CTA.PinIssuance` (the
+module `IvrSession` aliased for this) was a disconnected, never-wired duplicate of the
+real PIN system here — different pin_block encoding, never persisted anywhere, and
+`PinIssuance.change_pin/3` was called from nowhere in the codebase. Rather than wire
+the dead stub (which would not affect what `verify_pin/3` actually checks at
+authorization time), extended this real HSM/`CardPin` system instead:
+`change_pin(pan_token, old_pin, new_pin)` takes **plaintext PIN digits**, not an ISO
+9564 block — self-service channels (IVR/app/web/ATM) only ever know `pan_token`, never
+the raw PAN needed to decode an ISO block server-side. Reuses `verify_pin`'s exact
+lockout/try-counter logic for the old-PIN check, so behavior is consistent between the
+authorization path and self-service PIN change. Verified end-to-end: wrong old PIN
+increments try counter; correct old PIN + valid new PIN updates the hash/salt and
+resets the counter; the *old* PIN then correctly fails and the *new* PIN correctly
+succeeds on a subsequent call (proves the change is real, not a no-op); invalid PIN
+format rejected. `IvrSession`'s handler is also gated by
+`cta.pin_set_channels_enabled` (Module Configuration Framework) — the first real
+consumer of that key. See `docs/cta/CTA_Gap_Implementation_Tracker.md` CTA-P4.4.4.
 | GL card codes | `lib/vmu_core/fas/gl/card_account_codes.ex` | ✅ Created in FAS-P5 — 5-account card chart, `journal_pair/1` per transaction type |
 | GL adapter | `lib/vmu_core/fas/gl/vmu_core_gl_adapter.ex` | ✅ Created in FAS-P5 — `WalletGl.GlAdapter` behaviour, writes to `cms_ledger_entries`, direct call (ADR-003) |
 | GL reconciliation | `lib/vmu_core/fas/gl/gl_reconciliation.ex` | ✅ Created in FAS-P5 — gap detector: approved auths without a settlement LedgerEntry; `summary/2` for monitoring |

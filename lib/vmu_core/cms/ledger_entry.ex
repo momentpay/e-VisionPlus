@@ -4,7 +4,8 @@ defmodule VmuCore.CMS.LedgerEntry do
 
   @primary_key {:entry_id, :binary_id, autogenerate: true}
 
-  @transaction_codes ~w[PURCHASE CASH_ADV INTEREST FEE PAYMENT REVERSAL ADJUSTMENT DISPUTE_CREDIT]
+  @transaction_codes ~w[PURCHASE CASH_ADV INTEREST FEE PAYMENT REVERSAL ADJUSTMENT
+                        DISPUTE_CREDIT DISPUTE_REVERSAL DISPUTE_RECOVERY]
 
   schema "cms_ledger_entries" do
     field :account_id,       :binary_id

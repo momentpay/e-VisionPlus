@@ -40,7 +40,7 @@ DPS owns the **dispute case**: intake, provisional credit, the chargeback/repres
 | FR | Feature | Notes |
 |---|---|---|
 | 009 | State machine: FILED → RETRIEVAL_REQUESTED → CHARGEBACK_FILED → REPRESENTED → PRE_ARB → ARBITRATION → CLOSED_WIN / CLOSED_LOSE / CANCELLED | Implemented |
-| 010 | Provisional credit posting within regulatory window; reversal on CLOSED_LOSE | posting ✅; loss-reversal entry ⬜ verify |
+| 010 | Provisional credit posting within regulatory window; reversal on CLOSED_LOSE | ✅ posting + reversal (2026-07-08, also covers CANCELLED) + scheme-recovery entry on CLOSED_WIN |
 | 011 | Deadline enforcement per stage (Oban jobs; missed deadline = auto-forfeit) | Implemented |
 | 012 | Network case reference tracking | `network_ref` field |
 | 013 | Partial chargebacks (amount ≤ original) | |
@@ -77,7 +77,7 @@ DPS owns the **dispute case**: intake, provisional credit, the chargeback/repres
 |---|---|
 | State machine, deadlines, provisional credit, TRAM linkage | ✅ Built + smoke-tested |
 | Reason-code reference table (FR-004) | ⬜ `reason_code` is free string; no reference data |
-| Provisional-credit reversal on CLOSED_LOSE (FR-010b) | ⬜ Documented in code comment, not implemented |
+| Provisional-credit reversal on CLOSED_LOSE (FR-010b) | ✅ Implemented 2026-07-08 — see `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P2 |
 | Evidence store (FR-014), case notes/assignment (FR-015) | ⬜ Not found |
 | Retrieval request inbound flow (FR-006) | 🔄 ITS `copy_request` exists — integration between ITS copy requests and DPS cases unverified |
 | Network message integration (FR-020) | ⬜ Manual transitions only today |
@@ -109,6 +109,15 @@ Editable via the admin console's **Module Configuration** screen. Question 4
 (completing the arbitration flow) is **not** a config key; it's state-machine/GL
 feature work, tracked separately (see `docs/shared/Module_Configuration_Framework.md`
 §6) and in a future DPS tracker phase.
+
+**Resolved 2026-07-08 — question 4 (complete the flow) implemented.** The state
+machine already accepted PRE_ARB → ARBITRATION → CLOSED_WIN/CLOSED_LOSE transitions
+(no state-machine change needed); the actual gap was the GL side — win/loss cases
+closed with no financial resolution beyond the provisional credit. `VmuCore.DPS.Dispute`
+now posts the recovery/reversal entry on closure (see `docs/dps/DPS_Gap_Implementation_Tracker.md`
+DPS-P2). Still open, and explicitly out of scope for this pass: real VROL/Mastercom
+network message integration (FR-020, still manual transitions), and the broader §5
+backlog (reason-code reference table, evidence store, case notes, ops UI).
 
 **Wiring status (2026-07-08, `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P1.3):**
 question 2 (provisional credit window) is fully wired — `VmuCore.DPS.Dispute` now

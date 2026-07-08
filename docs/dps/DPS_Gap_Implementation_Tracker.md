@@ -54,17 +54,41 @@ VROL/Mastercom API integration or manual-portal branch to select between, and no
 evidence storage abstraction to point at db/s3/azure_blob. Wiring those requires
 building the underlying capability first (see Follow-up), not just a config read.
 
+## DPS-P2 — Arbitration Flow Completion (win/loss GL cycle) ✅ (2026-07-08)
+
+Resolves §6 open question 4 ("complete the flow") and the FR-010b/FR-019 gap analysis
+rows. The dispute state machine already accepted PRE_ARB → ARBITRATION →
+CLOSED_WIN/CLOSED_LOSE transitions with no guard preventing them — the real gap was
+financial, not state-machine: cases closed with no GL resolution beyond the
+provisional credit posted at filing, which then sat on the books indefinitely
+regardless of outcome.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P2.1 | `post_resolution_gl/1`, called from `Dispute.transition/2` on every status change: `CLOSED_WIN` posts a scheme-recovery entry (DR 3002 new "scheme recovery clearing" account / CR 3001, clearing the Disputed Receivable with no customer-balance impact — the cardholder keeps the credit); `CLOSED_LOSE`/`CANCELLED` post a reversal entry (DR 1001 / CR 3001, the exact mirror of the original provisional-credit entry, re-debiting the cardholder) and reset `provisional_credit_posted` to `false`. Only fires when a credit was actually posted (guards on `provisional_credit_posted: true`); a repeat transition to the same closed status is a safe no-op (the flag is already `false`, and `InternalGlPoster`'s idempotency key would reject a duplicate anyway). | `lib/vmu_core/dps/dispute.ex` | ✅ |
+| P2.2 | Registered the two new transaction codes (`DISPUTE_REVERSAL`, `DISPUTE_RECOVERY`) in `LedgerEntry`'s changeset inclusion list — caught during verification: the GL post was silently rejected (`transaction_code: is invalid`) before this fix. | `lib/vmu_core/cms/ledger_entry.ex` | ✅ |
+| P2.3 | **Bug found + fixed during verification:** `post_provisional_credit/1` set `provisional_credit_posted: true` unconditionally, regardless of whether the GL post actually succeeded — a failed post would still flag the dispute as credited, so a later `CLOSED_LOSE` would incorrectly attempt to reverse a credit that was never posted. Now only sets the flag on `{:ok, _}` from `InternalGlPoster.post/1`. | `lib/vmu_core/dps/dispute.ex` | ✅ |
+
+**Verification (2026-07-08):** live end-to-end test against a real account, filing 3
+disputes and resolving each differently: `CLOSED_WIN` posted the DR 3002/CR 3001
+recovery entry and left `provisional_credit_posted` unchanged (`true` — customer
+correctly keeps the credit); `CLOSED_LOSE` posted the DR 1001/CR 3001 reversal and
+flipped `provisional_credit_posted` to `false`; `CANCELLED` behaved identically to
+`CLOSED_LOSE`; a second `transition/2` call to `CLOSED_LOSE` on the same dispute
+completed without error and without double-posting (idempotency held). Test data
+cleaned up after.
+
 ## Follow-up (not yet started)
 
-- Arbitration flow completion (§6 Q4) — PRE_ARB → ARBITRATION state transitions + GL
-  entries for the full win/loss cycle.
 - Reason-code reference table (FR-DPS-004), evidence store (FR-DPS-014), case notes/
-  assignment (FR-DPS-015), network message integration (FR-DPS-020), ops UI (case
-  list/detail/deadline monitor) — see `DPS_Module_Requirements.md` §5 gap analysis.
+  assignment (FR-DPS-015), real network message integration (FR-DPS-020 — VROL/
+  Mastercom API, currently manual transitions only), ops UI (case list/detail/
+  deadline monitor) — see `DPS_Module_Requirements.md` §5 gap analysis.
 
 ## Overall
 
 | Phase | Items | Done |
 |-------|-------|------|
 | DPS-P1 Module Configuration | 3 | 3 |
-| **TOTAL** | **3** | **3** |
+| DPS-P2 Arbitration Flow Completion | 3 | 3 |
+| **TOTAL** | **6** | **6** |

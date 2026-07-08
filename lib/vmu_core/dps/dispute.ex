@@ -4,18 +4,29 @@ defmodule VmuCore.DPS.Dispute do
 
   VisionPlus dispute lifecycle:
     FILED → RETRIEVAL_REQUESTED → CHARGEBACK_FILED →
-    REPRESENTED → PRE_ARB → ARBITRATION → CLOSED_WIN | CLOSED_LOSE
+    REPRESENTED → PRE_ARB → ARBITRATION → CLOSED_WIN | CLOSED_LOSE | CANCELLED
 
   Deadlines are hard cutoffs — missing them forfeits the case automatically.
     Visa:  chargeback within 120 days of transaction date
     Mastercard: chargeback within 120 days; representment within 30 days of chargeback
 
   Every state transition enqueues an Oban job to enforce the next deadline.
+
+  ## Win/loss GL resolution (arbitration flow completion, 2026-07-08)
+
+  Provisional credit posted at filing (`post_provisional_credit/1`) is resolved on
+  case closure, not left standing indefinitely:
+    - `CLOSED_WIN` / issuer wins — the scheme reimburses; the Disputed Receivable is
+      cleared against a scheme-recovery account, no customer-balance impact.
+    - `CLOSED_LOSE` / merchant wins, or `CANCELLED` — the credit is reversed,
+      re-debiting the cardholder for the disputed amount.
+  See `post_resolution_gl/1`.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
+  require Logger
 
   alias VmuCore.{Repo, CMS.InternalGlPoster, CMS.Account}
   alias VmuCore.Shared.ModuleConfigEngine
@@ -103,8 +114,10 @@ defmodule VmuCore.DPS.Dispute do
           set: updates
         )
 
-        schedule_next_deadline(%{dispute | status: new_status})
-        %{dispute | status: new_status}
+        updated = %{dispute | status: new_status}
+        post_resolution_gl(updated)
+        schedule_next_deadline(updated)
+        updated
       end)
 
     # Mirror into the TRAM event log AFTER commit (TRAM-P5 5C) — fail-safe,
@@ -158,25 +171,102 @@ defmodule VmuCore.DPS.Dispute do
     #   DR 3001 (Disputed Receivable — we expect to recover from acquirer/scheme)
     #   CR 1001 (Customer AR — reduces outstanding balance, giving provisional credit)
     # This temporarily reduces the cardholder's outstanding balance while the dispute
-    # is investigated. On CLOSED_LOSE, a reversal entry must be posted (DR 1001 / CR 3001).
+    # is investigated. Reversed on CLOSED_LOSE/CANCELLED, recovered on CLOSED_WIN —
+    # see post_resolution_gl/1.
+    result =
+      InternalGlPoster.post(%{
+        account_id:       d.account_id,
+        idempotency_key:  key,
+        transaction_code: "DISPUTE_CREDIT",
+        dr_amount:        d.dispute_amount,
+        cr_amount:        d.dispute_amount,
+        gl_account_dr:    "3001",
+        gl_account_cr:    "1001",
+        posting_date:     Date.utc_today(),
+        value_date:       Date.utc_today(),
+        narrative:        "Provisional credit — dispute #{d.dispute_id}"
+      })
+
+    # Only flag the credit as posted when the GL post actually succeeded — a
+    # bug fix found while completing the win/loss cycle: this previously set
+    # the flag unconditionally, which would make a CLOSED_LOSE reversal fire
+    # against a credit that was never really posted.
+    case result do
+      {:ok, _} ->
+        Repo.update_all(
+          from(d2 in __MODULE__, where: d2.dispute_id == ^d.dispute_id),
+          set: [provisional_credit_posted: true]
+        )
+
+      {:error, reason} ->
+        Logger.error("[DPS.Dispute] provisional credit GL post failed for " <>
+                     "#{d.dispute_id}: #{inspect(reason)}")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Win/loss GL resolution (FR-DPS-010b/019 — completes the arbitration flow)
+  # ---------------------------------------------------------------------------
+
+  # CLOSED_LOSE / CANCELLED — the provisional credit didn't hold (merchant won
+  # the dispute, or the cardholder withdrew it): reverse it, re-debiting the
+  # cardholder (DR 1001 / CR 3001 — the exact mirror of post_provisional_credit's
+  # DR 3001 / CR 1001). Only fires if a credit was actually posted.
+  defp post_resolution_gl(%__MODULE__{status: status, provisional_credit_posted: true} = d)
+       when status in ["CLOSED_LOSE", "CANCELLED"] do
+    key = "DISPUTE-REV-#{d.dispute_id}"
+
+    result =
+      InternalGlPoster.post(%{
+        account_id:       d.account_id,
+        idempotency_key:  key,
+        transaction_code: "DISPUTE_REVERSAL",
+        dr_amount:        d.dispute_amount,
+        cr_amount:        d.dispute_amount,
+        gl_account_dr:    "1001",
+        gl_account_cr:    "3001",
+        posting_date:     Date.utc_today(),
+        value_date:       Date.utc_today(),
+        narrative:        "Dispute #{String.downcase(status_label(status))} — provisional credit reversed, dispute #{d.dispute_id}"
+      })
+
+    case result do
+      {:ok, _} ->
+        Repo.update_all(
+          from(d2 in __MODULE__, where: d2.dispute_id == ^d.dispute_id),
+          set: [provisional_credit_posted: false]
+        )
+
+      {:error, reason} ->
+        Logger.error("[DPS.Dispute] reversal GL post failed for #{d.dispute_id}: #{inspect(reason)}")
+    end
+  end
+
+  # CLOSED_WIN — the scheme reimburses the issuer: clear the Disputed
+  # Receivable (3001) against a new scheme-recovery clearing account (3002).
+  # No customer-balance impact — the cardholder keeps the provisional credit
+  # permanently, which is the correct outcome of winning a dispute.
+  defp post_resolution_gl(%__MODULE__{status: "CLOSED_WIN"} = d) do
+    key = "DISPUTE-RECOVERY-#{d.dispute_id}"
+
     InternalGlPoster.post(%{
       account_id:       d.account_id,
       idempotency_key:  key,
-      transaction_code: "DISPUTE_CREDIT",
+      transaction_code: "DISPUTE_RECOVERY",
       dr_amount:        d.dispute_amount,
       cr_amount:        d.dispute_amount,
-      gl_account_dr:    "3001",
-      gl_account_cr:    "1001",
+      gl_account_dr:    "3002",
+      gl_account_cr:    "3001",
       posting_date:     Date.utc_today(),
       value_date:       Date.utc_today(),
-      narrative:        "Provisional credit — dispute #{d.dispute_id}"
+      narrative:        "Dispute won — recovered from scheme, dispute #{d.dispute_id}"
     })
-
-    Repo.update_all(
-      from(d2 in __MODULE__, where: d2.dispute_id == ^d.dispute_id),
-      set: [provisional_credit_posted: true]
-    )
   end
+
+  defp post_resolution_gl(_dispute), do: :ok
+
+  defp status_label("CLOSED_LOSE"), do: "LOST"
+  defp status_label(other), do: other
 
   defp schedule_chargeback_deadline(dispute) do
     %{dispute_id: dispute.dispute_id, action: "file_chargeback"}

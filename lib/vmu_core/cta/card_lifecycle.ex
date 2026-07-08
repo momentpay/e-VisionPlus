@@ -20,6 +20,7 @@ defmodule VmuCore.CTA.CardLifecycle do
 
   alias VmuCore.{Repo, CTA.Card, CTA.Cards, CMS.Account, CMS.FeeEngine,
                  FAS.HotCardCache, ASM.AuditLog}
+  alias VmuCore.Shared.ModuleConfigEngine
 
   @reason_to_block_code %{"LOST" => "L", "STOLEN" => "S", "FRAUD" => "F"}
   @new_pan_reasons ~w[LOST STOLEN FRAUD]
@@ -81,7 +82,8 @@ defmodule VmuCore.CTA.CardLifecycle do
   def replace(card_id, reason, opts \\ []) when reason in ~w[LOST STOLEN FRAUD DAMAGED] do
     with {:ok, old} <- fetch_replaceable(card_id),
          {:ok, pan, last4} <- resolve_replacement_pan(old, reason, opts) do
-      new_expiry = Keyword.get(opts, :new_expiry, old.expiry)
+      new_expiry   = Keyword.get(opts, :new_expiry, old.expiry)
+      pan_changed? = pan != old.pan_token
 
       result =
         Repo.transaction(fn ->
@@ -100,15 +102,16 @@ defmodule VmuCore.CTA.CardLifecycle do
               replaces_card_id: old.card_id
             })
 
-          # Point the account at the new plastic; a lost/stolen replacement
+          # Point the account at the new plastic; a genuine PAN change (per the
+          # configured card_replacement_pan_policy, not a static reason list)
           # also clears the account block (the dead plastic is gone).
-          sync_account_to_new(new, reason)
+          sync_account_to_new(new, pan_changed?)
           new
         end)
 
       case result do
         {:ok, new} ->
-          if reason in @new_pan_reasons, do: HotCardCache.refresh()
+          if pan_changed?, do: HotCardCache.refresh()
           fee = assess_fee(old, reason, opts)
           AuditLog.record(opts[:operator], "card_replace", card_id,
             %{reason: reason, new_card_id: new.card_id, new_generation: new.generation, fee: fee})
@@ -210,18 +213,41 @@ defmodule VmuCore.CTA.CardLifecycle do
     end
   end
 
-  defp resolve_replacement_pan(_old, reason, opts) when reason in @new_pan_reasons do
-    case Keyword.get(opts, :new_pan_token) do
-      pan when is_binary(pan) and byte_size(pan) == 64 ->
-        {:ok, pan, Keyword.get(opts, :new_last_four)}
+  defp resolve_replacement_pan(old, reason, opts) do
+    case replacement_pan_action(old, reason) do
+      "new" ->
+        case Keyword.get(opts, :new_pan_token) do
+          pan when is_binary(pan) and byte_size(pan) == 64 ->
+            {:ok, pan, Keyword.get(opts, :new_last_four)}
 
-      _ ->
-        {:error, :new_pan_token_required}
+          _ ->
+            {:error, :new_pan_token_required}
+        end
+
+      "same" ->
+        {:ok, old.pan_token, old.last_four}
     end
   end
 
-  # DAMAGED — keep the PAN
-  defp resolve_replacement_pan(old, _damaged, _opts), do: {:ok, old.pan_token, old.last_four}
+  # Reason-code → "new" | "same" policy, configurable per logo (Module
+  # Configuration Framework — `cta.card_replacement_pan_policy`). Falls back to
+  # the historical lost/stolen/fraud=new, damaged=same rule if the account
+  # can't be resolved or the reason isn't present in the configured map.
+  defp replacement_pan_action(old, reason) do
+    case Repo.get(Account, old.account_id) do
+      %Account{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} ->
+        {:ok, policy} =
+          ModuleConfigEngine.get("cta", "card_replacement_pan_policy", sys_id, bank_id, logo_id)
+
+        Map.get(policy, reason, default_pan_action(reason))
+
+      nil ->
+        default_pan_action(reason)
+    end
+  end
+
+  defp default_pan_action(reason) when reason in @new_pan_reasons, do: "new"
+  defp default_pan_action(_reason), do: "same"
 
   defp assess_fee(_old, "FRAUD", _opts), do: :skipped
 
@@ -269,11 +295,12 @@ defmodule VmuCore.CTA.CardLifecycle do
 
   defp clear_account_block(_card), do: :ok
 
-  # New plastic supersedes: point the account at it and clear a lost/stolen block
-  defp sync_account_to_new(new, reason) do
+  # New plastic supersedes: point the account at it and, if the PAN actually
+  # changed, clear a lost/stolen/fraud block (the compromised plastic is gone).
+  defp sync_account_to_new(new, pan_changed?) do
     Cards.sync_account_from_card(new)
 
-    if reason in @new_pan_reasons do
+    if pan_changed? do
       Repo.update_all(
         from(a in Account, where: a.account_id == ^new.account_id),
         set: [block_code: nil, block_reason: nil, blocked_at: nil,

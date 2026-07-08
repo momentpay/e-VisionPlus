@@ -120,6 +120,39 @@ covering default fallback, scope cascade, invalid-enum/unknown-key rejection, an
 audit trail — all passed (see `docs/shared/Module_Configuration_Framework.md` §7).
 Admin UI loaded as ADMIN with no server errors.
 
+## CTA-P4.4 — Wire config keys into real business logic ✅ (2026-07-08, same day)
+
+P4.2 only registered the 8 catalog keys — none were actually consumed by CTA business
+logic yet (config existed, editable, but zero behavioral effect). Investigated each
+key's real hardcoded equivalent before wiring (see
+`docs/shared/Module_Configuration_Framework.md` §8 for the "configurable ≠ wired"
+principle this phase follows).
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P4.4.1 | `card_replacement_pan_policy` — replaces the hardcoded `@new_pan_reasons` list in `resolve_replacement_pan/3`; `HotCardCache.refresh()`/account-block-clear now driven by whether the PAN actually changed (per the resolved policy), not a static reason list. Caught catalog default gap: FRAUD was missing from the default map (would have silently fallen back to "same") — added `"FRAUD" => "new"` to match prior behavior. | `lib/vmu_core/cta/card_lifecycle.ex`, `lib/vmu_core/cta/config_catalog.ex` | ✅ |
+| P4.4.2 | `renewal_lead_time_days` + `renewal_dormancy_suppression` — replaces the single global `Application.get_env(:cta_renewal_lead_days, 30)` and the always-on `is_nil(a.dormant_since)` filter; both now resolved **per candidate** (per bank/logo) since one sweep batch spans many logos | `lib/vmu_core/cta/oban/card_expiry_sweep_job.ex` | ✅ |
+| P4.4.3 | `emboss_file_template` — v1 scope: field-width/value overrides (pan/expiry/name/service_code/sequence/cvc2/track2/logo_id widths + record_length) merged over the built-in 128-char layout, resolved per order (per bank/logo). Not a full upload-and-map wizard (see Module_Configuration_Framework.md §6). | `lib/vmu_core/cta/embossing_file_generator.ex` | ✅ |
+| P4.4.4 | `pin_set_channels_enabled` — **not wired**. Investigation found `IvrSession.change_pin/3` has no matching `handle_call` clause at all (dead public API — a pre-existing gap, not something this phase introduced) and `PinIssuance.change_pin/3` is never called from anywhere in the codebase. There is no working PIN-change path for any channel to gate. Moved to the deferred/no-consumer list alongside `emboss_delivery_channel`/`emboss_encryption_method`/`wallet_tokenization_mode`. | — | ⬜ deferred |
+| P4.4.5 | **Bug found + fixed during verification:** `EmbossingFileGenerator.pending_orders/0` selected a nonexistent `o.id` column (actual PK is `order_id`) — would have crashed with a Postgres "column does not exist" error on any real embossing run. Never previously exercised end-to-end. | `lib/vmu_core/cta/embossing_file_generator.ex` | ✅ |
+
+**Verification (2026-07-08):** live end-to-end tests against real accounts/cards (full
+app boot): (1) default LOST replacement issues a new PAN; after overriding the
+logo's policy to `LOST => "same"`, a second LOST replacement correctly kept the same
+PAN with no `new_pan_token` required; (2) default emboss record is 128 chars; after
+overriding `pan_width`/`name_width` at logo scope, the generated record showed the
+narrower fields with total length still 128 (verified actual record content, not just
+length). Reverted all test overrides after.
+
+**Deferred (config-only, no consumer today, not actioned):** `emboss_delivery_channel`
+(no real file delivery exists — `BureauAdapter.submit_embossing_file/1` is a stub),
+`emboss_encryption_method` (no encryption exists anywhere), `wallet_tokenization_mode`
+(no wallet/tokenization code exists anywhere), `pin_set_channels_enabled` (dead IVR
+PIN-change handler, see P4.4.4). Wiring these means building real subsystems
+(SFTP/email delivery, PGP encryption, wallet token integration, a working IVR/app/web/
+atm PIN-change flow), not rewiring an existing hardcode — explicitly out of scope for
+this phase, by user decision.
+
 ## Overall
 
 | Phase | Items | Done |
@@ -128,6 +161,12 @@ Admin UI loaded as ADMIN with no server errors.
 | CTA-P2 Lifecycle | 4 | 4 |
 | CTA-P3 UI & Controls | 3 | 3 |
 | CTA-P4 Module Configuration | 3 | 3 |
-| **TOTAL** | **15** | **15** |
+| CTA-P4.4 Config Wiring (4/5 wireable; 4 deferred, no consumer) | 5 | 4 |
+| **TOTAL** | **20** | **19** |
+
+**CTA gap plan + module configuration complete as of 2026-07-08.** The one open item
+(P4.4.4, `pin_set_channels_enabled`) is deliberately deferred, not incomplete work —
+it requires building a working PIN-change flow first, which doesn't exist for any
+channel today.
 
 **CTA gap plan + module configuration complete (15/15) as of 2026-07-08.**

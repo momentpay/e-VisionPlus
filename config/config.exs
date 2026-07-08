@@ -114,7 +114,10 @@ config :vmu_core, Oban,
        # Account lifecycle sweep (CMS-G3): pending closures + dormancy — 05:00
        {"0 5 * * *", VmuCore.CMS.Oban.AccountLifecycleSweepJob},
        # Card expiry + auto-renewal sweep (CTA-P2.4) — 04:00
-       {"0 4 * * *", VmuCore.CTA.Oban.CardExpirySweepJob}
+       {"0 4 * * *", VmuCore.CTA.Oban.CardExpirySweepJob},
+       # ASM operator audit retention sweep — weekly, Sunday 03:00 (after the
+       # TRAMS archive sweep at 02:00)
+       {"0 3 * * 0", VmuCore.ASM.Oban.AuditRetentionSweepJob}
      ]}
   ],
   queues: [

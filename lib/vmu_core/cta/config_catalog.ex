@@ -16,9 +16,12 @@ defmodule VmuCore.CTA.ConfigCatalog do
         default: %{},
         scope: :logo,
         description:
-          "Vendor emboss file record layout: uploaded field mapping template, applied " <>
-            "when generating a vendor's batch emboss file. Empty map = no custom template " <>
-            "configured (falls back to the built-in default layout)."
+          "Vendor emboss file record layout overrides — field widths (pan_width, " <>
+            "expiry_width, name_width, service_code, sequence_width, cvc2_width, " <>
+            "track2_width, logo_id_width, record_length), merged over the built-in " <>
+            "128-char default layout in EmbossingFileGenerator. Empty map = built-in " <>
+            "layout unchanged. v1 supports width/value overrides, not field reordering " <>
+            "or a full upload-and-map wizard (see Module_Configuration_Framework.md §6)."
       },
       %{
         key: "emboss_delivery_channel",
@@ -43,11 +46,12 @@ defmodule VmuCore.CTA.ConfigCatalog do
         module: "cta",
         type: :map,
         allowed: nil,
-        default: %{"LOST" => "new", "STOLEN" => "new", "DAMAGED" => "same"},
+        default: %{"LOST" => "new", "STOLEN" => "new", "FRAUD" => "new", "DAMAGED" => "same"},
         scope: :logo,
         description:
           "Reason-code → \"new\" | \"same\" PAN policy on card replacement. " <>
-            "Default: lost/stolen always issue a new PAN; damaged keeps the same PAN."
+            "Default: lost/stolen/fraud always issue a new PAN; damaged keeps the same PAN. " <>
+            "A reason code absent from the map falls back to the same lost/stolen/fraud=new rule."
       },
       %{
         key: "renewal_lead_time_days",

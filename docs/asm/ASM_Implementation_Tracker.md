@@ -146,6 +146,30 @@ fallback, cascade, validation, audit trail — see
 specifically exercised (2555 → 3650) and confirmed both the ETS cascade and the
 `config_update` audit row.
 
+## ASM-P6.3 — Wire config keys into real business logic ✅ (2026-07-08, same day)
+
+P6.1 only registered the catalog keys — `pii_masking_rules` and `audit_retention_days`
+had no consumer at all (config existed, but zero behavioral effect: every customer PII
+field was rendered in full to any operator, and there was no retention/purge job for
+`cms_operator_audit` at all). `authn_source`/`authn_provider_config` are **not**
+wired — a real SSO/AD/LDAP integration is a full feature, deliberately out of scope
+here (see `docs/shared/Module_Configuration_Framework.md` §6/§8).
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P6.3.1 | `pii_masking_rules` — new masking applied at render time in the customer admin list and detail views for `cif.id_number` and `cif.date_of_birth`. Operators whose role is in a field's configured `unmasked_roles` (or ADMIN, always unmasked) see the raw value; everyone else sees all but the last 4 characters masked. Empty rules map (default) = unmasked, matching prior behavior exactly — non-breaking by default. | `lib/vmu_core_web/live/admin/customer_component.ex` | ✅ |
+| P6.3.2 | `audit_retention_days` — new weekly Oban job deletes `cms_operator_audit` rows older than the configured window (default 2555 days). No purge job existed at all before this. Multi-tenant safe: uses the longest configured retention across all SYS records as the cutoff, since the audit table has no `sys_id` column (single global trail). | `lib/vmu_core/asm/oban/audit_retention_sweep_job.ex`, `config/config.exs` (cron: Sunday 03:00) | ✅ |
+
+**Verification (2026-07-08):** live end-to-end test via the running admin console: with
+`pii_masking_rules` unset (default), a customer's ID number rendered in full to every
+operator. After configuring `cif.id_number`/`cif.date_of_birth` with
+`unmasked_roles: ["COMPLIANCE"/"SUPERVISOR"]`, logging in as a throwaway CS_AGENT
+operator showed masked values (e.g. `***********0001`) in both the list and detail
+views, while ADMIN continued to see raw values (bypass confirmed still correct with a
+rule active). Test operator and rule reverted after. `AuditRetentionSweepJob.perform/1`
+ran cleanly against the real `cms_operator_audit` table (21 rows, all recent — none
+purged, as expected).
+
 ---
 
 *Recommended start: immediately after CMS-G1 — ASM-P1 gates production use of every admin screen.*

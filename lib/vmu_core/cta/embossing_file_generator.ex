@@ -22,9 +22,22 @@ defmodule VmuCore.CTA.EmbossingFileGenerator do
   alias VmuCore.CTA.StockInventory
   import Ecto.Query
   alias VmuCore.Repo
+  alias VmuCore.Shared.ModuleConfigEngine
 
-  @record_length 128
-  @service_code  "101"
+  # Built-in layout — overridable per logo via the configurable
+  # `cta.emboss_file_template` (Module Configuration Framework). An empty
+  # (default) template means every order uses this layout unchanged.
+  @default_layout %{
+    "pan_width"      => 19,
+    "expiry_width"   => 4,
+    "name_width"     => 26,
+    "service_code"   => "101",
+    "sequence_width" => 3,
+    "cvc2_width"     => 3,
+    "track2_width"   => 37,
+    "logo_id_width"  => 4,
+    "record_length"  => 128
+  }
 
   @doc """
   Generate an embossing file for all pending orders, write to `output_dir`.
@@ -58,29 +71,40 @@ defmodule VmuCore.CTA.EmbossingFileGenerator do
         join: a in VmuCore.CMS.Account, on: a.account_id == o.account_id,
         where: o.order_status == "PENDING",
         select: %{
-          order_id:        o.id,
+          order_id:        o.order_id,
           pan_token:       o.pan_token,
           expiry_date:     o.expiry_date,
           cardholder_name: o.cardholder_name,
+          sys_id:          a.sys_id,
+          bank_id:         a.bank_id,
           logo_id:         a.logo_id
         }
     )
   end
 
   defp format_record(order) do
+    layout = resolve_layout(order)
+
     # Record type 'C' = card personalisation
     rec =
       "C" <>
-      pad(order.pan_token, 19) <>
-      pad(order.expiry_date, 4) <>
-      pad(order.cardholder_name, 26) <>
-      @service_code <>
-      "001" <>       # card sequence number
-      "   " <>       # CVC2 placeholder — HSM fills at bureau
-      pad("", 37) <> # Track 2 encrypted — HSM fills at bureau
-      pad(order.logo_id, 4)
+      pad(order.pan_token, layout["pan_width"]) <>
+      pad(order.expiry_date, layout["expiry_width"]) <>
+      pad(order.cardholder_name, layout["name_width"]) <>
+      pad(layout["service_code"], 3) <>
+      pad("001", layout["sequence_width"]) <>       # card sequence number
+      pad("", layout["cvc2_width"]) <>              # CVC2 placeholder — HSM fills at bureau
+      pad("", layout["track2_width"]) <>            # Track 2 encrypted — HSM fills at bureau
+      pad(order.logo_id, layout["logo_id_width"])
 
-    String.pad_trailing(rec, @record_length)
+    String.pad_trailing(rec, layout["record_length"])
+  end
+
+  defp resolve_layout(order) do
+    {:ok, template} =
+      ModuleConfigEngine.get("cta", "emboss_file_template", order.sys_id, order.bank_id, order.logo_id)
+
+    Map.merge(@default_layout, template)
   end
 
   defp pad(value, length), do: String.slice(to_string(value) |> String.pad_trailing(length), 0, length)

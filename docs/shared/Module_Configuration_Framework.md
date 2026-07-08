@@ -126,27 +126,31 @@ natural follow-up, not built here — see §5.
 
 ### CTA (`lib/vmu_core/cta/config_catalog.ex`)
 
-| Key | Type | Scope | Default | Answers |
-|---|---|---|---|---|
-| `emboss_file_template` | map | logo | `{}` | Vendor field-mapping template (record layout) |
-| `emboss_delivery_channel` | enum `[email, sftp]` | logo | `sftp` | Delivery channel |
-| `emboss_encryption_method` | enum `[pgp]` | bank | `pgp` | Encryption |
-| `card_replacement_pan_policy` | map | logo | `{LOST: new, STOLEN: new, DAMAGED: same}` | New-PAN-on-replacement policy |
-| `renewal_lead_time_days` | integer | logo | `30` | Renewal lead time |
-| `renewal_dormancy_suppression` | boolean | logo | `true` | Dormancy suppression rule |
-| `wallet_tokenization_mode` | enum `[disabled, scheme_token, own_token]` | logo | `disabled` | Wallet tokenization scope |
-| `pin_set_channels_enabled` | list `[ivr, app, web, atm]` | bank | `[ivr, app]` | PIN set channels |
+| Key | Type | Scope | Default | Answers | Wired? |
+|---|---|---|---|---|---|
+| `emboss_file_template` | map | logo | `{}` | Vendor field-mapping template (record layout) | ✅ `embossing_file_generator.ex` (field-width overrides, v1) |
+| `emboss_delivery_channel` | enum `[email, sftp]` | logo | `sftp` | Delivery channel | ⬜ no delivery path exists |
+| `emboss_encryption_method` | enum `[pgp]` | bank | `pgp` | Encryption | ⬜ no encryption exists |
+| `card_replacement_pan_policy` | map | logo | `{LOST: new, STOLEN: new, FRAUD: new, DAMAGED: same}` | New-PAN-on-replacement policy | ✅ `card_lifecycle.ex` |
+| `renewal_lead_time_days` | integer | logo | `30` | Renewal lead time | ✅ `card_expiry_sweep_job.ex` |
+| `renewal_dormancy_suppression` | boolean | logo | `true` | Dormancy suppression rule | ✅ `card_expiry_sweep_job.ex` |
+| `wallet_tokenization_mode` | enum `[disabled, scheme_token, own_token]` | logo | `disabled` | Wallet tokenization scope | ⬜ no wallet/tokenization code exists |
+| `pin_set_channels_enabled` | list `[ivr, app, web, atm]` | bank | `[ivr, app]` | PIN set channels | ⬜ dead IVR PIN-change handler, no consumer |
+
+See `docs/cta/CTA_Gap_Implementation_Tracker.md` CTA-P4.4 for the wiring detail and why
+the four ⬜ rows have nothing to wire into yet.
 
 ### ASM (`lib/vmu_core/asm/config_catalog.ex`)
 
-| Key | Type | Scope | Default | Answers |
-|---|---|---|---|---|
-| `authn_source` | list `[local, sso, ad, ldap]` | bank | `[local]` | AuthN source |
-| `authn_provider_config` | map | bank | `{}` | Provider connection settings |
-| `pii_masking_rules` | map | system | `{}` | PII masking, role-wise |
-| `audit_retention_days` | integer | system | `2555` (7yr) | Audit retention |
+| Key | Type | Scope | Default | Answers | Wired? |
+|---|---|---|---|---|---|
+| `authn_source` | list `[local, sso, ad, ldap]` | bank | `[local]` | AuthN source | ⬜ real SSO/AD/LDAP integration, out of scope |
+| `authn_provider_config` | map | bank | `{}` | Provider connection settings | ⬜ same as above |
+| `pii_masking_rules` | map | system | `{}` | PII masking, role-wise | ✅ `customer_component.ex` (id_number, date_of_birth) |
+| `audit_retention_days` | integer | system | `2555` (7yr) | Audit retention | ✅ new `audit_retention_sweep_job.ex` |
 
 *Not covered:* the role-taxonomy question is a design task, not a config key — see §5.
+See `docs/asm/ASM_Implementation_Tracker.md` ASM-P6.3 for the wiring detail.
 
 ### DPS (`lib/vmu_core/dps/config_catalog.ex`)
 
@@ -219,3 +223,23 @@ storage abstraction for them to drive yet. **When adding a new catalog entry, bu
 separate step to actually wire it into the consuming module's logic, and verify with a
 real read/write against real data — not just that the value round-trips through the
 store.**
+
+**Follow-up pass (2026-07-08, same day):** went through every registered CTA/ASM key
+and wired each one that had a real hardcoded equivalent to replace —
+`card_replacement_pan_policy`, `renewal_lead_time_days`,
+`renewal_dormancy_suppression`, `emboss_file_template` (CTA), and `pii_masking_rules`
++ `audit_retention_days` (ASM, the latter via a brand-new Oban job since no purge
+capability existed at all). Investigated the other 6 keys first rather than assuming:
+`emboss_delivery_channel`, `emboss_encryption_method`, `wallet_tokenization_mode`,
+`pin_set_channels_enabled` (CTA), and `authn_source`/`authn_provider_config` (ASM) all
+turned out to have **zero working consumer** — no file delivery path, no encryption,
+no wallet integration, a dead IVR PIN-change handler, and no SSO/AD/LDAP integration,
+respectively. Building any of those means building a real subsystem, not rewiring a
+hardcode, and was left deliberately deferred (by explicit user decision) rather than
+stubbed out to look more complete than it is. Every wiring above was verified against
+real data (real cards, real accounts, a live admin-console login as a non-ADMIN
+operator for the masking check) — see `CTA_Gap_Implementation_Tracker.md` CTA-P4.4 and
+`ASM_Implementation_Tracker.md` ASM-P6.3 for the exact verification steps. This pass
+also caught a second latent bug purely by trying to exercise the code for real:
+`EmbossingFileGenerator.pending_orders/0` selected a nonexistent `o.id` column (the
+real PK is `order_id`) — would have crashed on any actual embossing run.

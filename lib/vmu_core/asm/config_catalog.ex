@@ -43,9 +43,12 @@ defmodule VmuCore.ASM.ConfigCatalog do
         default: %{},
         scope: :system,
         description:
-          "Role-wise PII field masking rules, keyed by \"<entity>.<field>\" (e.g. " <>
-            "\"cif.national_id\") mapping to the roles that see the unmasked value and " <>
-            "the mask pattern applied for everyone else."
+          "Role-wise PII field masking rules, keyed by \"cif.<field>\" (wired for " <>
+            "\"cif.id_number\" and \"cif.date_of_birth\" in the customer admin screen) " <>
+            "→ %{\"unmasked_roles\" => [...]}. Operators whose role is in " <>
+            "unmasked_roles (or ADMIN, always unmasked) see the raw value; everyone " <>
+            "else sees it masked (all but the last 4 characters replaced with \"*\"). " <>
+            "Empty map (default) = no masking, matching today's unmasked behavior."
       },
       %{
         key: "audit_retention_days",

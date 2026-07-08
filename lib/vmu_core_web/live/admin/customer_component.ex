@@ -20,6 +20,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{Customer, BankParameter, SysParameter}
+  alias VmuCore.Shared.ModuleConfigEngine
   alias VmuCore.ASM.Authz
 
   @id_types [
@@ -409,6 +410,36 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8) <> "…"
   defp short_id(_), do: "—"
 
+  # ── PII masking (asm.pii_masking_rules, Module Configuration Framework) ─────
+  # Empty rules map (default) = unmasked, matching pre-existing behavior.
+
+  defp masked(raw, field_key, sys_id, operator) do
+    {:ok, rules} = ModuleConfigEngine.get("asm", "pii_masking_rules", sys_id)
+
+    case Map.get(rules, field_key) do
+      nil -> raw
+      rule -> if unmasked_for?(operator, rule), do: raw, else: mask_pii(raw)
+    end
+  end
+
+  defp unmasked_for?(%{role: "ADMIN"}, _rule), do: true
+  defp unmasked_for?(operator, rule) do
+    unmasked_roles = Map.get(rule, "unmasked_roles", [])
+    operator != nil and operator.role in unmasked_roles
+  end
+
+  defp mask_pii(nil), do: nil
+  defp mask_pii(value) do
+    str = to_string(value)
+    len = String.length(str)
+
+    if len <= 4 do
+      String.duplicate("*", len)
+    else
+      String.duplicate("*", len - 4) <> String.slice(str, -4, 4)
+    end
+  end
+
   # ── Render ──────────────────────────────────────────────────────────────────
 
   @impl true
@@ -566,7 +597,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
               <tr>
                 <td>
                   <div style="font-weight:500;"><%= full_name(c) %></div>
-                  <div class="text-sm text-muted"><%= date_s(c.date_of_birth) %></div>
+                  <div class="text-sm text-muted"><%= masked(date_s(c.date_of_birth), "cif.date_of_birth", c.sys_id, @current_operator) %></div>
                 </td>
                 <td><span class="mono"><%= c.bank_id %></span></td>
                 <td><span class="mono text-xs" style="color:var(--text-muted)"><%= short_id(c.customer_id) %></span></td>
@@ -578,7 +609,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
                 </td>
                 <td>
                   <div class="text-sm"><%= c.id_type %></div>
-                  <div class="text-sm text-muted"><%= c.id_number %></div>
+                  <div class="text-sm text-muted"><%= masked(c.id_number, "cif.id_number", c.sys_id, @current_operator) %></div>
                 </td>
                 <td>
                   <span class={"badge #{kyc_badge_class(c.kyc_status)}"}>
@@ -709,7 +740,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           <.kv_detail rows={[
             {"First Name",   @cust.first_name},
             {"Last Name",    @cust.last_name},
-            {"Date of Birth", date_s(@cust.date_of_birth)},
+            {"Date of Birth", masked(date_s(@cust.date_of_birth), "cif.date_of_birth", @cust.sys_id, @current_operator)},
             {"Nationality",  @cust.nationality},
             {"Customer Tier",@cust.customer_tier || "RETAIL"}
           ]}/>
@@ -738,7 +769,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         <div class="card-body">
           <.kv_detail rows={[
             {"ID Type",   @cust.id_type},
-            {"ID Number", @cust.id_number},
+            {"ID Number", masked(@cust.id_number, "cif.id_number", @cust.sys_id, @current_operator)},
             {"Expiry",    date_s(@cust.id_expiry)},
             {"KYC Status",@cust.kyc_status || "PENDING"}
           ]}/>

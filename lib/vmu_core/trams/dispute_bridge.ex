@@ -26,6 +26,12 @@ defmodule VmuCore.TRAMS.DisputeBridge do
   ## Configuration
 
       config :vmu_core, :trams_dispute_window_days, 120   # default (Visa/MC)
+
+  Note: this is the *dispute-filing eligibility* window (FR-DPS-003 — how long after
+  the transaction a dispute may be opened at all) — distinct from
+  `dps.provisional_credit_window_days` (how quickly provisional credit must be posted
+  *after* filing), which is wired into `VmuCore.DPS.Dispute` instead. Do not conflate
+  the two.
   """
 
   require Logger

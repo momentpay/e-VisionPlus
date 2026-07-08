@@ -22,6 +22,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{BlockParameter, LogoParameter, BankParameter, SysParameter, ParameterWriter}
+  alias VmuCore.ASM.Authz
 
   @steps ["Identity", "Rates & Fees", "Billing & Limits", "Channels & STIP"]
 
@@ -41,14 +42,19 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
        steps: @steps,
        logo_parent: nil,
        filter_logo: nil,
-       filter_bank: nil
+       filter_bank: nil,
+       current_operator: nil,
+       can_edit: false
      )
      |> load_data()}
   end
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(can_edit: Authz.can?(assigns[:current_operator], "block", "edit"))}
   end
 
   defp load_data(socket) do
@@ -73,31 +79,39 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
 
   @impl true
   def handle_event("block_new", _params, socket) do
-    sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id;  _ -> "" end
-    bank_id = case socket.assigns.banks       do [b | _] -> b.bank_id; _ -> "" end
-    logo_id = case socket.assigns.logos       do [l | _] -> l.logo_id; _ -> "" end
-    fd = default_form(sys_id, bank_id, logo_id)
-    socket =
-      socket
-      |> assign(mode: :form, editing: nil, form_data: fd, overrides: %{},
-                current_step: 1, result: nil)
-      |> load_logo_parent(logo_id, sys_id, bank_id)
-    {:noreply, socket}
+    if socket.assigns.can_edit do
+      sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id;  _ -> "" end
+      bank_id = case socket.assigns.banks       do [b | _] -> b.bank_id; _ -> "" end
+      logo_id = case socket.assigns.logos       do [l | _] -> l.logo_id; _ -> "" end
+      fd = default_form(sys_id, bank_id, logo_id)
+      socket =
+        socket
+        |> assign(mode: :form, editing: nil, form_data: fd, overrides: %{},
+                  current_step: 1, result: nil)
+        |> load_logo_parent(logo_id, sys_id, bank_id)
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot create blocks."})}
+    end
   end
 
   def handle_event("block_edit", %{"id" => block_id}, socket) do
-    block = Enum.find(socket.assigns.blocks, &(&1.block_id == block_id))
-    if block do
-      fd = block_to_form(block)
-      ov = detect_overrides(block)
-      socket =
-        socket
-        |> assign(mode: :form, editing: block, form_data: fd, overrides: ov,
-                  current_step: 1, result: nil)
-        |> load_logo_parent(block.logo_id, block.sys_id, block.bank_id)
-      {:noreply, socket}
+    if not socket.assigns.can_edit do
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit blocks."})}
     else
-      {:noreply, assign(socket, result: {:error, "Block not found."})}
+      block = Enum.find(socket.assigns.blocks, &(&1.block_id == block_id))
+      if block do
+        fd = block_to_form(block)
+        ov = detect_overrides(block)
+        socket =
+          socket
+          |> assign(mode: :form, editing: block, form_data: fd, overrides: ov,
+                    current_step: 1, result: nil)
+          |> load_logo_parent(block.logo_id, block.sys_id, block.bank_id)
+        {:noreply, socket}
+      else
+        {:noreply, assign(socket, result: {:error, "Block not found."})}
+      end
     end
   end
 
@@ -140,33 +154,41 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
     do: {:noreply, assign(socket, current_step: max(socket.assigns.current_step - 1, 1))}
 
   def handle_event("block_save", %{"block" => params}, socket) do
-    overrides = extract_overrides(params)
-    attrs = build_attrs(params, overrides)
+    if socket.assigns.can_edit do
+      overrides = extract_overrides(params)
+      attrs = build_attrs(params, overrides)
 
-    result =
-      case socket.assigns.editing do
-        nil   -> ParameterWriter.create_block(attrs)
-        block -> ParameterWriter.update_block(block, attrs)
+      result =
+        case socket.assigns.editing do
+          nil   -> ParameterWriter.create_block(attrs)
+          block -> ParameterWriter.update_block(block, attrs)
+        end
+
+      case result do
+        {:ok, _} ->
+          label = if is_nil(socket.assigns.editing), do: "Block created.", else: "Block updated."
+          {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, label})}
+
+        {:error, cs} ->
+          msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+          {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
       end
-
-    case result do
-      {:ok, _} ->
-        label = if is_nil(socket.assigns.editing), do: "Block created.", else: "Block updated."
-        {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, label})}
-
-      {:error, cs} ->
-        msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-        {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot save blocks."})}
     end
   end
 
   def handle_event("block_delete", %{"id" => block_id}, socket) do
-    block = Enum.find(socket.assigns.blocks, &(&1.block_id == block_id))
-    if block do
-      Repo.delete(block)
-      VmuCore.Shared.ParameterEngine.refresh_all()
+    if socket.assigns.can_edit do
+      block = Enum.find(socket.assigns.blocks, &(&1.block_id == block_id))
+      if block do
+        Repo.delete(block)
+        VmuCore.Shared.ParameterEngine.refresh_all()
+      end
+      {:noreply, socket |> load_data() |> assign(result: {:ok, "Block #{block_id} deleted."})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot delete blocks."})}
     end
-    {:noreply, socket |> load_data() |> assign(result: {:ok, "Block #{block_id} deleted."})}
   end
 
   # ── Form helpers ────────────────────────────────────────────────────────────
@@ -368,7 +390,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
       <.page_header title="Sub-Product Blocks"
         subtitle="Tier overrides within a LOGO — Gold / Platinum / Basic / Corporate etc.">
         <:actions>
-          <button :if={@mode == :list} phx-click="block_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@mode == :list && @can_edit} phx-click="block_new" phx-target={@myself} class="btn btn-primary">
             + New Block
           </button>
         </:actions>
@@ -434,7 +456,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
       <.empty_state icon="🧩" title="No Blocks Defined"
         message="Blocks let you create Gold / Platinum / Basic tiers within a single card product (LOGO).">
         <:actions>
-          <button phx-click="block_new" phx-target={@myself} class="btn btn-primary">+ New Block</button>
+          <button :if={@can_edit} phx-click="block_new" phx-target={@myself} class="btn btn-primary">+ New Block</button>
         </:actions>
       </.empty_state>
     <% else %>
@@ -473,9 +495,9 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
                 </td>
                 <td>
                   <div class="actions">
-                    <button phx-click="block_edit" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="block_edit" phx-target={@myself}
                       phx-value-id={block.block_id} class="btn btn-sm btn-secondary">Edit</button>
-                    <button phx-click="block_delete" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="block_delete" phx-target={@myself}
                       phx-value-id={block.block_id} class="btn btn-sm btn-danger"
                       data-confirm={"Delete block #{block.block_id}?"}>Delete</button>
                   </div>

@@ -20,6 +20,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{Customer, BankParameter, SysParameter}
+  alias VmuCore.ASM.Authz
 
   @id_types [
     {"-- Select ID Type --", ""},
@@ -86,7 +87,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
        kyc_filter:   "",
        tier_filter:  "",
        bank_filter:  "",
-       linked_accounts: []
+       linked_accounts: [],
+       current_operator: nil,
+       can_edit: false,
+       can_create: false
      )
      |> load_options()
      |> load_customers()}
@@ -94,7 +98,13 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(
+       can_edit:   Authz.can?(assigns[:current_operator], "customer", "edit"),
+       can_create: Authz.can?(assigns[:current_operator], "customer", "create")
+     )}
   end
 
   defp load_options(socket) do
@@ -165,33 +175,41 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   end
 
   def handle_event("cust_new", _params, socket) do
-    sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id; _ -> "" end
-    bank_id = case socket.assigns.bank_options do
-      [_, {_, bid} | _] -> bid
-      _                 -> ""
+    if socket.assigns.can_create do
+      sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id; _ -> "" end
+      bank_id = case socket.assigns.bank_options do
+        [_, {_, bid} | _] -> bid
+        _                 -> ""
+      end
+      fd = %{
+        "sys_id"       => sys_id,  "bank_id"    => bank_id,
+        "first_name"   => "",      "last_name"  => "",
+        "date_of_birth"=> "",      "nationality"=> "",
+        "customer_tier"=> "RETAIL",
+        "email"        => "",      "mobile_country" => "971",
+        "mobile_number"=> "",
+        "address_line1"=> "",      "address_line2" => "",
+        "city"         => "",      "postal_code"   => "",
+        "country"      => "",
+        "id_type"      => "",      "id_number"  => "",
+        "id_expiry"    => "",      "kyc_status" => "PENDING",
+        "company_name" => "",      "registration_number"  => "",
+        "registration_country" => "", "registration_date"  => ""
+      }
+      {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd, result: nil, cust_section: 1)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot create customers."})}
     end
-    fd = %{
-      "sys_id"       => sys_id,  "bank_id"    => bank_id,
-      "first_name"   => "",      "last_name"  => "",
-      "date_of_birth"=> "",      "nationality"=> "",
-      "customer_tier"=> "RETAIL",
-      "email"        => "",      "mobile_country" => "971",
-      "mobile_number"=> "",
-      "address_line1"=> "",      "address_line2" => "",
-      "city"         => "",      "postal_code"   => "",
-      "country"      => "",
-      "id_type"      => "",      "id_number"  => "",
-      "id_expiry"    => "",      "kyc_status" => "PENDING",
-      "company_name" => "",      "registration_number"  => "",
-      "registration_country" => "", "registration_date"  => ""
-    }
-    {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd, result: nil, cust_section: 1)}
   end
 
   def handle_event("cust_edit", %{"id" => id}, socket) do
-    cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
-    fd   = if cust, do: cust_to_form(cust), else: %{}
-    {:noreply, assign(socket, mode: :form, editing: cust, form_data: fd, result: nil, cust_section: 1)}
+    if socket.assigns.can_edit do
+      cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
+      fd   = if cust, do: cust_to_form(cust), else: %{}
+      {:noreply, assign(socket, mode: :form, editing: cust, form_data: fd, result: nil, cust_section: 1)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit customers."})}
+    end
   end
 
   def handle_event("cust_view", %{"id" => id}, socket) do
@@ -213,9 +231,13 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   end
 
   def handle_event("cust_edit_from_detail", _params, socket) do
-    cust = socket.assigns.viewing
-    fd   = cust_to_form(cust)
-    {:noreply, assign(socket, mode: :form, editing: cust, form_data: fd, result: nil, cust_section: 1)}
+    if socket.assigns.can_edit do
+      cust = socket.assigns.viewing
+      fd   = cust_to_form(cust)
+      {:noreply, assign(socket, mode: :form, editing: cust, form_data: fd, result: nil, cust_section: 1)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit customers."})}
+    end
   end
 
   def handle_event("cust_section", %{"s" => s}, socket) do
@@ -227,35 +249,46 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   end
 
   def handle_event("cust_save", %{"cust" => params}, socket) do
-    attrs = build_cust_attrs(params)
+    creating? = is_nil(socket.assigns.editing)
+    allowed?  = if creating?, do: socket.assigns.can_create, else: socket.assigns.can_edit
 
-    result =
-      case socket.assigns.editing do
-        nil  ->
-          %Customer{} |> Customer.changeset(attrs) |> Repo.insert()
-        cust ->
-          cust |> Customer.changeset(attrs) |> Repo.update()
+    if allowed? do
+      attrs = build_cust_attrs(params)
+
+      result =
+        case socket.assigns.editing do
+          nil  ->
+            %Customer{} |> Customer.changeset(attrs) |> Repo.insert()
+          cust ->
+            cust |> Customer.changeset(attrs) |> Repo.update()
+        end
+
+      case result do
+        {:ok, saved} ->
+          action = if socket.assigns.editing, do: "updated", else: "created"
+          accounts = Customer.list_accounts_for(saved.customer_id)
+          {:noreply, socket
+            |> load_customers()
+            |> assign(mode: :detail, editing: nil, viewing: saved,
+                      linked_accounts: accounts, result: {:ok, "Customer #{action}."})}
+
+        {:error, cs} ->
+          msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+          {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
       end
-
-    case result do
-      {:ok, saved} ->
-        action = if socket.assigns.editing, do: "updated", else: "created"
-        accounts = Customer.list_accounts_for(saved.customer_id)
-        {:noreply, socket
-          |> load_customers()
-          |> assign(mode: :detail, editing: nil, viewing: saved,
-                    linked_accounts: accounts, result: {:ok, "Customer #{action}."})}
-
-      {:error, cs} ->
-        msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-        {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot save this customer."})}
     end
   end
 
   def handle_event("cust_delete", %{"id" => id}, socket) do
-    cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
-    if cust, do: Repo.delete(cust)
-    {:noreply, socket |> load_customers() |> assign(mode: :list, result: {:ok, "Customer deleted."})}
+    if socket.assigns.can_edit do
+      cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
+      if cust, do: Repo.delete(cust)
+      {:noreply, socket |> load_customers() |> assign(mode: :list, result: {:ok, "Customer deleted."})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot delete customers."})}
+    end
   end
 
   def handle_event("kyc_verify", %{"id" => id}, socket) do
@@ -390,7 +423,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     <div>
       <.page_header title="Customers (CIF)" subtitle="Customer Information File — individual and corporate cardholders">
         <:actions>
-          <%= if @mode == :list do %>
+          <%= if @mode == :list && @can_create do %>
             <button phx-click="cust_new" phx-target={@myself} class="btn btn-primary">
               + New Customer
             </button>
@@ -498,7 +531,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       <.empty_state icon="👤" title="No Customers Found"
         message={if @search != "" or @kyc_filter != "" or @tier_filter != "", do: "No customers match your search filters. Try clearing the filters.", else: "No customers have been onboarded yet. Create your first customer record."}>
         <:actions>
-          <button phx-click="cust_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@can_create} phx-click="cust_new" phx-target={@myself} class="btn btn-primary">
             + New Customer
           </button>
         </:actions>
@@ -563,7 +596,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
                       phx-value-id={c.customer_id} class="btn btn-sm btn-secondary">
                       View
                     </button>
-                    <button phx-click="cust_edit" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="cust_edit" phx-target={@myself}
                       phx-value-id={c.customer_id} class="btn btn-sm btn-secondary">
                       Edit
                     </button>
@@ -613,10 +646,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-          <button phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-secondary">
+          <button :if={@can_edit} phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-secondary">
             Edit Customer
           </button>
-          <button phx-click="cust_delete" phx-target={@myself}
+          <button :if={@can_edit} phx-click="cust_delete" phx-target={@myself}
             phx-value-id={@cust.customer_id} class="btn btn-sm btn-danger"
             data-confirm={"Permanently delete customer #{full_name(@cust)}? This cannot be undone."}>
             Delete

@@ -13,6 +13,9 @@ defmodule VmuCore.Application do
       # 2. ETS-backed Parameter Engine — loads SYS/BANK/LOGO/BLOCK from DB into memory.
       #    All downstream modules (FAS switch, CMS, risk engine) read from ETS directly.
       VmuCore.Shared.ParameterEngine,
+      # 2a. ETS-backed Module Configuration Engine — generic per-module operational
+      #     config (CTA/ASM/DPS/...), separate from ParameterEngine's hot-path columns.
+      VmuCore.Shared.ModuleConfigEngine,
       # 2b. Hot card ETS cache — loads LOST/STOLEN/FRAUD-blocked pan_tokens; refreshes every 5 min.
       #     Must start after Repo (2a) but before any FAS authorization traffic.
       VmuCore.FAS.HotCardCache,

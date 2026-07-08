@@ -17,7 +17,8 @@ defmodule VmuCore.DPS.Dispute do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.InternalGlPoster}
+  alias VmuCore.{Repo, CMS.InternalGlPoster, CMS.Account}
+  alias VmuCore.Shared.ModuleConfigEngine
 
   @primary_key {:dispute_id, :binary_id, autogenerate: true}
 
@@ -43,6 +44,10 @@ defmodule VmuCore.DPS.Dispute do
     field :chargeback_deadline,      :date
     field :representment_deadline,   :date
     field :pre_arb_deadline,         :date
+    # Regulatory deadline for posting provisional credit — computed from the
+    # configurable `dps.provisional_credit_window_days` (Module Configuration
+    # Framework), not a fixed constant (varies by customer/market).
+    field :provisional_credit_deadline, :date
     field :filed_at,                 :naive_datetime
     field :closed_at,                :naive_datetime
 
@@ -55,10 +60,11 @@ defmodule VmuCore.DPS.Dispute do
                     :transaction_date, :dispute_amount,
                     :currency, :reason_code, :network, :status, :network_ref,
                     :provisional_credit_posted, :chargeback_deadline, :representment_deadline,
-                    :pre_arb_deadline, :filed_at, :closed_at])
+                    :pre_arb_deadline, :provisional_credit_deadline, :filed_at, :closed_at])
     |> validate_required([:account_id, :transaction_date, :dispute_amount, :reason_code])
     |> validate_inclusion(:status, @valid_statuses)
     |> put_deadlines()
+    |> put_provisional_credit_deadline()
   end
 
   @doc """
@@ -126,6 +132,23 @@ defmodule VmuCore.DPS.Dispute do
       |> put_change(:pre_arb_deadline, Date.add(txn_date, cb_days + 60))
     else
       cs
+    end
+  end
+
+  defp put_provisional_credit_deadline(cs) do
+    account_id = get_field(cs, :account_id)
+    filed_at   = get_field(cs, :filed_at)
+
+    case account_id && Repo.get(Account, account_id) do
+      %Account{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} ->
+        {:ok, window_days} =
+          ModuleConfigEngine.get("dps", "provisional_credit_window_days", sys_id, bank_id, logo_id)
+
+        base_date = if filed_at, do: NaiveDateTime.to_date(filed_at), else: Date.utc_today()
+        put_change(cs, :provisional_credit_deadline, Date.add(base_date, window_days))
+
+      _ ->
+        cs
     end
   end
 

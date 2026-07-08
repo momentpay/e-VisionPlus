@@ -16,6 +16,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{LogoParameter, BankParameter, SysParameter, ParameterWriter}
   alias VmuCore.CMS.PlanSegment
+  alias VmuCore.ASM.Authz
 
   @steps ["Identity", "Interest Rates", "Fees", "Billing & Auth", "Limits & STIP"]
 
@@ -39,14 +40,19 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
        plan_editing: nil,
        plan_form_data: %{},
        plan_result: nil,
-       plan_form_open: false
+       plan_form_open: false,
+       current_operator: nil,
+       can_edit: false
      )
      |> load_data()}
   end
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(can_edit: Authz.can?(assigns[:current_operator], "logo", "edit"))}
   end
 
   defp load_data(socket) do
@@ -60,18 +66,26 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
 
   @impl true
   def handle_event("logo_new", _params, socket) do
-    sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id;  _ -> "" end
-    bank_id = case socket.assigns.banks       do [b | _] -> b.bank_id; _ -> "" end
-    fd = default_form(sys_id, bank_id)
-    {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd,
-                      current_step: 1, result: nil)}
+    if socket.assigns.can_edit do
+      sys_id  = case socket.assigns.sys_records do [s | _] -> s.sys_id;  _ -> "" end
+      bank_id = case socket.assigns.banks       do [b | _] -> b.bank_id; _ -> "" end
+      fd = default_form(sys_id, bank_id)
+      {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd,
+                        current_step: 1, result: nil)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot create products."})}
+    end
   end
 
   def handle_event("logo_edit", %{"id" => logo_id}, socket) do
-    logo = Enum.find(socket.assigns.logos, &(&1.logo_id == logo_id))
-    fd   = if logo, do: logo_to_form(logo), else: %{}
-    {:noreply, assign(socket, mode: :form, editing: logo, form_data: fd,
-                      current_step: 1, result: nil)}
+    if socket.assigns.can_edit do
+      logo = Enum.find(socket.assigns.logos, &(&1.logo_id == logo_id))
+      fd   = if logo, do: logo_to_form(logo), else: %{}
+      {:noreply, assign(socket, mode: :form, editing: logo, form_data: fd,
+                        current_step: 1, result: nil)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit products."})}
+    end
   end
 
   def handle_event("logo_cancel", _params, socket) do
@@ -103,28 +117,36 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   end
 
   def handle_event("logo_save", %{"logo" => params}, socket) do
-    attrs = build_logo_attrs(params)
+    if socket.assigns.can_edit do
+      attrs = build_logo_attrs(params)
 
-    result = case socket.assigns.editing do
-      nil  -> ParameterWriter.create_logo(attrs)
-      logo -> ParameterWriter.update_logo(logo, attrs)
-    end
+      result = case socket.assigns.editing do
+        nil  -> ParameterWriter.create_logo(attrs)
+        logo -> ParameterWriter.update_logo(logo, attrs)
+      end
 
-    case result do
-      {:ok, _} ->
-        label = if is_nil(socket.assigns.editing), do: "Product created.", else: "Product updated."
-        {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, label})}
+      case result do
+        {:ok, _} ->
+          label = if is_nil(socket.assigns.editing), do: "Product created.", else: "Product updated."
+          {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, label})}
 
-      {:error, cs} ->
-        msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-        {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+        {:error, cs} ->
+          msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+          {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+      end
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot save products."})}
     end
   end
 
   def handle_event("logo_delete", %{"id" => logo_id}, socket) do
-    logo = Enum.find(socket.assigns.logos, &(&1.logo_id == logo_id))
-    if logo, do: Repo.delete(logo) |> tap(fn _ -> VmuCore.Shared.ParameterEngine.refresh_all() end)
-    {:noreply, socket |> load_data() |> assign(result: {:ok, "Product #{logo_id} deleted."})}
+    if socket.assigns.can_edit do
+      logo = Enum.find(socket.assigns.logos, &(&1.logo_id == logo_id))
+      if logo, do: Repo.delete(logo) |> tap(fn _ -> VmuCore.Shared.ParameterEngine.refresh_all() end)
+      {:noreply, socket |> load_data() |> assign(result: {:ok, "Product #{logo_id} deleted."})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot delete products."})}
+    end
   end
 
   # ── Plan Segment events ─────────────────────────────────────────────────────
@@ -142,21 +164,29 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   end
 
   def handle_event("plan_new", _params, socket) do
-    logo = socket.assigns.plans_logo
-    fd = %{
-      "plan_id" => "", "logo_id" => logo.logo_id, "sys_id" => logo.sys_id,
-      "bank_id" => logo.bank_id, "plan_type" => "RETAIL", "apr" => "0.0",
-      "promo_apr" => "", "promo_expiry_date" => "", "grace_eligible" => "true",
-      "min_payment_pct" => "", "payment_priority" => "4", "statement_order" => "1",
-      "emi_tenor_months" => "", "active" => "true", "description" => ""
-    }
-    {:noreply, assign(socket, plan_editing: nil, plan_form_data: fd, plan_form_open: true, plan_result: nil)}
+    if socket.assigns.can_edit do
+      logo = socket.assigns.plans_logo
+      fd = %{
+        "plan_id" => "", "logo_id" => logo.logo_id, "sys_id" => logo.sys_id,
+        "bank_id" => logo.bank_id, "plan_type" => "RETAIL", "apr" => "0.0",
+        "promo_apr" => "", "promo_expiry_date" => "", "grace_eligible" => "true",
+        "min_payment_pct" => "", "payment_priority" => "4", "statement_order" => "1",
+        "emi_tenor_months" => "", "active" => "true", "description" => ""
+      }
+      {:noreply, assign(socket, plan_editing: nil, plan_form_data: fd, plan_form_open: true, plan_result: nil)}
+    else
+      {:noreply, assign(socket, plan_result: {:error, "Your role cannot create plans."})}
+    end
   end
 
   def handle_event("plan_edit", %{"id" => plan_id}, socket) do
-    plan = Enum.find(socket.assigns.logo_plans, &(&1.plan_id == plan_id))
-    fd = plan_to_form(plan)
-    {:noreply, assign(socket, plan_editing: plan, plan_form_data: fd, plan_form_open: true, plan_result: nil)}
+    if socket.assigns.can_edit do
+      plan = Enum.find(socket.assigns.logo_plans, &(&1.plan_id == plan_id))
+      fd = plan_to_form(plan)
+      {:noreply, assign(socket, plan_editing: plan, plan_form_data: fd, plan_form_open: true, plan_result: nil)}
+    else
+      {:noreply, assign(socket, plan_result: {:error, "Your role cannot edit plans."})}
+    end
   end
 
   def handle_event("plan_cancel", _params, socket) do
@@ -168,31 +198,39 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   end
 
   def handle_event("plan_save", %{"plan" => params}, socket) do
-    attrs = build_plan_attrs(params)
-    result = case socket.assigns.plan_editing do
-      nil  ->
-        %PlanSegment{} |> PlanSegment.changeset(attrs) |> Repo.insert()
-      plan ->
-        plan |> PlanSegment.changeset(attrs) |> Repo.update()
-    end
-    case result do
-      {:ok, _} ->
-        plans = load_plans_for(socket.assigns.plans_logo.logo_id)
-        label = if is_nil(socket.assigns.plan_editing), do: "Plan created.", else: "Plan updated."
-        {:noreply, assign(socket,
-          logo_plans: plans, plan_form_open: false, plan_editing: nil,
-          plan_form_data: %{}, plan_result: {:ok, label})}
-      {:error, cs} ->
-        msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-        {:noreply, assign(socket, plan_result: {:error, "Save failed — #{msg}"})}
+    if socket.assigns.can_edit do
+      attrs = build_plan_attrs(params)
+      result = case socket.assigns.plan_editing do
+        nil  ->
+          %PlanSegment{} |> PlanSegment.changeset(attrs) |> Repo.insert()
+        plan ->
+          plan |> PlanSegment.changeset(attrs) |> Repo.update()
+      end
+      case result do
+        {:ok, _} ->
+          plans = load_plans_for(socket.assigns.plans_logo.logo_id)
+          label = if is_nil(socket.assigns.plan_editing), do: "Plan created.", else: "Plan updated."
+          {:noreply, assign(socket,
+            logo_plans: plans, plan_form_open: false, plan_editing: nil,
+            plan_form_data: %{}, plan_result: {:ok, label})}
+        {:error, cs} ->
+          msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+          {:noreply, assign(socket, plan_result: {:error, "Save failed — #{msg}"})}
+      end
+    else
+      {:noreply, assign(socket, plan_result: {:error, "Your role cannot save plans."})}
     end
   end
 
   def handle_event("plan_delete", %{"id" => plan_id}, socket) do
-    plan = Enum.find(socket.assigns.logo_plans, &(&1.plan_id == plan_id))
-    if plan, do: Repo.delete(plan)
-    plans = load_plans_for(socket.assigns.plans_logo.logo_id)
-    {:noreply, assign(socket, logo_plans: plans, plan_result: {:ok, "Plan #{plan_id} deleted."})}
+    if socket.assigns.can_edit do
+      plan = Enum.find(socket.assigns.logo_plans, &(&1.plan_id == plan_id))
+      if plan, do: Repo.delete(plan)
+      plans = load_plans_for(socket.assigns.plans_logo.logo_id)
+      {:noreply, assign(socket, logo_plans: plans, plan_result: {:ok, "Plan #{plan_id} deleted."})}
+    else
+      {:noreply, assign(socket, plan_result: {:error, "Your role cannot delete plans."})}
+    end
   end
 
   # ── Form data helpers ───────────────────────────────────────────────────────
@@ -412,7 +450,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
     <div>
       <.page_header title="Products / Logos" subtitle="Card product templates (LOGO level in the parameter hierarchy)">
         <:actions>
-          <button :if={@mode == :list} phx-click="logo_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@mode == :list && @can_edit} phx-click="logo_new" phx-target={@myself} class="btn btn-primary">
             + New Product
           </button>
         </:actions>
@@ -477,7 +515,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
       <.empty_state icon="💳" title="No Products Found"
         message="Create a product (LOGO) to define card programme parameters.">
         <:actions>
-          <button phx-click="logo_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@can_edit} phx-click="logo_new" phx-target={@myself} class="btn btn-primary">
             + New Product
           </button>
         </:actions>
@@ -526,9 +564,9 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
                   <div class="actions">
                     <button phx-click="logo_plans" phx-target={@myself}
                       phx-value-id={logo.logo_id} class="btn btn-sm btn-secondary">📊 Plans</button>
-                    <button phx-click="logo_edit" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="logo_edit" phx-target={@myself}
                       phx-value-id={logo.logo_id} class="btn btn-sm btn-secondary">Edit</button>
-                    <button phx-click="logo_delete" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="logo_delete" phx-target={@myself}
                       phx-value-id={logo.logo_id} class="btn btn-sm btn-danger"
                       data-confirm={"Delete product #{logo.logo_id}?"}>Delete</button>
                   </div>
@@ -976,7 +1014,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
           <div style="font-size:16px;font-weight:700;">Plan Segments — Logo <span class="mono"><%= @plans_logo.logo_id %></span></div>
           <div style="font-size:12px;color:var(--text-secondary);"><%= @plans_logo.description %></div>
         </div>
-        <button :if={not @plan_form_open} phx-click="plan_new" phx-target={@myself}
+        <button :if={not @plan_form_open && @can_edit} phx-click="plan_new" phx-target={@myself}
           class="btn btn-primary" style="margin-left:auto;">
           + New Plan
         </button>
@@ -1147,9 +1185,9 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
                     </td>
                     <td>
                       <div class="actions">
-                        <button phx-click="plan_edit" phx-target={@myself}
+                        <button :if={@can_edit} phx-click="plan_edit" phx-target={@myself}
                           phx-value-id={p.plan_id} class="btn btn-sm btn-secondary">Edit</button>
-                        <button phx-click="plan_delete" phx-target={@myself}
+                        <button :if={@can_edit} phx-click="plan_delete" phx-target={@myself}
                           phx-value-id={p.plan_id} class="btn btn-sm btn-danger"
                           data-confirm={"Delete plan #{p.plan_id}?"}>Delete</button>
                       </div>

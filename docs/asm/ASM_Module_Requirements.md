@@ -71,6 +71,25 @@ ASM owns **who can do what in the back office**: operator identities, roles/perm
 ## 6. Open Questions
 
 1. AuthN source: local credentials vs corporate SSO/LDAP (bank IT constraint).
+Answer: Configurable, SSO, AD, LDAP and local credential
 2. Role taxonomy + permission matrix — needs an ops org-design input.
+Answer: Take a bank's - 3 size example Large, Medium and small, create a org design with your own intelligence and knowledge. Create the Role and permission accordingly
 3. Is field-level PII masking by role required for v1, or module-level gating enough?
+Answer:PII masking role wise
 4. Regulatory audit retention period for operator logs.
+Answer: Configurable and by default 7yrs
+
+**Resolved 2026-07-08 — questions 1, 3, and 4 implemented as configurable**, via the
+new `VmuCore.Shared.ModuleConfig*` framework — see
+`docs/shared/Module_Configuration_Framework.md`. Catalog:
+`lib/vmu_core/asm/config_catalog.ex`.
+
+| Question | Config key | Default |
+|---|---|---|
+| 1. AuthN source (SSO/AD/LDAP/local) | `authn_source`, `authn_provider_config` | `[local]` / `{}` |
+| 3. PII masking, role-wise | `pii_masking_rules` | `{}` |
+| 4. Audit retention period | `audit_retention_days` | `2555` (7yr) |
+
+Editable via the admin console's **Module Configuration** screen. Question 2 (role
+taxonomy — 3 bank-size org design) is **not** a config key; it's a design task, tracked
+separately (see `docs/shared/Module_Configuration_Framework.md` §6).

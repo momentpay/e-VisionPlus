@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{SysParameter, ParameterWriter}
+  alias VmuCore.ASM.Authz
 
   @currencies [
     {"AED — UAE Dirham", "AED"}, {"SAR — Saudi Riyal", "SAR"}, {"BHD — Bahraini Dinar", "BHD"},
@@ -26,12 +27,16 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
 
   @impl true
   def mount(socket) do
-    {:ok, socket |> assign(mode: :view, result: nil, currencies: @currencies) |> load_sys()}
+    {:ok, socket |> assign(mode: :view, result: nil, currencies: @currencies,
+                           current_operator: nil, can_edit: false) |> load_sys()}
   end
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(can_edit: Authz.can?(assigns[:current_operator], "system", "edit"))}
   end
 
   defp load_sys(socket) do
@@ -66,7 +71,11 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
 
   @impl true
   def handle_event("sys_edit", _params, socket) do
-    {:noreply, assign(socket, mode: :edit, result: nil)}
+    if socket.assigns.can_edit do
+      {:noreply, assign(socket, mode: :edit, result: nil)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit system parameters."})}
+    end
   end
 
   def handle_event("sys_cancel", _params, socket) do
@@ -78,11 +87,15 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
   end
 
   def handle_event("sys_save", %{"sys" => params}, socket) do
-    case socket.assigns.sys do
-      nil ->
+    cond do
+      not socket.assigns.can_edit ->
+        {:noreply, assign(socket, result: {:error, "Your role cannot edit system parameters."})}
+
+      is_nil(socket.assigns.sys) ->
         {:noreply, assign(socket, result: {:error, "No SYS record found. Create one via seeds."})}
 
-      sys ->
+      true ->
+        sys = socket.assigns.sys
         attrs = build_sys_attrs(params)
         case ParameterWriter.update_sys(sys, attrs) do
           {:ok, _updated} ->
@@ -138,7 +151,7 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
     <div>
       <.page_header title="System Parameters" subtitle="Global processor-level defaults (root of the parameter hierarchy)">
         <:actions>
-          <button :if={@mode == :view && @sys != nil}
+          <button :if={@mode == :view && @sys != nil && @can_edit}
             phx-click="sys_edit" phx-target={@myself} class="btn btn-secondary">
             ✏️ Edit
           </button>

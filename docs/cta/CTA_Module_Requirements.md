@@ -88,7 +88,30 @@ CTA owns the **physical/virtual card as an artifact**: issuance, embossing, PIN 
 ## 6. Open Questions
 
 1. Personalization vendor + exact emboss file spec (record layout, delivery channel, encryption).
+Answer: Record Layout:Can we have a template option where we can upload the vendor file and do a mapping for fields and save it and when file generated it will follow the given vendor template.
+Delivery channel: Let's have the config option for this (email, sftp as per vendor)
+encryption: Start with pgp encryption
 2. New-PAN-on-replacement policy per reason code (lost/stolen = always new; damaged = same PAN?).
+Answer: Need configuration and default- Lost/Stolen - Always new and damaged - same PAN
 3. Renewal lead time (days before expiry) and dormancy suppression rule.
+Answer:We need these configuration
 4. Is digital wallet tokenization (FR-023) v1 scope? Requires scheme token service integration.
+Answer: It has to be configurable as we can have implementation where there will be scheme based own token
 5. PIN set channels for v1: IVR only, or app/web with HSM-backed PIN block translation?
+Answer: For this also, we need the configuration as it can be implementable as customer. Please add ATM also one of the option
+
+**Resolved 2026-07-08 — implemented as configurable, not hardcoded.** All five answers
+above share the same shape ("it varies by customer/deployment, make it configurable"),
+so they were implemented via the new `VmuCore.Shared.ModuleConfig*` framework rather
+than as one-off settings — see `docs/shared/Module_Configuration_Framework.md`.
+Catalog: `lib/vmu_core/cta/config_catalog.ex`.
+
+| Question | Config key | Default |
+|---|---|---|
+| 1. Record layout / delivery / encryption | `emboss_file_template`, `emboss_delivery_channel`, `emboss_encryption_method` | `{}` / `sftp` / `pgp` |
+| 2. New-PAN-on-replacement policy | `card_replacement_pan_policy` | `{LOST: new, STOLEN: new, DAMAGED: same}` |
+| 3. Renewal lead time / dormancy suppression | `renewal_lead_time_days`, `renewal_dormancy_suppression` | `30` / `true` |
+| 4. Wallet tokenization scope | `wallet_tokenization_mode` | `disabled` |
+| 5. PIN set channels (incl. ATM) | `pin_set_channels_enabled` | `[ivr, app]` |
+
+Editable per bank/logo via the admin console's **Module Configuration** screen.

@@ -86,6 +86,35 @@ DPS owns the **dispute case**: intake, provisional credit, the chargeback/repres
 ## 6. Open Questions
 
 1. Network connectivity for disputes: manual portal operation (ops re-keys) vs API integration (VROL/Mastercom) — determines FR-020 scope.
+Answer: Looking for both options -1. manual portal 2. API integration (VROL/Mastercom) 
 2. Provisional credit regulatory window in target market(s).
+Answer: It has to be as per customer and market , and so we should keep this configurable 
 3. Evidence retention period and storage location (DB blob vs object store).
+Answer: Currently keep in db with option for any aws s3/azure blob 
 4. Arbitration in v1 scope, or stop at representment?
+Answer: Complete the flow
+
+**Resolved 2026-07-08 — questions 1–3 implemented as configurable**, via the new
+`VmuCore.Shared.ModuleConfig*` framework — see
+`docs/shared/Module_Configuration_Framework.md`. Catalog:
+`lib/vmu_core/dps/config_catalog.ex`.
+
+| Question | Config key | Default |
+|---|---|---|
+| 1. Manual portal vs API integration, per network | `network_connectivity_mode` | `{VISA: manual, MASTERCARD: manual}` |
+| 2. Provisional credit window | `provisional_credit_window_days` | `10` |
+| 3. Evidence storage backend | `evidence_storage_backend`, `evidence_storage_config` | `db` / `{}` |
+
+Editable via the admin console's **Module Configuration** screen. Question 4
+(completing the arbitration flow) is **not** a config key; it's state-machine/GL
+feature work, tracked separately (see `docs/shared/Module_Configuration_Framework.md`
+§6) and in a future DPS tracker phase.
+
+**Wiring status (2026-07-08, `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P1.3):**
+question 2 (provisional credit window) is fully wired — `VmuCore.DPS.Dispute` now
+computes and stores `provisional_credit_deadline` from the configured value at filing
+time, verified against a real account. Questions 1 and 3 (network connectivity mode,
+evidence storage backend) are configurable in storage only — there is no VROL/
+Mastercom API integration or evidence storage abstraction yet for the config value to
+drive, so setting them today has no behavioral effect until that underlying capability
+is built.

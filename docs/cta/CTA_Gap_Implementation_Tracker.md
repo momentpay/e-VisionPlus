@@ -102,6 +102,24 @@ checks. See `lib/vmu_core/shared/currency_codes.ex`.
 
 ---
 
+## CTA-P4 — Module Configuration (Emboss/Replacement/Renewal/Wallet/PIN) ✅ (2026-07-08)
+
+Resolves the 5 open questions in `CTA_Module_Requirements.md` §6 — each answer was
+"it varies by customer/deployment, make it configurable," so this phase implements a
+shared, reusable configuration framework rather than one-off settings. Full design and
+verification: `docs/shared/Module_Configuration_Framework.md`.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P4.1 | Generic Module Configuration framework: `shared_module_configs` table, `ModuleConfigEntry` schema, `ModuleConfigCatalog` registry, `ModuleConfigEngine` (ETS cascade reader), `ModuleConfigWriter` (validated writer + audit) | `priv/repo/migrations/20260708000000_create_shared_module_configs.exs`, `lib/vmu_core/shared/module_config_{entry,catalog,engine,writer}.ex` | ✅ |
+| P4.2 | CTA config catalog — 8 keys: emboss template/delivery/encryption, replacement PAN policy, renewal lead time + dormancy, wallet tokenization mode, PIN-set channels (incl. ATM) | `lib/vmu_core/cta/config_catalog.ex` | ✅ |
+| P4.3 | Generic admin UI — catalog-driven Module Configuration screen (System/Bank/Logo scope picker, module tabs) | `lib/vmu_core_web/live/admin/module_config_component.ex`, `admin_live.ex` wiring | ✅ |
+
+**Verification (2026-07-08):** `mix compile --warnings-as-errors` clean. Smoke test
+covering default fallback, scope cascade, invalid-enum/unknown-key rejection, and
+audit trail — all passed (see `docs/shared/Module_Configuration_Framework.md` §7).
+Admin UI loaded as ADMIN with no server errors.
+
 ## Overall
 
 | Phase | Items | Done |
@@ -109,6 +127,7 @@ checks. See `lib/vmu_core/shared/currency_codes.ex`.
 | CTA-P1 Card Entity | 5 | 5 |
 | CTA-P2 Lifecycle | 4 | 4 |
 | CTA-P3 UI & Controls | 3 | 3 |
-| **TOTAL** | **12** | **12** |
+| CTA-P4 Module Configuration | 3 | 3 |
+| **TOTAL** | **15** | **15** |
 
-**CTA gap plan complete (12/12) as of 2026-07-07.**
+**CTA gap plan + module configuration complete (15/15) as of 2026-07-08.**

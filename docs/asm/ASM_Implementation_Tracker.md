@@ -92,4 +92,60 @@ dropdown source; oversize action/subject truncated fail-safe.
 
 ---
 
+## ASM-P5 — Action-Level Gating Rollout ✅ (2026-07-07)
+
+Closes the gap flagged during the post-CTA-P3 plan review: P2.2 gated which
+*modules* appear in the sidebar (and blocks deep-linking), and P3.1 wired
+real operator identity into the CMS 4-eyes financial forms — but the plain
+CRUD screens (System, Organization, Logo, Block, Customer) never got
+`Authz.can?`-based **action**-level gating. Until this phase, any operator
+who could *see* Logo/Block (e.g. OPS, COMPLIANCE — `view`-only per the
+matrix) could still submit an edit, since nothing checked the matrix's
+view/edit/create distinction below the module level — a real authorization
+bypass, not a cosmetic gap.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P5.1 | `SystemComponent` — `can_edit` computed in `update/2` from `Authz.can?(operator, "system", "edit")`; Edit button hidden + `sys_edit`/`sys_save` re-check server-side | `live/admin/system_component.ex` | ✅ |
+| P5.2 | `OrganizationComponent` — same pattern; gates `org_new`/`org_edit`/`org_save`/`org_delete` (both toolbar and empty-state create buttons) | `live/admin/organization_component.ex` | ✅ |
+| P5.3 | `LogoComponent` — gates `logo_new`/`logo_edit`/`logo_save`/`logo_delete` **and** the inline PLAN segment CRUD (`plan_new`/`plan_edit`/`plan_save`/`plan_delete`) on the same `logo:edit` grant, since plans are logo-scoped and the matrix has no separate plan permission. *(Note: while surveying this component, found that Roadmap Phase 4C.2 "PLAN segment create/edit" — previously reported as an open gap — was already implemented here; the account-detail Plans tab's "manage from Products/Logos" pointer was accurate, just unverified until now.)* | `live/admin/logo_component.ex` | ✅ |
+| P5.4 | `BlockComponent` — gates `block_new`/`block_edit`/`block_save`/`block_delete` (toolbar + empty-state + row actions) | `live/admin/block_component.ex` | ✅ |
+| P5.5 | `CustomerComponent` — **two-permission model**: `can_edit` (`customer:edit`) gates edit/delete; `can_create` (`customer:create`) separately gates new-customer entry points, since the matrix grants OPS/CS_AGENT edit but not create. `cust_save` branches on `is_nil(editing)` to apply the correct one | `live/admin/customer_component.ex` | ✅ |
+
+**Verification (2026-07-07):** smoke-tested 9/9 — confirmed the exact
+`Authz.can?` decisions each component's `update/2` now relies on: `system:edit`
+and `organization:edit` → ADMIN only; `logo:edit`/`block:edit` → SUPERVISOR +
+ADMIN (OPS/COMPLIANCE correctly excluded); `customer:edit` → SUPERVISOR/OPS/
+CS_AGENT + ADMIN; `customer:create` → SUPERVISOR + ADMIN only (OPS/CS_AGENT can
+edit existing customers but not create new ones); view access unaffected
+(COMPLIANCE keeps `system:view`); ADMIN short-circuits every check regardless
+of matrix content. All 5 components compile clean with the new `can_edit`/
+`can_create` assigns driving both template button visibility (`:if={@can_edit}`)
+and server-side handler re-checks — defense in depth against a crafted event
+bypassing a hidden button.
+
+---
+
+## ASM-P6 — Module Configuration (AuthN/PII-masking/Audit-retention) ✅ (2026-07-08)
+
+Resolves 3 of the 4 open questions in `ASM_Module_Requirements.md` §6 — AuthN source,
+PII masking, and audit retention were all answered as "make it configurable," so this
+phase folds ASM's settings into the shared, reusable configuration framework rather
+than one-off ASM-specific plumbing. Full design and verification:
+`docs/shared/Module_Configuration_Framework.md`. (Question 2 — role taxonomy — is a
+design task, not a config key; not part of this phase.)
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P6.1 | ASM config catalog — 4 keys: `authn_source` + `authn_provider_config` (SSO/AD/LDAP/local), `pii_masking_rules` (role-wise), `audit_retention_days` (default 2555 = 7yr) | `lib/vmu_core/asm/config_catalog.ex` | ✅ |
+| P6.2 | Registered in the shared `ModuleConfigCatalog` + rendered by the generic Module Configuration admin screen (built in CTA-P4, reused here — no ASM-specific UI code) | `lib/vmu_core/shared/module_config_catalog.ex`, `lib/vmu_core_web/live/admin/module_config_component.ex` | ✅ |
+
+**Verification (2026-07-08):** covered by the shared framework's smoke test (default
+fallback, cascade, validation, audit trail — see
+`docs/shared/Module_Configuration_Framework.md` §7); `audit_retention_days` write
+specifically exercised (2555 → 3650) and confirmed both the ETS cascade and the
+`config_update` audit row.
+
+---
+
 *Recommended start: immediately after CMS-G1 — ASM-P1 gates production use of every admin screen.*

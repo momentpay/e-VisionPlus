@@ -26,7 +26,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     TramInquiryComponent,
     OperatorComponent,
     ApprovalInboxComponent,
-    AuditLogComponent
+    AuditLogComponent,
+    ModuleConfigComponent
   }
 
   @modules %{
@@ -34,6 +35,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "organization" => %{label: "Organizations",           icon: "🏦",  section: :org},
     "logo"         => %{label: "Products / Logos",        icon: "💳",  section: :logo},
     "block"        => %{label: "Sub-Product Blocks",      icon: "🧩",  section: :block},
+    "module_config" => %{label: "Module Configuration",   icon: "🧰",  section: :sys},
     "customer"     => %{label: "Customers (CIF)",         icon: "👤",  section: :customer},
     "account"      => %{label: "Accounts (CMS)",          icon: "💳",  section: :account},
     "exceptions"   => %{label: "Exception Queue",         icon: "🚨",  section: :fas},
@@ -53,7 +55,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
       page_title: "VisionPlus Admin",
       active_module: "system",
       modules: @modules,
-      visible_modules: Authz.permitted_modules(operator),
+      # "module_config" has no RolePermission rows of its own (Module Configuration
+      # Framework v1 gate) — whoever can view "system" can view module config too.
+      visible_modules: expand_module_config_visibility(Authz.permitted_modules(operator)),
       can_approve_exceptions: Authz.can?(operator, "exceptions", "approve")
     )}
   end
@@ -64,6 +68,10 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   end
   def handle_params(_params, _uri, socket) do
     {:noreply, assign(socket, active_module: "system")}
+  end
+
+  defp expand_module_config_visibility(visible) do
+    if MapSet.member?(visible, "system"), do: MapSet.put(visible, "module_config"), else: visible
   end
 
   @impl true
@@ -109,6 +117,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"organization" in @visible_modules} mod="organization" label="Organizations"        icon="🏦"  active={@active_module} />
           <.sidebar_nav_item :if={"logo" in @visible_modules}         mod="logo"         label="Products / Logos"     icon="💳"  active={@active_module} />
           <.sidebar_nav_item :if={"block" in @visible_modules}        mod="block"        label="Sub-Product Blocks"   icon="🧩"  active={@active_module} />
+          <.sidebar_nav_item :if={"module_config" in @visible_modules} mod="module_config" label="Module Configuration" icon="🧰"  active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -189,13 +198,20 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <% true -> %>
             <%= case @active_module do %>
               <% "system" -> %>
-                <.live_component module={SystemComponent} id="sys-component" />
+                <.live_component module={SystemComponent} id="sys-component"
+                                 current_operator={@current_operator} />
               <% "organization" -> %>
-                <.live_component module={OrganizationComponent} id="org-component" />
+                <.live_component module={OrganizationComponent} id="org-component"
+                                 current_operator={@current_operator} />
               <% "logo" -> %>
-                <.live_component module={LogoComponent} id="logo-component" />
+                <.live_component module={LogoComponent} id="logo-component"
+                                 current_operator={@current_operator} />
               <% "block" -> %>
-                <.live_component module={BlockComponent} id="block-component" />
+                <.live_component module={BlockComponent} id="block-component"
+                                 current_operator={@current_operator} />
+              <% "module_config" -> %>
+                <.live_component module={ModuleConfigComponent} id="module-config-component"
+                                 current_operator={@current_operator} />
               <% "customer" -> %>
                 <.live_component module={CustomerComponent} id="customer-component"
                                  current_operator={@current_operator} />

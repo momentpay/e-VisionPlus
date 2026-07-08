@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{BankParameter, SysParameter, ParameterWriter}
+  alias VmuCore.ASM.Authz
 
   # ── Option lists ────────────────────────────────────────────────────────────
 
@@ -101,13 +102,17 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
   def mount(socket) do
     {:ok,
      socket
-     |> assign(mode: :list, editing: nil, result: nil, form_data: %{}, org_section: 1)
+     |> assign(mode: :list, editing: nil, result: nil, form_data: %{}, org_section: 1,
+               current_operator: nil, can_edit: false)
      |> load_data()}
   end
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(can_edit: Authz.can?(assigns[:current_operator], "organization", "edit"))}
   end
 
   defp load_data(socket) do
@@ -120,23 +125,31 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
 
   @impl true
   def handle_event("org_new", _params, socket) do
-    sys_id = case socket.assigns.sys_records do
-      [s | _] -> s.sys_id
-      _       -> ""
+    if socket.assigns.can_edit do
+      sys_id = case socket.assigns.sys_records do
+        [s | _] -> s.sys_id
+        _       -> ""
+      end
+      fd = %{
+        "bank_id" => "", "sys_id" => sys_id, "description" => "", "org_name" => "",
+        "country_code" => "ARE", "base_currency" => "AED", "billing_timezone" => "Asia/Dubai",
+        "regulatory_regime" => "CBUAE", "org_type" => "BANK", "swift_bic" => "",
+        "gl_mapping_profile" => ""
+      }
+      {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd, result: nil, org_section: 1)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot create organizations."})}
     end
-    fd = %{
-      "bank_id" => "", "sys_id" => sys_id, "description" => "", "org_name" => "",
-      "country_code" => "ARE", "base_currency" => "AED", "billing_timezone" => "Asia/Dubai",
-      "regulatory_regime" => "CBUAE", "org_type" => "BANK", "swift_bic" => "",
-      "gl_mapping_profile" => ""
-    }
-    {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd, result: nil, org_section: 1)}
   end
 
   def handle_event("org_edit", %{"id" => bank_id}, socket) do
-    org = Enum.find(socket.assigns.orgs, &(&1.bank_id == bank_id))
-    fd  = if org, do: org_to_form(org), else: %{}
-    {:noreply, assign(socket, mode: :form, editing: org, form_data: fd, result: nil, org_section: 1)}
+    if socket.assigns.can_edit do
+      org = Enum.find(socket.assigns.orgs, &(&1.bank_id == bank_id))
+      fd  = if org, do: org_to_form(org), else: %{}
+      {:noreply, assign(socket, mode: :form, editing: org, form_data: fd, result: nil, org_section: 1)}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot edit organizations."})}
+    end
   end
 
   def handle_event("org_cancel", _params, socket) do
@@ -152,41 +165,49 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
   end
 
   def handle_event("org_save", %{"org" => params}, socket) do
-    case socket.assigns.editing do
-      nil ->
-        attrs = build_org_attrs(params)
-        case %BankParameter{}
-             |> BankParameter.changeset(attrs)
-             |> Repo.insert() do
-          {:ok, _record} ->
-            VmuCore.Shared.ParameterEngine.refresh_all()
-            {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, "Organisation created."})}
+    if socket.assigns.can_edit do
+      case socket.assigns.editing do
+        nil ->
+          attrs = build_org_attrs(params)
+          case %BankParameter{}
+               |> BankParameter.changeset(attrs)
+               |> Repo.insert() do
+            {:ok, _record} ->
+              VmuCore.Shared.ParameterEngine.refresh_all()
+              {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, "Organisation created."})}
 
-          {:error, cs} ->
-            msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-            {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
-        end
+            {:error, cs} ->
+              msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+              {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+          end
 
-      org ->
-        attrs = build_org_attrs(params)
-        case ParameterWriter.update_bank(org, attrs) do
-          {:ok, _} ->
-            {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, "Organisation updated."})}
+        org ->
+          attrs = build_org_attrs(params)
+          case ParameterWriter.update_bank(org, attrs) do
+            {:ok, _} ->
+              {:noreply, socket |> load_data() |> assign(mode: :list, result: {:ok, "Organisation updated."})}
 
-          {:error, cs} ->
-            msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
-            {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
-        end
+            {:error, cs} ->
+              msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+              {:noreply, assign(socket, result: {:error, "Save failed — #{msg}"})}
+          end
+      end
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot save organizations."})}
     end
   end
 
   def handle_event("org_delete", %{"id" => bank_id}, socket) do
-    org = Enum.find(socket.assigns.orgs, &(&1.bank_id == bank_id))
-    if org do
-      Repo.delete(org)
-      VmuCore.Shared.ParameterEngine.refresh_all()
+    if socket.assigns.can_edit do
+      org = Enum.find(socket.assigns.orgs, &(&1.bank_id == bank_id))
+      if org do
+        Repo.delete(org)
+        VmuCore.Shared.ParameterEngine.refresh_all()
+      end
+      {:noreply, socket |> load_data() |> assign(result: {:ok, "Organisation #{bank_id} deleted."})}
+    else
+      {:noreply, assign(socket, result: {:error, "Your role cannot delete organizations."})}
     end
-    {:noreply, socket |> load_data() |> assign(result: {:ok, "Organisation #{bank_id} deleted."})}
   end
 
   defp org_to_form(%BankParameter{} = o) do
@@ -236,7 +257,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
     <div>
       <.page_header title="Organisations" subtitle="Bank and financial institution records — BANK level in the VisionPlus parameter hierarchy">
         <:actions>
-          <button :if={@mode == :list} phx-click="org_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@mode == :list && @can_edit} phx-click="org_new" phx-target={@myself} class="btn btn-primary">
             + New Organisation
           </button>
         </:actions>
@@ -298,7 +319,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       <.empty_state icon="🏦" title="No Organisations Yet"
         message="Create your first organisation to start the parameter hierarchy.">
         <:actions>
-          <button phx-click="org_new" phx-target={@myself} class="btn btn-primary">
+          <button :if={@can_edit} phx-click="org_new" phx-target={@myself} class="btn btn-primary">
             + New Organisation
           </button>
         </:actions>
@@ -343,15 +364,16 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
                 <td><span class="badge badge-gray"><%= org.org_type || "BANK" %></span></td>
                 <td>
                   <div class="actions">
-                    <button phx-click="org_edit" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="org_edit" phx-target={@myself}
                       phx-value-id={org.bank_id} class="btn btn-sm btn-secondary">
                       Edit
                     </button>
-                    <button phx-click="org_delete" phx-target={@myself}
+                    <button :if={@can_edit} phx-click="org_delete" phx-target={@myself}
                       phx-value-id={org.bank_id} class="btn btn-sm btn-danger"
                       data-confirm={"Delete organisation #{org.bank_id}? This cannot be undone."}>
                       Delete
                     </button>
+                    <span :if={!@can_edit} class="text-muted" style="font-size:0.85em">view only</span>
                   </div>
                 </td>
               </tr>

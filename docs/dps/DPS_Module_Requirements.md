@@ -76,10 +76,10 @@ DPS owns the **dispute case**: intake, provisional credit, the chargeback/repres
 | Area | Assessment |
 |---|---|
 | State machine, deadlines, provisional credit, TRAM linkage | ✅ Built + smoke-tested |
-| Reason-code reference table (FR-004) | ⬜ `reason_code` is free string; no reference data |
+| Reason-code reference table (FR-004) | ✅ Implemented 2026-07-09 — `VmuCore.DPS.ReasonCode`, wired into the dispute-filing window check. See DPS-P4 |
 | Provisional-credit reversal on CLOSED_LOSE (FR-010b) | ✅ Implemented 2026-07-08 — see `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P2 |
 | Evidence store (FR-014) | 🔄 Scaffolded 2026-07-09 — `db` backend real, `s3`/`azure_blob` stubbed (no cloud SDK dep). See DPS-P3 |
-| Case notes/assignment (FR-015) | ⬜ Not found |
+| Case notes/assignment (FR-015) | ✅ Implemented 2026-07-09 — `VmuCore.DPS.CaseNotes`. See DPS-P4 (no UI panel yet — code-only) |
 | Retrieval request inbound flow (FR-006) | 🔄 ITS `copy_request` exists — integration between ITS copy requests and DPS cases unverified |
 | Network message integration (FR-020) | 🔄 Scaffolded 2026-07-09 — `Manual` adapter real (formalizes today's process), `Vrol`/`Mastercom` stubbed (no API credentials). See `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P3 |
 | Ops UI: case list, detail, actions, deadline monitor | ⬜ Roadmap 6.9–6.12 |

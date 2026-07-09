@@ -2,7 +2,7 @@
 
 > Source: `DPS_Module_Requirements.md` gap analysis / open questions.
 > Statuses: `✅ Done` · `🔄 In Progress` · `⬜ Pending`
-> Last updated: 2026-07-08
+> Last updated: 2026-07-09
 
 **Note:** this tracker starts at DPS-P1 — it does not retroactively re-document DPS's
 earlier build work (state machine, deadline enforcement, provisional credit, TRAM
@@ -111,14 +111,40 @@ confirmed success with `network_ref` still `nil` (ops fills it in later); switch
 `{:error, :not_implemented}` did **not** block the status transition. All test
 config/data reverted after.
 
+## DPS-P4 — Reason-Code Reference Table + Case Notes/Assignment ✅ (2026-07-09)
+
+Resolves FR-DPS-004 (reason codes were a free string with no reference data) and
+FR-DPS-015 (case notes/investigator assignment — "Not found"). Per
+`docs/tram/08_chargebacks_disputes.md` §4: reason codes and their dispute windows
+differ by network and change periodically via network rule updates — modeled as
+admin-editable reference data, not a hardcoded enum, so updates never require a code
+deployment.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P4.1 | `dps_reason_codes` table + `VmuCore.DPS.ReasonCode` schema (network + code + description + category + dispute window + evidence-required list) — 9 illustrative Visa/Mastercard rows seeded (validate against current network operating regulations before go-live, per the source spec's own caveat) | migration `20260709000002_create_dps_reason_codes.exs`, `lib/vmu_core/dps/reason_code.ex`, `priv/repo/seed_dps_reason_codes.exs` | ✅ |
+| P4.2 | `TRAMS.DisputeBridge.check_dispute_window/3` now looks up the dispute window per network+reason-code via `ReasonCode.window_days/3`, falling back to the historical static `Application.get_env(:vmu_core, :trams_dispute_window_days, 120)` only when a code isn't in the reference table | `lib/vmu_core/trams/dispute_bridge.ex` | ✅ |
+| P4.3 | `Dispute.assigned_to` field (current investigator) + `dps_dispute_notes` table/`VmuCore.DPS.DisputeNote` schema (append-only running note log) + `VmuCore.DPS.CaseNotes` context (`add_note/3`, `list_notes/1`, `assign/3`), audited via the existing `AuditLog` sink | migration `20260709000003_add_case_management_to_dps.exs`, `lib/vmu_core/dps/dispute_note.ex`, `lib/vmu_core/dps/case_notes.ex`, `lib/vmu_core/dps/dispute.ex` | ✅ |
+| P4.4 | **Bug caught before shipping:** `CaseNotes.assign/3` initially reused `Dispute.changeset/2` for the `assigned_to` update — but that changeset also recomputes `chargeback_deadline`/`provisional_credit_deadline` from *current* config on every call (necessary at filing time), which would have silently drifted a dispute's stored deadlines on an unrelated assignment change if config had shifted since filing. Fixed to use a narrow `Repo.update_all`, the same pattern `Dispute.transition/2` already uses for status updates. | `lib/vmu_core/dps/case_notes.ex` | ✅ |
+
+**Verification (2026-07-09):** live end-to-end script against a real account:
+confirmed `ReasonCode.window_days/3` returns the seeded per-code value (90 days for
+Visa 11.3) vs. the 120-day default for other codes and the fallback for unknown
+codes; filed a dispute against a 100-day-old transaction — correctly **rejected**
+under reason 11.3's 90-day window and correctly **accepted** under reason 10.4's
+120-day window on the *same* transaction, proving the per-code lookup is genuinely
+driving the decision, not just a global constant; added two case notes and confirmed
+newest-first ordering; assigned an investigator and confirmed
+`provisional_credit_deadline` was unchanged after (confirming the P4.4 fix holds).
+Test data cleaned up after.
+
 ## Follow-up (not yet started)
 
-- Reason-code reference table (FR-DPS-004), case notes/assignment (FR-DPS-015), real
-  S3/Azure evidence backends (need a cloud SDK dependency — not added this session),
-  real VROL/Mastercom API integration (need vendor credentials — not available this
-  session), ops UI (case list/detail/deadline monitor, plus an evidence
-  upload/list panel once it exists) — see `DPS_Module_Requirements.md` §5 gap
-  analysis.
+- Real S3/Azure evidence backends (need a cloud SDK dependency — not added this
+  session), real VROL/Mastercom API integration (need vendor credentials — not
+  available this session), ops UI (case list/detail/deadline monitor, plus an
+  evidence upload/list panel and a case-notes/assignment panel once it exists) —
+  see `DPS_Module_Requirements.md` §5 gap analysis.
 
 ## Overall
 
@@ -127,4 +153,5 @@ config/data reverted after.
 | DPS-P1 Module Configuration | 3 | 3 |
 | DPS-P2 Arbitration Flow Completion | 3 | 3 |
 | DPS-P3 Evidence Store + Network Integration Scaffolding | 5 | 5 |
-| **TOTAL** | **11** | **11** |
+| DPS-P4 Reason-Code Table + Case Notes/Assignment | 4 | 4 |
+| **TOTAL** | **15** | **15** |

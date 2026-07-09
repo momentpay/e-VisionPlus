@@ -25,13 +25,17 @@ defmodule VmuCore.TRAMS.DisputeBridge do
 
   ## Configuration
 
-      config :vmu_core, :trams_dispute_window_days, 120   # default (Visa/MC)
+      config :vmu_core, :trams_dispute_window_days, 120   # fallback default (Visa/MC)
 
   Note: this is the *dispute-filing eligibility* window (FR-DPS-003 — how long after
   the transaction a dispute may be opened at all) — distinct from
   `dps.provisional_credit_window_days` (how quickly provisional credit must be posted
   *after* filing), which is wired into `VmuCore.DPS.Dispute` instead. Do not conflate
   the two.
+
+  The window is looked up per network + reason code from `VmuCore.DPS.ReasonCode`
+  (FR-DPS-004 reference data, `priv/repo/seed_dps_reason_codes.exs`) — the app-env
+  value above is only the fallback when a code isn't in that table.
   """
 
   require Logger
@@ -39,7 +43,7 @@ defmodule VmuCore.TRAMS.DisputeBridge do
 
   alias VmuCore.Repo
   alias VmuCore.TRAMS.{Transaction, EventStore}
-  alias VmuCore.DPS.Dispute
+  alias VmuCore.DPS.{Dispute, ReasonCode}
 
   @disputable_states ~w[POSTED STATEMENTED PAID]
 
@@ -55,16 +59,19 @@ defmodule VmuCore.TRAMS.DisputeBridge do
   @spec file_dispute(Ecto.UUID.t(), map()) ::
           {:ok, Dispute.t(), Transaction.t()} | {:error, term()}
   def file_dispute(transaction_id, attrs) do
+    network     = attrs[:network] || "MC"
+    reason_code = Map.fetch!(attrs, :reason_code)
+
     with {:ok, txn} <- fetch_disputable(transaction_id),
-         :ok        <- check_dispute_window(txn) do
+         :ok        <- check_dispute_window(txn, network, reason_code) do
       dispute_attrs = %{
         account_id:           txn.account_id,
         trams_transaction_id: txn.transaction_id,
         transaction_date:     txn_date(txn),
         dispute_amount:       attrs[:dispute_amount] || txn.settled_amount || txn.amount,
         currency:             txn.currency || "AED",
-        reason_code:          Map.fetch!(attrs, :reason_code),
-        network:              attrs[:network] || "MC"
+        reason_code:          reason_code,
+        network:              network
       }
 
       case Dispute.file(dispute_attrs) do
@@ -145,9 +152,10 @@ defmodule VmuCore.TRAMS.DisputeBridge do
     end
   end
 
-  defp check_dispute_window(txn) do
-    window_days = Application.get_env(:vmu_core, :trams_dispute_window_days, 120)
-    txn_date    = txn_date(txn)
+  defp check_dispute_window(txn, network, reason_code) do
+    default_days = Application.get_env(:vmu_core, :trams_dispute_window_days, 120)
+    window_days  = ReasonCode.window_days(network, reason_code, default_days)
+    txn_date     = txn_date(txn)
 
     if Date.diff(Date.utc_today(), txn_date) <= window_days do
       :ok

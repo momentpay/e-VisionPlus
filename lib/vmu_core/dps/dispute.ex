@@ -68,6 +68,9 @@ defmodule VmuCore.DPS.Dispute do
     # configurable `dps.provisional_credit_window_days` (Module Configuration
     # Framework), not a fixed constant (varies by customer/market).
     field :provisional_credit_deadline, :date
+    # Investigator assignment (FR-DPS-015) — current assignee only; the running
+    # note log lives in VmuCore.DPS.DisputeNote / VmuCore.DPS.CaseNotes.
+    field :assigned_to,              :string
     field :filed_at,                 :naive_datetime
     field :closed_at,                :naive_datetime
 
@@ -80,7 +83,8 @@ defmodule VmuCore.DPS.Dispute do
                     :transaction_date, :dispute_amount,
                     :currency, :reason_code, :network, :status, :network_ref,
                     :provisional_credit_posted, :chargeback_deadline, :representment_deadline,
-                    :pre_arb_deadline, :provisional_credit_deadline, :filed_at, :closed_at])
+                    :pre_arb_deadline, :provisional_credit_deadline, :assigned_to,
+                    :filed_at, :closed_at])
     |> validate_required([:account_id, :transaction_date, :dispute_amount, :reason_code])
     |> validate_inclusion(:status, @valid_statuses)
     |> put_deadlines()

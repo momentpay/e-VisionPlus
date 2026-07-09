@@ -78,9 +78,10 @@ DPS owns the **dispute case**: intake, provisional credit, the chargeback/repres
 | State machine, deadlines, provisional credit, TRAM linkage | ✅ Built + smoke-tested |
 | Reason-code reference table (FR-004) | ⬜ `reason_code` is free string; no reference data |
 | Provisional-credit reversal on CLOSED_LOSE (FR-010b) | ✅ Implemented 2026-07-08 — see `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P2 |
-| Evidence store (FR-014), case notes/assignment (FR-015) | ⬜ Not found |
+| Evidence store (FR-014) | 🔄 Scaffolded 2026-07-09 — `db` backend real, `s3`/`azure_blob` stubbed (no cloud SDK dep). See DPS-P3 |
+| Case notes/assignment (FR-015) | ⬜ Not found |
 | Retrieval request inbound flow (FR-006) | 🔄 ITS `copy_request` exists — integration between ITS copy requests and DPS cases unverified |
-| Network message integration (FR-020) | ⬜ Manual transitions only today |
+| Network message integration (FR-020) | 🔄 Scaffolded 2026-07-09 — `Manual` adapter real (formalizes today's process), `Vrol`/`Mastercom` stubbed (no API credentials). See `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P3 |
 | Ops UI: case list, detail, actions, deadline monitor | ⬜ Roadmap 6.9–6.12 |
 
 ## 6. Open Questions
@@ -123,7 +124,15 @@ backlog (reason-code reference table, evidence store, case notes, ops UI).
 question 2 (provisional credit window) is fully wired — `VmuCore.DPS.Dispute` now
 computes and stores `provisional_credit_deadline` from the configured value at filing
 time, verified against a real account. Questions 1 and 3 (network connectivity mode,
-evidence storage backend) are configurable in storage only — there is no VROL/
-Mastercom API integration or evidence storage abstraction yet for the config value to
-drive, so setting them today has no behavioral effect until that underlying capability
-is built.
+evidence storage backend) were configurable in storage only at this point — there was
+no VROL/Mastercom API integration or evidence storage abstraction yet for the config
+value to drive.
+
+**Updated 2026-07-09 (DPS-P3):** questions 1 and 3 are now scaffolded, not just
+stored. `evidence_storage_backend` drives a real `db`-backend evidence store
+(`VmuCore.DPS.Evidence`/`EvidenceStore`) — `s3`/`azure_blob` remain clean stubs
+(`{:error, :not_implemented}`) since no cloud SDK dependency exists in this project.
+`network_connectivity_mode` drives a real `Manual` network adapter (formalizing
+today's actual manual-portal process, wired into `Dispute.transition/2`) — `Vrol`/
+`Mastercom` (the `"api"` mode) remain stubs since no scheme API credentials exist.
+See `docs/dps/DPS_Gap_Implementation_Tracker.md` DPS-P3 for full verification detail.

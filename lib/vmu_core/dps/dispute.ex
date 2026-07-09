@@ -21,6 +21,14 @@ defmodule VmuCore.DPS.Dispute do
     - `CLOSED_LOSE` / merchant wins, or `CANCELLED` — the credit is reversed,
       re-debiting the cardholder for the disputed amount.
   See `post_resolution_gl/1`.
+
+  ## Network filing (DPS-P3, 2026-07-09)
+
+  Transitioning to `CHARGEBACK_FILED` dispatches to the configured
+  `VmuCore.DPS.NetworkAdapter` (`dps.network_connectivity_mode`, per network) — the
+  real `Manual` adapter today, formalizing the existing manual-portal process; a
+  future `Vrol`/`Mastercom` API integration slots in without changing this call site.
+  See `maybe_file_with_network/3`.
   """
 
   use Ecto.Schema
@@ -30,6 +38,7 @@ defmodule VmuCore.DPS.Dispute do
 
   alias VmuCore.{Repo, CMS.InternalGlPoster, CMS.Account}
   alias VmuCore.Shared.ModuleConfigEngine
+  alias VmuCore.DPS.NetworkAdapter
 
   @primary_key {:dispute_id, :binary_id, autogenerate: true}
 
@@ -108,13 +117,14 @@ defmodule VmuCore.DPS.Dispute do
         updates = if new_status in ["CLOSED_WIN", "CLOSED_LOSE", "CANCELLED"],
           do: Keyword.put(updates, :closed_at, NaiveDateTime.utc_now()),
           else: updates
+        updates = maybe_file_with_network(dispute, new_status, updates)
 
         Repo.update_all(
           from(d in __MODULE__, where: d.dispute_id == ^dispute_id),
           set: updates
         )
 
-        updated = %{dispute | status: new_status}
+        updated = %{dispute | status: new_status, network_ref: Keyword.get(updates, :network_ref, dispute.network_ref)}
         post_resolution_gl(updated)
         schedule_next_deadline(updated)
         updated
@@ -132,6 +142,35 @@ defmodule VmuCore.DPS.Dispute do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  # Network filing (DPS-P3, FR-DPS-020) — dispatches to the configured
+  # `dps.network_connectivity_mode` adapter (Manual by default; Vrol/Mastercom stubs
+  # when a bank has switched a network to "api"). Never blocks or fails the
+  # transition on an adapter error — external-system-optional, same fail-safe
+  # posture as `post_resolution_gl/1`'s GL-post failures.
+  defp maybe_file_with_network(%__MODULE__{} = dispute, "CHARGEBACK_FILED", updates) do
+    case Repo.get(Account, dispute.account_id) do
+      %Account{sys_id: sys_id, bank_id: bank_id} ->
+        adapter = NetworkAdapter.for_network(dispute.network, sys_id, bank_id)
+
+        case adapter.file_chargeback(dispute, %{}) do
+          {:ok, nil} ->
+            updates
+
+          {:ok, network_ref} ->
+            Keyword.put(updates, :network_ref, network_ref)
+
+          {:error, reason} ->
+            Logger.warning("[DPS.Dispute] network filing failed for #{dispute.dispute_id}: #{inspect(reason)}")
+            updates
+        end
+
+      nil ->
+        updates
+    end
+  end
+
+  defp maybe_file_with_network(_dispute, _status, updates), do: updates
 
   defp put_deadlines(cs) do
     txn_date = get_field(cs, :transaction_date)

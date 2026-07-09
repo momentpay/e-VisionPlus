@@ -78,12 +78,47 @@ flipped `provisional_credit_posted` to `false`; `CANCELLED` behaved identically 
 completed without error and without double-posting (idempotency held). Test data
 cleaned up after.
 
+## DPS-P3 — Evidence Store + Network Integration Scaffolding ✅ (2026-07-09)
+
+Wires `dps.evidence_storage_backend`/`evidence_storage_config` (FR-DPS-014, "Not
+found" in the gap analysis) and `dps.network_connectivity_mode` (FR-DPS-020, "Manual
+transitions only today") into real, working code for the first time — both were
+config-only with zero consumer since DPS-P1. Scope confirmed with user: code-only,
+verified via scripts — no DPS ops UI (case list/detail is a separate, larger,
+already-tracked Roadmap 6.9–6.12 item).
+
+**Honest split of what's real vs. stubbed** (no cloud SDK dependency or scheme API
+credentials exist in this project — adding either was explicitly out of scope, so
+those paths are scaffolded, not faked, matching `VmuCore.FAS.HSM.ProductionHSM`'s
+existing stub pattern):
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P3.1 | `dps_dispute_evidence` table + `VmuCore.DPS.DisputeEvidence` schema — one row per uploaded document, linked to a dispute; `backend` recorded per-row (not just per-bank-config) so evidence stays retrievable if a bank's backend choice changes later | migration `20260709000001_create_dps_dispute_evidence.exs`, `lib/vmu_core/dps/dispute_evidence.ex` | ✅ |
+| P3.2 | `VmuCore.DPS.EvidenceStore` behaviour (mirrors `VmuCore.FAS.HSM`'s shape) + 3 adapters: `DbStore` — **real**, bytes live in the row itself; `S3Store`/`AzureBlobStore` — **stubs**, `{:error, :not_implemented}` with moduledocs describing exactly what a real integration needs (dependency, config, object-key convention) | `lib/vmu_core/dps/evidence_store.ex`, `lib/vmu_core/dps/evidence_store/{db_store,s3_store,azure_blob_store}.ex` | ✅ |
+| P3.3 | `VmuCore.DPS.Evidence` context — `attach/3`/`list/1`/`fetch_data/1`/`delete/2`, resolving the dispute's bank/logo scope, dispatching to the configured backend, auditing via the existing `AuditLog` sink. Never inserts a row on a storage failure. | `lib/vmu_core/dps/evidence.ex` | ✅ |
+| P3.4 | `VmuCore.DPS.NetworkAdapter` behaviour + `for_network/3` dispatch (per-network, since `network_connectivity_mode` is a map, not one global mode; normalizes `Dispute.network`'s short codes `"VI"/"MC"` against the config's full names `"VISA"/"MASTERCARD"`) + 3 adapters: `Manual` — **real**, formalizes today's actual manual-portal process; `Vrol`/`Mastercom` — **stubs** | `lib/vmu_core/dps/network_adapter.ex`, `lib/vmu_core/dps/network_adapter/{manual,vrol,mastercom}.ex` | ✅ |
+| P3.5 | Wired into `Dispute.transition/2`: transitioning to `CHARGEBACK_FILED` now calls the configured network adapter and folds a returned `network_ref` into the same update — never blocks/fails the transition on an adapter error (external-system-optional, same posture as `post_resolution_gl/1`) | `lib/vmu_core/dps/dispute.ex` | ✅ |
+
+**Verification (2026-07-09):** live end-to-end script against a real account: attached
+evidence with the default `db` backend, confirmed the row persisted and
+`fetch_data/1` returned byte-identical data; switched the bank's backend to `s3`,
+confirmed a clean `{:error, :not_implemented}` with **no phantom row inserted**
+(evidence count unchanged); deleted the `db`-backend evidence, confirmed it's gone;
+transitioned a real dispute to `CHARGEBACK_FILED` under the default `manual` mode,
+confirmed success with `network_ref` still `nil` (ops fills it in later); switched
+`VISA` to `api` mode and filed a second dispute, confirmed the `Vrol` stub's
+`{:error, :not_implemented}` did **not** block the status transition. All test
+config/data reverted after.
+
 ## Follow-up (not yet started)
 
-- Reason-code reference table (FR-DPS-004), evidence store (FR-DPS-014), case notes/
-  assignment (FR-DPS-015), real network message integration (FR-DPS-020 — VROL/
-  Mastercom API, currently manual transitions only), ops UI (case list/detail/
-  deadline monitor) — see `DPS_Module_Requirements.md` §5 gap analysis.
+- Reason-code reference table (FR-DPS-004), case notes/assignment (FR-DPS-015), real
+  S3/Azure evidence backends (need a cloud SDK dependency — not added this session),
+  real VROL/Mastercom API integration (need vendor credentials — not available this
+  session), ops UI (case list/detail/deadline monitor, plus an evidence
+  upload/list panel once it exists) — see `DPS_Module_Requirements.md` §5 gap
+  analysis.
 
 ## Overall
 
@@ -91,4 +126,5 @@ cleaned up after.
 |-------|-------|------|
 | DPS-P1 Module Configuration | 3 | 3 |
 | DPS-P2 Arbitration Flow Completion | 3 | 3 |
-| **TOTAL** | **6** | **6** |
+| DPS-P3 Evidence Store + Network Integration Scaffolding | 5 | 5 |
+| **TOTAL** | **11** | **11** |

@@ -133,7 +133,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       fd = %{
         "bank_id" => "", "sys_id" => sys_id, "description" => "", "org_name" => "",
         "country_code" => "ARE", "base_currency" => "AED", "billing_timezone" => "Asia/Dubai",
-        "regulatory_regime" => "CBUAE", "org_type" => "BANK", "swift_bic" => "",
+        "regulatory_regime" => "CBUAE", "org_type" => "BANK", "org_size" => "", "swift_bic" => "",
         "gl_mapping_profile" => ""
       }
       {:noreply, assign(socket, mode: :form, editing: nil, form_data: fd, result: nil, org_section: 1)}
@@ -221,6 +221,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       "billing_timezone"   => o.billing_timezone,
       "regulatory_regime"  => o.regulatory_regime,
       "org_type"           => o.org_type || "BANK",
+      "org_size"           => o.org_size || "",
       "swift_bic"          => o.swift_bic,
       "gl_mapping_profile" => o.gl_mapping_profile
     }
@@ -237,6 +238,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       billing_timezone:  p["billing_timezone"],
       regulatory_regime: p["regulatory_regime"],
       org_type:          p["org_type"],
+      org_size:          p["org_size"],
       swift_bic:         p["swift_bic"],
       gl_mapping_profile: p["gl_mapping_profile"]
     }
@@ -251,7 +253,8 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       currencies: @currencies,
       timezones:  @timezones,
       regimes:    @regimes,
-      org_types:  BankParameter.org_type_options()
+      org_types:  BankParameter.org_type_options(),
+      org_sizes:  BankParameter.org_size_options()
     )
     ~H"""
     <div>
@@ -281,6 +284,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
           timezones={@timezones}
           regimes={@regimes}
           org_types={@org_types}
+          org_sizes={@org_sizes}
           org_section={@org_section}
         />
       <% end %>
@@ -361,7 +365,10 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
                 <td><span class="badge badge-gray"><%= org.country_code %></span></td>
                 <td><span class="font-mono"><%= org.base_currency %></span></td>
                 <td><span class="badge badge-blue"><%= org.regulatory_regime %></span></td>
-                <td><span class="badge badge-gray"><%= org.org_type || "BANK" %></span></td>
+                <td>
+                  <span class="badge badge-gray"><%= org.org_type || "BANK" %></span>
+                  <span :if={org.org_size} class="badge badge-blue" style="margin-left:4px;"><%= org.org_size %></span>
+                </td>
                 <td>
                   <div class="actions">
                     <button :if={@can_edit} phx-click="org_edit" phx-target={@myself}
@@ -496,6 +503,15 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
                     <% end %>
                   </select>
                   <p class="hint">Legal / business category of this institution.</p>
+                </div>
+                <div class="field">
+                  <label>Organisation Size</label>
+                  <select name="org[org_size]">
+                    <%= for {label, val} <- @org_sizes do %>
+                      <option value={val} selected={@form_data["org_size"] == val}><%= label %></option>
+                    <% end %>
+                  </select>
+                  <p class="hint">Advisory only — drives the recommended-roles hint when creating operators for this bank. See docs/asm/ASM_Role_Taxonomy.md.</p>
                 </div>
                 <div class="field">
                   <label>Regulatory Regime <span style="color:var(--danger)">*</span></label>

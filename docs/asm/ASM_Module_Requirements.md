@@ -93,3 +93,13 @@ new `VmuCore.Shared.ModuleConfig*` framework — see
 Editable via the admin console's **Module Configuration** screen. Question 2 (role
 taxonomy — 3 bank-size org design) is **not** a config key; it's a design task, tracked
 separately (see `docs/shared/Module_Configuration_Framework.md` §6).
+
+**Resolved 2026-07-09 — question 2.** Full design in
+`docs/asm/ASM_Role_Taxonomy.md`: reuses the existing 7 roles and their current
+permission grants unchanged as the "Large Bank" tier (no new role names, no merged
+permission semantics), and expresses Medium/Small tiers as a staffing recommendation —
+which subset of the existing roles a bank of that size should populate with real
+operators (Medium: 5 of 7, skips `TELLER`/`RISK`; Small: 3-4 of 7, skips
+`TELLER`/`OPS`/`RISK`). `BankParameter.org_size` (advisory, added alongside the doc)
+drives a recommended-roles hint on the operator-creation screen — it does not restrict
+which role can be assigned, and `Authz`/`RolePermission` are unchanged.

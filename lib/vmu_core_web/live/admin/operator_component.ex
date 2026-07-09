@@ -14,7 +14,8 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
   import VmuCoreWeb.AdminUI
 
   alias VmuCore.Repo
-  alias VmuCore.ASM.{Auth, Operator}
+  alias VmuCore.ASM.{Auth, Operator, RoleTaxonomy}
+  alias VmuCore.Shared.BankParameter
 
   @impl true
   def mount(socket) do
@@ -25,7 +26,8 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
        show_create: false,
        notice: nil,
        notice_kind: :info,
-       current_operator: nil
+       current_operator: nil,
+       role_hint: nil
      )}
   end
 
@@ -43,7 +45,11 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
 
   @impl true
   def handle_event("toggle_create", _, socket) do
-    {:noreply, assign(socket, show_create: !socket.assigns.show_create, notice: nil)}
+    {:noreply, assign(socket, show_create: !socket.assigns.show_create, notice: nil, role_hint: nil)}
+  end
+
+  def handle_event("create_form_change", %{"operator" => params}, socket) do
+    {:noreply, assign(socket, role_hint: bank_scope_role_hint(params["bank_scope"]))}
   end
 
   def handle_event("create", %{"operator" => params}, socket) do
@@ -158,7 +164,7 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
 
       <%# Create form %>
       <%= if @show_create do %>
-        <form phx-submit="create" phx-target={@myself} class="search-form"
+        <form phx-submit="create" phx-change="create_form_change" phx-target={@myself} class="search-form"
               style="margin-bottom:1.25rem; border:1px solid #ccd; border-radius:6px; padding:1rem">
           <div class="form-row">
             <div class="form-group">
@@ -188,6 +194,9 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
               <label>Bank Scope (optional)</label>
               <input type="text" name="operator[bank_scope]" maxlength="4"
                      placeholder="4-char bank_id, blank = all"/>
+              <p :if={@role_hint} class="text-muted" style="font-size:0.8em;margin-top:2px;">
+                <%= @role_hint %> (advisory — any role can still be selected above)
+              </p>
             </div>
             <div class="form-group" style="align-self:flex-end">
               <button type="submit" class="btn-primary">Create Operator</button>
@@ -274,6 +283,18 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(v), do: v
+
+  # docs/asm/ASM_Role_Taxonomy.md — advisory recommended-roles hint, sourced from the
+  # target bank's org_size. nil whenever bank_scope is blank or unresolvable.
+  defp bank_scope_role_hint(nil), do: nil
+  defp bank_scope_role_hint(""), do: nil
+
+  defp bank_scope_role_hint(bank_scope) do
+    case Repo.one(from b in BankParameter, where: b.bank_id == ^bank_scope, limit: 1) do
+      %BankParameter{org_size: org_size} -> RoleTaxonomy.hint(org_size)
+      nil -> nil
+    end
+  end
 
   defp status_class("ACTIVE"),   do: "success"
   defp status_class("LOCKED"),   do: "warning"

@@ -70,6 +70,10 @@ defmodule VmuCore.Shared.BankParameter do
     field :regulatory_regime,   :string, default: "CBUAE"
     field :org_name,            :string
     field :org_type,            :string, default: "BANK"
+    # Bank-size org tier (ASM role taxonomy, docs/asm/ASM_Role_Taxonomy.md) — nullable,
+    # advisory only. Drives the recommended-roles hint in the operator-creation
+    # screen; does not restrict which roles can actually be assigned.
+    field :org_size,            :string
 
     # Market-level payment + bureau config (CMS-G1 ADR-C1/C3/C5)
     field :payment_channels_enabled, :string, default: "gateway,direct_debit"
@@ -79,16 +83,18 @@ defmodule VmuCore.Shared.BankParameter do
   end
 
   @org_types ~w(BANK FINANCIAL_INSTITUTION CREDIT_UNION MICROFINANCE NEOBANK EMI PSP OTHER)
+  @org_sizes ~w(SMALL MEDIUM LARGE)
 
   @required [:bank_id, :sys_id, :description]
   @optional [:country_code, :tax_rule, :gl_mapping_profile,
              :delinquency_rules, :settlement_calendar, :swift_bic,
              :base_currency, :billing_timezone, :regulatory_regime, :org_name, :org_type,
-             :payment_channels_enabled, :credit_reporting_format]
+             :org_size, :payment_channels_enabled, :credit_reporting_format]
 
   def changeset(bank_parameter, attrs) do
     bank_parameter
     |> cast(attrs, @required ++ @optional)
+    |> update_change(:org_size, fn "" -> nil; v -> v end)
     |> validate_required(@required)
     |> validate_length(:bank_id,            is: 4)
     |> validate_length(:sys_id,             is: 4)
@@ -98,6 +104,16 @@ defmodule VmuCore.Shared.BankParameter do
     |> validate_length(:base_currency,      is: 3)
     |> validate_length(:regulatory_regime,  max: 20)
     |> validate_inclusion(:org_type, @org_types)
+    |> validate_inclusion(:org_size, @org_sizes)
+  end
+
+  def org_size_options do
+    [
+      {"-- Not specified --", ""},
+      {"Small (community bank / small credit union / neobank)", "SMALL"},
+      {"Medium (regional bank / credit union)", "MEDIUM"},
+      {"Large (national/regional bank, specialist teams)", "LARGE"}
+    ]
   end
 
   def org_type_options do

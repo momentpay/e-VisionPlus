@@ -172,4 +172,35 @@ purged, as expected).
 
 ---
 
+## ASM-P7 — Role Taxonomy Org Design (Large/Medium/Small) ✅ (2026-07-09)
+
+Resolves `ASM_Module_Requirements.md` §6 open question 2 (a design task deferred
+during the Module Configuration Framework work). Chosen approach (confirmed with
+user): reuse the existing 7 roles and their current `RolePermission` grants
+unchanged as the "Large Bank" tier, rather than inventing new blended role names with
+new merged permission semantics — Medium/Small tiers are a staffing recommendation
+(which subset of the existing roles a bank of that size should populate), advisory
+only, not a new enforcement mechanism.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P7.1 | Design doc: Large (7/7 roles, unchanged), Medium (5/7, skips `TELLER`/`RISK`), Small (3-4/7, skips `TELLER`/`OPS`/`RISK`) — with the segregation-of-duties tradeoff at Medium/Small stated explicitly (SUPERVISOR both does and approves exception work at those tiers) rather than hidden | `docs/asm/ASM_Role_Taxonomy.md` | ✅ |
+| P7.2 | `BankParameter.org_size` — new nullable field (`SMALL`/`MEDIUM`/`LARGE`), mirrors the existing `org_type` pattern; `org_size_options/0` helper; empty-string→nil normalization in the changeset | migration `20260709000000_add_org_size_to_bank_parameters.exs`, `lib/vmu_core/shared/bank_parameter.ex` | ✅ |
+| P7.3 | `VmuCore.ASM.RoleTaxonomy` — pure lookup module (`recommended_roles/1`, `hint/1`) mapping org_size → recommended role list; no dependency on `Authz`/`RolePermission` | `lib/vmu_core/asm/role_taxonomy.ex` | ✅ |
+| P7.4 | Admin UI: Organisation Size select + list-view badge in `OrganizationComponent` (same edit pattern as `org_type`); recommended-roles hint (live, via `phx-change`) on the operator-creation form in `OperatorComponent`, looked up from the entered `bank_scope`'s `BankParameter.org_size` — advisory text only, role dropdown unrestricted | `lib/vmu_core_web/live/admin/organization_component.ex`, `lib/vmu_core_web/live/admin/operator_component.ex` | ✅ |
+
+**Verification (2026-07-09):** `mix compile --force` clean (no new warnings/errors).
+Live: set a real bank's `org_size` to `SMALL`, confirmed the badge renders on
+`/visionplus/admin/organization`'s list view; confirmed `RoleTaxonomy.hint/1` produces
+the exact recommended-role text for all three tiers (`SMALL`/`MEDIUM`/`LARGE`) and
+`nil` for unset; confirmed the empty-string→nil changeset normalization round-trips
+correctly (set then cleared via the same changeset path the UI form uses). Test
+`org_size` reverted to `nil` after — existing banks/operators are completely
+unaffected by default, matching the additive, non-enforcing design.
+
+No changes to `Authz.can?/3`, `RolePermission`, `RolePermission.default_matrix/0`, or
+`priv/repo/seed_role_permissions.exs` — the permission engine itself is untouched.
+
+---
+
 *Recommended start: immediately after CMS-G1 — ASM-P1 gates production use of every admin screen.*

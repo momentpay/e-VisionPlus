@@ -10,6 +10,19 @@ linkage — built and smoke-tested during TRAM-P5, per `DPS_Module_Requirements.
 That history stays in the requirements doc's existing gap-analysis table. This tracker
 covers new phases going forward, starting with configuration.
 
+> ### ⏭️ NEXT UP — DPS-P5 (not started): Ops UI
+> DPS-P1 through P4 (below) are all backend/config work, deliberately verified via
+> scripts, **not through a browser** — there is still no DPS admin screen at all.
+> Roadmap 6.9–6.12 / `DPS_Module_Requirements.md` §5 "Ops UI" row. When this is
+> picked up, it should surface everything DPS-P1–P4 already built:
+> case list + detail view, deadline monitor, evidence upload/list panel
+> (`VmuCore.DPS.Evidence`), case-notes/assignment panel (`VmuCore.DPS.CaseNotes`),
+> and a reason-code admin screen (`VmuCore.DPS.ReasonCode`) — all of it exists and
+> is tested at the code layer with zero UI today. This was explicitly deferred
+> (not forgotten) during DPS-P3 planning to keep that phase scoped to
+> "scaffolding" — see DPS-P3's "Context" section above for the original scope
+> decision.
+
 ---
 
 ## DPS-P1 — Module Configuration Foundation ✅ (2026-07-08)

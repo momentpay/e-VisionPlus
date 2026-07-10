@@ -86,7 +86,207 @@ COL manages **delinquent accounts from first missed payment through recovery or 
 
 ## 6. Open Questions
 
-1. Bucket/strategy policy matrix per product (business input — drives the strategy engine design).
-2. Agency file formats (per agency) and commission terms.
-3. Write-off DPD + approval matrix; regulatory provisioning interplay (IFRS 9 staging?).
-4. Regulatory contact caps in target market(s).
+Here’s a review of your answers with refinements and the missing piece filled in:
+
+---
+
+### 1. **Bucket/Strategy Policy Matrix per Product**
+✅ **Your answer is on the right track.**  
+- \It should be configurable at both **system‑wide** and **product‑specific** levels.  
+- Suggestion: Add that the matrix should support **hierarchical overrides** (global → product → customer segment) and be version‑controlled for audit.  
+- Example config:
+  ```yaml
+  bucket_strategy_matrix:
+    default: [bucket1, bucket2, bucket3]
+    product_A: [bucketX, bucketY, bucketZ]
+  ```
+
+---
+
+### 2. **Agency File Formats & Commission Terms** 
+- File formats: Yes, configurable (CSV, XML, JSON, etc.) per agency.  
+- Commission terms: Should also be parameterized (flat %, tiered %, fixed fee) and linked to agency ID.  
+- Suggestion: Add **validation layer** to ensure agency files match schema before ingestion.  
+- Example config:
+  ```yaml
+  agency_config:
+    agency1:
+      file_format: "CSV"
+      commission: "2%"
+    agency2:
+      file_format: "XML"
+      commission: "tiered: [1%, 2%, 3%]"
+  ```
+
+---
+
+### 3. **Write‑off DPD + Approval Matrix; Regulatory 
+- Configurable parameters:  
+  - `writeoff_dpd_threshold` (e.g., 180 days past due).  
+  - `approval_matrix` (roles/levels required for write‑off).  
+  - `ifrs9_stage_mapping` (Stage 1, 2, 3 provisioning rules).  
+- Example config:
+  ```yaml
+  writeoff_policy:
+    IN:
+      dpd_threshold: 180
+      approval_matrix: ["branch_manager", "risk_head"]
+      ifrs9_stage: "Stage3"
+    EU:
+      dpd_threshold: 360
+      approval_matrix: ["risk_committee"]
+      ifrs9_stage: "Stage2"
+  ```
+- Benefit: Aligns provisioning with regulatory expectations and ensures auditability.
+
+---
+
+### 4. **Regulatory Contact Caps in Target Markets**
+✅ **Your answer is correct.**  
+- Should be configurable per market (e.g., max SMS/email/phone attempts per day/week).  
+- Suggestion: Add **channel‑wise caps** (SMS vs. call vs. email) and **cool‑off periods**.  
+- Example config:
+  ```yaml
+  contact_caps:
+    IN:
+      sms_per_day: 3
+      calls_per_week: 5
+    EU:
+      sms_per_day: 2
+      calls_per_week: 3
+  ```
+
+---
+
+## 🏗️ Developer Takeaway
+- All four areas should be **externalized in config files** (YAML/JSON).  
+- Support **market‑specific overrides** and **audit trails**.  
+- Add **validation schemas** to prevent misconfiguration.  
+- Ensure **role‑based approval workflows** for sensitive actions (write‑off, commission changes).
+
+---
+Some refernce option:
+covering all four parameters (bucket/strategy, agency formats, write‑off policy, regulatory contact caps) with **India, EU, and UAE** included. This enforces consistency across markets:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CollectionRecoveryConfig",
+  "type": "object",
+  "properties": {
+    "bucket_strategy_matrix": {
+      "type": "object",
+      "description": "Defines repayment bucket/strategy order per product or globally",
+      "patternProperties": {
+        "^[A-Z]{2}$": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "agency_config": {
+      "type": "object",
+      "description": "Agency file formats and commission terms",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "properties": {
+            "file_format": { "type": "string", "enum": ["CSV", "XML", "JSON"] },
+            "commission": { "type": "string" }
+          },
+          "required": ["file_format", "commission"]
+        }
+      }
+    },
+    "writeoff_policy": {
+      "type": "object",
+      "description": "Write-off DPD thresholds, approval matrix, IFRS9 staging",
+      "patternProperties": {
+        "^[A-Z]{2}$": {
+          "type": "object",
+          "properties": {
+            "dpd_threshold": { "type": "integer", "minimum": 30 },
+            "approval_matrix": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "ifrs9_stage": { "type": "string", "enum": ["Stage1", "Stage2", "Stage3"] }
+          },
+          "required": ["dpd_threshold", "approval_matrix", "ifrs9_stage"]
+        }
+      }
+    },
+    "contact_caps": {
+      "type": "object",
+      "description": "Regulatory contact attempt caps per market",
+      "patternProperties": {
+        "^[A-Z]{2}$": {
+          "type": "object",
+          "properties": {
+            "sms_per_day": { "type": "integer", "minimum": 0 },
+            "calls_per_week": { "type": "integer", "minimum": 0 },
+            "emails_per_week": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  },
+  "required": ["bucket_strategy_matrix", "agency_config", "writeoff_policy", "contact_caps"]
+}
+```
+
+---
+
+### 🏷️ Example Config (India, EU, UAE)
+
+```yaml
+bucket_strategy_matrix:
+  IN: [penalty_fees, past_due_interest, current_interest, principal]
+  EU: [past_due_interest, current_interest, principal, fees]
+  AE: [current_interest, principal, fees]
+
+agency_config:
+  agency1:
+    file_format: "CSV"
+    commission: "2%"
+  agency2:
+    file_format: "XML"
+    commission: "tiered: [1%, 2%, 3%]"
+
+writeoff_policy:
+  IN:
+    dpd_threshold: 180
+    approval_matrix: ["branch_manager", "risk_head"]
+    ifrs9_stage: "Stage3"
+  EU:
+    dpd_threshold: 360
+    approval_matrix: ["risk_committee"]
+    ifrs9_stage: "Stage2"
+  AE:
+    dpd_threshold: 150
+    approval_matrix: ["regional_manager", "compliance_officer"]
+    ifrs9_stage: "Stage3"
+
+contact_caps:
+  IN:
+    sms_per_day: 3
+    calls_per_week: 5
+    emails_per_week: 2
+  EU:
+    sms_per_day: 2
+    calls_per_week: 3
+    emails_per_week: 1
+  AE:
+    sms_per_day: 2
+    calls_per_week: 4
+    emails_per_week: 2
+```
+
+---
+
+✅ **Developer takeaway:**  
+- Schema enforces structure and prevents misconfiguration.  
+- Each market (IN, EU, AE) can override defaults.  
+- Supports auditability and compliance across regions.  
+
+---

@@ -41,6 +41,10 @@ defmodule VmuCore.MixProject do
       {:bandit, "~> 1.5", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      # phoenix_live_view 1.1's test helpers (Phoenix.LiveViewTest) require this
+      # directly — found live, 2026-07-23, building this repo's first LiveView
+      # test (DPS-P5); floki (already a transitive dep) isn't enough on its own.
+      {:lazy_html, ">= 0.1.0", only: :test},
 
       # --- Distributed Process Registry ---
       {:horde, "~> 0.9"},

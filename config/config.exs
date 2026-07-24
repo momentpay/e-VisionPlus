@@ -74,15 +74,27 @@ config :vmu_core, :mw_risk_tenant_ids, %{
 }
 
 # InfraRepo.Repo backs the mw_risk scoring pipeline (fail-safe: errors → approve).
-# Point to vmu_core_dev so the connection pool starts; infra tables are absent
-# but MwRisk.Pipeline handles all errors gracefully.
+# `InfraRepo.Repo` is hardcoded `adapter: Ecto.Adapters.MyXQL` in mw-core's own
+# `apps/infra_repo/lib/infra_repo/repo.ex` — it always speaks the MySQL wire
+# protocol, regardless of what's configured here. The previous config pointed
+# it at vmu_core_dev on port 5432 with Postgres credentials — a MySQL client
+# aimed at a Postgres-speaking port, which could never connect (confirmed live
+# 2026-07-23: every boot logged "MyXQL.Client ... timed out because it was
+# handshaking" / "socket closed", and `SanctionsCache`/`RuleCache`/
+# `SuppressionsCache` all silently degraded to empty via their own `rescue`
+# clauses — not because "infra tables are absent" as this comment previously,
+# incorrectly, assumed). Corrected to mw-core's own real MySQL dev database
+# (`mw_core_dev`, confirmed listening on 127.0.0.1:3306, real `risk_sanctions_list`
+# data loaded 2026-07-23) so the FAS gateway pipeline and CDM's
+# `SanctionsScreening` (see `docs/cdm/CDM_Gap_Implementation_Tracker.md`
+# CDM-P2) actually reach real data instead of silently no-op'ing.
 # Omitting :infra_repo Oban config → InfraRepo.Application skips Oban startup.
 config :infra_repo, InfraRepo.Repo,
-  database: "vmu_core_dev",
-  username: "postgres",
-  password: "postgres",
+  database: "mw_core_dev",
+  username: "root",
+  password: "",
   hostname: "localhost",
-  port: 5432,
+  port: 3306,
   pool_size: 3
 
 # ASM-P3.2 — per-role approval authority (max amount an approver may sign

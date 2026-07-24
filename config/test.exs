@@ -10,3 +10,13 @@ config :vmu_core, VmuCore.Repo,
   pool_size: 10
 
 config :vmu_core, Oban, testing: :inline
+
+# Required for any test exercising the admin console's session/cookie
+# handling (Plug.Session, LiveView's socket-session handshake) — found live,
+# 2026-07-23, building the first LiveView test in this repo (DPS-P5):
+# `secret_key_base` was only ever configured in dev.exs, so every such test
+# failed identically with "cookie store expects conn.secret_key_base to be
+# set," regardless of what the test itself did. Distinct value from dev.exs
+# (never share a secret across environments), test-only, not a real secret.
+config :vmu_core, VmuCoreWeb.Endpoint,
+  secret_key_base: "test_only_secret_key_base_vmu_core_admin_console_64chars_min_req!!"

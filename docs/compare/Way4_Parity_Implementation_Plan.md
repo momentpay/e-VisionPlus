@@ -159,8 +159,23 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
 6. **ASM — MFA (TOTP) + real SSO/LDAP wiring.** `authn_source` config
    already exists and is unwired — same "config exists, no consumer"
    pattern found repeatedly elsewhere in this codebase.
-7. **FAS — ProductionHSM real vendor integration**, sanctions/velocity
-   verified against a real Redis instance (currently untestable in dev).
+7. **FAS — ProductionHSM real vendor integration.** Vendor/approach
+   decided 2026-07-24 (not yet implemented, stubs updated to match):
+   **Veriscent-hosted Thales payShield 10K via the real 10XPay REST API**
+   — mTLS, one endpoint per host command (`CY` → `verify_cvv/4` and the
+   ARQC/ARPC endpoints both confirmed directly against a real Postman
+   collection; PIN/issuer-script command selection still needs picking
+   from the real Host Commands manual before implementation). Reference
+   material + real mTLS credentials: `D:\momentPay\Products\E-VisionPlus\
+   Veriscent-HSM-cloud\` (a sibling folder, not part of this repo — never
+   copy `slot_1/`'s contents in). A parallel **direct TCP host-command
+   socket** option is kept as an equally real, equally unbuilt stub
+   (`VmuCore.FAS.HSM.SocketHSM`, config-swappable via the same
+   `:hsm_adapter` key as `ProductionHSM`) rather than committing to
+   REST-only before real deployment topology is known. Full detail:
+   `docs/fas/FAS_Implementation_Tracker.md` 7C. Sanctions/velocity also
+   still need verification against a real Redis instance (currently
+   untestable in dev) — unrelated to the HSM decision, same item.
 
 ~~MBS scope decision~~ — **resolved 2026-07-23, no vmu_core build needed.**
 Merchant onboarding/KYB/acquiring already lives in `MerchantManagementSystem`

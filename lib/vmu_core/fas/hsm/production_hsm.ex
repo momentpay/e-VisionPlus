@@ -1,34 +1,64 @@
 defmodule VmuCore.FAS.HSM.ProductionHSM do
   @moduledoc """
-  Production HSM adapter placeholder (FAS-P7 7C).
+  Production HSM adapter — REST integration to Veriscent's cloud-hosted
+  Thales payShield 10K (FAS-P7 7C). **Vendor/approach decided 2026-07-24**;
+  still a stub (all callbacks `{:error, :not_implemented}`) — see `Way4_
+  Parity_Implementation_Plan.md` Phase 0 item 7, not started yet.
 
-  This module is a connection skeleton only. Actual implementation requires
-  selection of an HSM vendor (Thales payShield 9000/10K, Utimaco Se-Series,
-  nCipher nShield) and vendor-supplied Elixir/Erlang client library or a
-  custom TCP/PKCS#11 binding.
+  For the alternative connectivity option (direct TCP host-command socket,
+  no REST intermediary), see `VmuCore.FAS.HSM.SocketHSM` — kept as a
+  parallel stub, config-swappable via the same `:hsm_adapter` key, so
+  neither integration path is picked irreversibly before real usage informs
+  which one fits (Veriscent's REST wrapper adds a hop but is simpler to
+  operate; a direct socket to an on-prem/co-located payShield removes that
+  hop but needs the raw host-command framing this module's REST calls
+  currently skip).
 
-  ## Integration approaches
+  ## Decided integration: Veriscent 10XPay REST API
 
-  1. **TCP host commands (recommended)**: Thales and Utimaco expose a TCP
-     command set (Thales: Host Security Module commands; Utimaco: PKCS#11 over
-     network socket). Connection pool via `NimblePool` or `Poolboy`.
+  Reference material (Postman collection, real payShield 10K Host Commands
+  V2.2b / Host Programmers V2.2b manuals, and real mTLS client credentials)
+  lives in `D:\\momentPay\\Products\\E-VisionPlus\\Veriscent-HSM-cloud\\`
+  — **do not commit or copy that folder's `slot_1/` contents into this
+  repo**; `password.txt` and `Mercury RKL_keystore.pfx` are real
+  credentials for connecting to Veriscent's HSM.
 
-  2. **PKCS#11**: Mount the vendor's cryptoki shared library, call via Erlang
-     NIF or an Elixir port process. Less portable; preferred when HSM is
-     co-located.
+  - **Transport**: `POST https://{10XPAY_service_URL}/api/v1/rest/`, one
+    endpoint for every host command, body shaped
+    `{"messageHeader": "...", "commandCode": "<2-char code>", ...fields}`.
+    Confirmed live against the reference Postman collection (`B2` echo,
+    `NO` HSM status) — no bearer-token/API-key header on any sampled
+    request; auth is mutual TLS (client cert), matching the `slot_1/`
+    keystore + CA chain + passphrase already in the reference folder.
+  - **This is the real Thales payShield 10K host command set**, just
+    JSON/REST-wrapped instead of raw binary socket framing — every
+    `VmuCore.FAS.HSM` callback maps to a real, named command:
 
-  3. **REST gateway**: Some HSMs expose REST APIs (Thales Data Protection On
-     Demand). Suitable for cloud deployments.
+    | Callback | Host command(s) | Confirmed in reference material |
+    |---|---|---|
+    | `verify_cvv/4` | `CY` — Verify a Card Verification Code or Value | ✅ exact match in the Postman collection |
+    | `verify_arqc/5` + `generate_arpc/3` | `SA` / the ARQC-verification-and-ARPC-generation endpoints (EMV or cloud-based SKD, and static/Mastercard-proprietary SKD variants) | ✅ both variants present in the collection |
+    | `verify_pin/3` | one of the `BC`/`BE`/`DA`/`DC`/`GU`/`GQ` PIN-verification family, depending on which PIN block format + verification method (IBM offset vs. ABA PVV vs. encrypted-PIN) this deployment's LMK/ZPK setup uses | ⚠️ family confirmed, exact command needs a real decision against `SoftHSM.verify_pin/3`'s existing ISO-0 PIN block format before implementation |
+    | `change_pin/3` | PIN-translate (`JC`/`JE`/`JG` family) + a verify command, composed | ⚠️ same — exact composition is an implementation-time decision, not a single command |
+    | `build_issuer_scripts/2` | the EMV issuer-script family (`IK`/`IM` — EMV Sign/Recover Data) | ⚠️ plausible mapping from the command list; not yet cross-checked against a real EMV script-generation example request |
 
-  ## Config skeleton
+  Rows marked ✅ are confirmed directly against a real sample request in the
+  Postman collection; rows marked ⚠️ are the right command *family* per the
+  standard payShield 10K host command set but need the exact command +
+  field mapping picked from the real Host Commands manual (also in the
+  reference folder) before implementation, not guessed.
+
+  ## Config skeleton (REST path)
 
       # config/prod.exs
+      config :vmu_core, :hsm_adapter, VmuCore.FAS.HSM.ProductionHSM
       config :vmu_core, :production_hsm,
-        host:       "10.0.1.50",
-        port:       1500,
-        pool_size:  4,
-        timeout_ms: 5_000,
-        lmk_id:     1      # LMK variant for this VisionPlus instance
+        service_url: "10xpay.veriscent.example",   # real host TBD
+        client_cert: "/path/to/deployed/keystore.pfx",  # never the repo copy
+        client_cert_password_env: "VERISCENT_HSM_PFX_PASSWORD",
+        ca_chain:    "/path/to/deployed/internal_ca_chain.crt",
+        timeout_ms:  5_000,
+        lmk_id:      1      # LMK variant for this VisionPlus instance
 
   ## Status
 

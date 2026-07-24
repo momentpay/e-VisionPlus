@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -56,6 +56,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "tram_inquiry", ~w[view approve]},
       {"SUPERVISOR", "approvals",    ~w[view approve]},
       {"SUPERVISOR", "dps",          ~w[view create edit approve]},
+      {"SUPERVISOR", "cms_eod",      ~w[view edit]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -66,6 +67,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "auth_history", ~w[view]},
       {"OPS", "tram_inquiry", ~w[view]},
       {"OPS", "dps",          ~w[view create edit]},
+      {"OPS", "cms_eod",      ~w[view edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
@@ -98,6 +100,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "tram_inquiry", ~w[view]},
       {"COMPLIANCE", "audit_log",    ~w[view]},
       {"COMPLIANCE", "dps",          ~w[view]},
+      {"COMPLIANCE", "cms_eod",      ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}

@@ -145,11 +145,15 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    likely explain why no admin LiveView anywhere in this repo had browser
    test coverage before now. Real evidence-store backend (S3/Azure) stays
    a stub, unchanged scope.
-3. **CMS — close the highest-value FR-057/058/067/070 gaps**: EOD job
-   status/rerun admin screen (operationally the most important — no one
-   can currently see or retry a failed EOD job), cycle-resegmentation
-   batch, transaction-level (not just bucket-level) payment allocation,
-   payment-receipt notifications.
+3. **CMS — close the highest-value FR-057/058/067/070 gaps.**
+   ~~FR-057 (EOD job status/rerun admin screen)~~ ✅ Done 2026-07-24 — see
+   `CMS_Feature_Status.md` FR-057 row. Still open: FR-058 (cycle
+   resegmentation batch), FR-067 (transaction-level, not just
+   bucket-level, payment allocation — the bigger of the three, needs a
+   real data-model change to `RepaymentDistributor`), FR-070
+   (payment-receipt notifications — this codebase has no notification/
+   messaging channel anywhere yet, so this one likely needs an adapter
+   abstraction built first, same pattern as DPS's evidence-store stubs).
 4. **COL — MI dashboard + agency-file parsing**, using a real vendor
    sample once available (don't build against a guessed format, per this
    repo's own established discipline).

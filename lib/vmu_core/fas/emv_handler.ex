@@ -6,8 +6,8 @@ defmodule VmuCore.FAS.EmvHandler do
 
   When DE55 is present in the 0100 request:
   1. `EmvParser.parse/1` extracts ARQC (9F26), ATC (9F36), UN (9F37)
-  2. `HSM.verify_arqc/5` cryptographically verifies the chip cryptogram
-  3. If approved, `HSM.generate_arpc/3` builds the Issuer Authentication Data
+  2. `HSM.verify_arqc/6` cryptographically verifies the chip cryptogram
+  3. If approved, `HSM.generate_arpc/6` builds the Issuer Authentication Data
   4. The ARPC is returned as a DE55 fragment for inclusion in the 0110 response
 
   ## 7H — Issuer Scripts
@@ -54,7 +54,8 @@ defmodule VmuCore.FAS.EmvHandler do
             txn_data = build_txn_data(fields)
             atc  = atc  || <<0, 0>>
             un   = un   || <<0, 0, 0, 0>>
-            HSM.verify_arqc(pan_token, atc, un, txn_data, arqc)
+            pan  = Map.get(fields, 2, "")
+            HSM.verify_arqc(pan, pan_token, atc, un, txn_data, arqc)
 
           {:error, reason} ->
             Logger.warning("[EMV] DE55 parse failed: #{inspect(reason)}")
@@ -79,8 +80,10 @@ defmodule VmuCore.FAS.EmvHandler do
         {:ok, nil}
 
       de55 ->
+        pan = Map.get(fields, 2, "")
+
         with {:ok, emv}   <- EmvParser.parse(de55),
-             {:ok, arpc}  <- build_arpc(emv, rc, pan_token),
+             {:ok, arpc}  <- build_arpc(pan, emv, rc, pan_token),
              {:ok, scripts} <- build_scripts(pan_token, script_commands) do
           # Tag 8A = Authorization Response Code: 2 ASCII bytes of RC
           arc_bytes  = <<String.to_integer(String.at(rc, 0)), String.to_integer(String.at(rc, 1))>>
@@ -119,11 +122,13 @@ defmodule VmuCore.FAS.EmvHandler do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp build_arpc(%EmvParser{arqc: nil}, _rc, _pan_token), do: {:ok, <<0::64>>}
+  defp build_arpc(_pan, %EmvParser{arqc: nil}, _rc, _pan_token), do: {:ok, <<0::64>>}
 
-  defp build_arpc(%EmvParser{arqc: arqc}, rc, pan_token) do
+  defp build_arpc(pan, %EmvParser{arqc: arqc, atc: atc, unpredictable_no: un}, rc, pan_token) do
     arc = rc_to_arc(rc)
-    HSM.generate_arpc(arqc, arc, pan_token)
+    atc = atc || <<0, 0>>
+    un  = un  || <<0, 0, 0, 0>>
+    HSM.generate_arpc(pan, atc, un, arqc, arc, pan_token)
   end
 
   defp build_scripts(pan_token, []) do

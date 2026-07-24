@@ -231,6 +231,10 @@ defmodule VmuCore.Shared.ParameterEngine do
       # Core identification
       insert_param(base, sz, :bin_prefix,          logo.bin_prefix)
       insert_param(base, sz, :description,         logo.description)
+      # Found missing 2026-07-24 building ProductionHSM.verify_arqc/6 —
+      # needed to resolve a card's scheme (VISA/MASTERCARD/...) to KW's
+      # Scheme ID without a DB round-trip on the authorization hot path.
+      insert_param(base, sz, :card_scheme,         logo.card_scheme)
 
       # Interest rates
       insert_param(base, sz, :purchase_apr,              logo.purchase_apr)

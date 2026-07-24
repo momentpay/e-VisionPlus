@@ -31,12 +31,29 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   configured for test card ranges — without matching key material, every real
   ARQC will fail verification.
 
-  ## PIN Verification
+  ## PIN Verification (redesigned 2026-07-24, Way4 parity plan Phase 0 item 7)
 
-  Decodes ISO 9564 Format-0 PIN block (XOR with PAN block), then compares
-  to `cms_card_pins.pin_hash` using PBKDF2-SHA256. Try counter is incremented
-  on each wrong PIN; the card is locked after `max_pin_tries` (from logo params,
-  default 3). Try counter is reset on success.
+  `verify_pin/3` decodes the real ISO 9564 Format-0 PIN block (XOR with the
+  real PAN — `verify_pin/3` has it, from DE52's caller context) and compares
+  the recovered digits against `CardPin.reference_pin_lmk`, never persisting
+  or returning the recovered digits — mirrors the real HSM's "comparison
+  method" (payShield's BE command), just simulated with a dev-only key
+  instead of an LMK. Try counter incremented on each wrong PIN; card locked
+  after `max_pin_tries` (from logo params, default 3); reset on success.
+
+  `change_pin/3` **cannot** use the real ISO PAN-bound format — self-service
+  channels (IVR/app/web) only ever have `pan_token`, never the real PAN, by
+  this codebase's own "never store/transmit raw PAN outside a live network
+  message" policy (see `VmuCore.FAS.HSM.change_pin/3`'s moduledoc). Every
+  real payShield PIN-reference command (BE, BK, DG, JE) is PAN-bound by
+  format — there is no vendor command that produces a valid reference
+  without it. So `reference_pin_lmk` is instead stored as the new PIN
+  digits encrypted under a dev-only key, with no PAN mixed in — a
+  dev-mode-only simplification (SoftHSM is already not-for-production),
+  not the real ISO format. `verify_pin/3` decrypts a stored reference back
+  to plain digits internally to compare against the real-format block it
+  decoded — the real ISO decode path is exercised end-to-end even though
+  the stored reference itself isn't ISO-formatted.
   """
 
   @behaviour VmuCore.FAS.HSM
@@ -75,7 +92,7 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   # ---------------------------------------------------------------------------
 
   @impl VmuCore.FAS.HSM
-  def verify_arqc(pan_token, atc, un, txn_data, arqc) do
+  def verify_arqc(_pan, pan_token, atc, un, txn_data, arqc) do
     if arqc_verify_enabled?() do
       imk = get_imk()
 
@@ -105,7 +122,7 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   # ---------------------------------------------------------------------------
 
   @impl VmuCore.FAS.HSM
-  def generate_arpc(arqc, arc, pan_token) do
+  def generate_arpc(_pan, atc, _un, arqc, arc, pan_token) do
     imk = get_imk()
 
     if is_nil(imk) do
@@ -114,14 +131,17 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
       arpc = :crypto.exor(arqc, arc_padded)
       {:ok, arpc}
     else
-      # Real ARPC: Method 1 — XOR ARQC with ARC, encrypt with session key
-      # (This would need the ATC; for now use the full ARQC as approximation)
+      # Real ARPC: Method 1 — XOR ARQC with ARC, encrypt with the SAME
+      # session key verify_arqc/6 derived from this same ATC (found
+      # 2026-07-24: the previous version approximated with the raw IMK
+      # here instead of a real derived session key — this now matches
+      # verify_arqc/6's derive_session_key/2 exactly).
       _ = pan_token  # suppress unused warning
-      arc_padded  = arc <> :binary.copy(<<0>>, 8 - byte_size(arc))
+      session_key  = derive_session_key(imk, atc)
+      arc_padded   = arc <> :binary.copy(<<0>>, 8 - byte_size(arc))
       intermediate = :crypto.exor(arqc, arc_padded)
-      cvk          = binary_part(imk, 0, 16)
-      cvk_24       = cvk <> binary_part(cvk, 0, 8)
-      arpc = :crypto.crypto_one_time(:des_ede3_ecb, cvk_24, intermediate, true)
+      session_key_24 = session_key <> binary_part(session_key, 0, 8)
+      arpc = :crypto.crypto_one_time(:des_ede3_ecb, session_key_24, intermediate, true)
       {:ok, arpc}
     end
   rescue
@@ -151,6 +171,17 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
     end
   end
 
+  @doc false
+  # Exposed for VmuCore.FAS.HSM.ProductionHSM's dev/test fallback and
+  # tests only — dev-mode-only "encrypt digits under a fixed key" used
+  # for reference_pin_lmk (see moduledoc: change_pin/3 has no PAN, so it
+  # cannot produce a real ISO-formatted reference).
+  def encrypt_reference_dev(pin_digits) when is_binary(pin_digits) do
+    key = dev_reference_key()
+    padded = String.pad_trailing(pin_digits, 16, "F")
+    :crypto.crypto_one_time(:aes_128_ecb, key, padded, true) |> Base.encode16(case: :lower)
+  end
+
   # ---------------------------------------------------------------------------
   # PIN Change (self-service channels — plaintext digits, no PAN available)
   # ---------------------------------------------------------------------------
@@ -166,7 +197,7 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
           {:error, :pin_blocked}
 
         %CardPin{} = card_pin ->
-          case check_and_update_pin(card_pin, old_pin) do
+          case check_old_pin(card_pin, old_pin) do
             :ok -> store_new_pin(card_pin, new_pin)
             error -> error
           end
@@ -178,12 +209,17 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
 
   defp valid_pin_format?(pin), do: is_binary(pin) and String.match?(pin, ~r/^\d{4,6}$/)
 
-  defp store_new_pin(%CardPin{} = card_pin, new_pin) do
-    new_salt = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
-    new_hash = pbkdf2_hash(new_pin, new_salt)
+  # Same dev-only "encrypted digits" reference change_pin/3 stores — see
+  # moduledoc for why this can't be the real ISO/PAN-bound format.
+  defp check_old_pin(%CardPin{reference_pin_lmk: nil}, _old_pin), do: {:error, :pin_not_set}
 
+  defp check_old_pin(%CardPin{reference_pin_lmk: ref}, old_pin) do
+    if decrypt_reference_dev(ref) == old_pin, do: :ok, else: {:error, :wrong_pin}
+  end
+
+  defp store_new_pin(%CardPin{} = card_pin, new_pin) do
     card_pin
-    |> CardPin.changeset(%{pin_hash: new_hash, pin_salt: new_salt, try_counter: 0, pin_locked_at: nil})
+    |> CardPin.set_reference_changeset(encrypt_reference_dev(new_pin))
     |> Repo.update()
     |> case do
       {:ok, _}    -> :ok
@@ -388,16 +424,16 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
       %CardPin{pin_locked_at: locked_at} when not is_nil(locked_at) ->
         {:error, :pin_blocked}
 
+      %CardPin{reference_pin_lmk: nil} ->
+        {:error, :pin_not_set}
+
       %CardPin{} = card_pin ->
         check_and_update_pin(card_pin, pin_digits)
     end
   end
 
   defp check_and_update_pin(%CardPin{} = card_pin, pin_digits) do
-    computed_hash = pbkdf2_hash(pin_digits, card_pin.pin_salt)
-
-    if computed_hash == card_pin.pin_hash do
-      # Reset try counter
+    if decrypt_reference_dev(card_pin.reference_pin_lmk) == pin_digits do
       card_pin
       |> CardPin.reset_tries_changeset()
       |> Repo.update()
@@ -423,13 +459,20 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
     end
   end
 
-  @pbkdf2_iters 100_000
-  @pbkdf2_len   32
+  defp decrypt_reference_dev(reference_hex) do
+    key = dev_reference_key()
 
-  defp pbkdf2_hash(pin, salt) do
-    :crypto.pbkdf2_hmac(:sha256, pin, salt, @pbkdf2_iters, @pbkdf2_len)
-    |> Base.encode16(case: :lower)
+    reference_hex
+    |> Base.decode16!(case: :mixed)
+    |> then(&:crypto.crypto_one_time(:aes_128_ecb, key, &1, false))
+    |> String.trim_trailing("F")
   end
+
+  # Fixed, non-configurable dev-only key — this is a simplification for
+  # SoftHSM's own internal reference storage, not a real ZPK/LMK; never
+  # used to protect anything outside this explicitly not-for-production
+  # module. Not derived from any real key material.
+  defp dev_reference_key, do: :crypto.hash(:sha256, "soft_hsm_dev_reference_key") |> binary_part(0, 16)
 
   # ---------------------------------------------------------------------------
   # Issuer script TLV builder

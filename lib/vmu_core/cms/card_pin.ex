@@ -1,5 +1,17 @@
 defmodule VmuCore.CMS.CardPin do
-  @moduledoc "Ecto schema for `cms_card_pins` (FAS-P7 7E)."
+  @moduledoc """
+  Ecto schema for `cms_card_pins` (FAS-P7 7E; redesigned Way4 parity plan
+  Phase 0 item 7, 2026-07-24).
+
+  `reference_pin_lmk` is the LMK-encrypted reference PIN block payShield's
+  BE command ("Verify an Interchange PIN Using the Comparison Method")
+  compares an incoming DE52 PIN block against — an opaque value, useless
+  without the LMK that lives inside the HSM. This replaces the previous
+  `pin_hash`/`pin_salt` design, which decoded the ISO PIN block to
+  plaintext digits in application code before comparing — not how any
+  real HSM/PCI-compliant PIN flow works. See `VmuCore.FAS.HSM`'s
+  moduledoc and `VmuCore.FAS.HSM.ProductionHSM`'s `verify_pin/3`.
+  """
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -7,16 +19,15 @@ defmodule VmuCore.CMS.CardPin do
   @primary_key {:id, :binary_id, autogenerate: true}
 
   schema "cms_card_pins" do
-    field :pan_token,    :string
-    field :pin_hash,     :string
-    field :pin_salt,     :string
-    field :try_counter,  :integer, default: 0
-    field :pin_locked_at, :utc_datetime
+    field :pan_token,         :string
+    field :reference_pin_lmk, :string
+    field :try_counter,       :integer, default: 0
+    field :pin_locked_at,     :utc_datetime
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @required ~w[pan_token pin_hash pin_salt]a
+  @required ~w[pan_token reference_pin_lmk]a
   @optional ~w[try_counter pin_locked_at]a
 
   def changeset(pin, attrs) do
@@ -41,5 +52,10 @@ defmodule VmuCore.CMS.CardPin do
   def lock_changeset(pin, locked_at) do
     change(pin, try_counter: pin.try_counter + 1,
                 pin_locked_at: DateTime.truncate(locked_at, :second))
+  end
+
+  @doc "Set/replace the stored reference PIN (self-service change)."
+  def set_reference_changeset(pin, reference_pin_lmk) do
+    change(pin, reference_pin_lmk: reference_pin_lmk, try_counter: 0, pin_locked_at: nil)
   end
 end

@@ -30,3 +30,8 @@ config :vmu_core, :notification_http_plug,
 # Same reasoning for VmuCore.ASM.OidcClient's token/jwks HTTP calls (SSO,
 # Way4 parity plan Phase 0 item 6).
 config :vmu_core, :oidc_http_plug, {Req.Test, VmuCore.ASM.OidcClient}
+
+# Same reasoning for VmuCore.FAS.HSM.ProductionHSM's Veriscent REST calls
+# (Way4 parity plan Phase 0 item 7).
+config :vmu_core, :veriscent_hsm_http_plug,
+  {Req.Test, VmuCore.FAS.HSM.ProductionHSM.HttpClient}

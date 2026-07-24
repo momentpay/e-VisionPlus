@@ -283,23 +283,55 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    `docs/asm/ASM_Implementation_Tracker.md`'s ASM-P8 for full detail.
    MFA (TOTP) itself remains deferred — out of this item's scope, not
    silently dropped.
-7. **FAS — ProductionHSM real vendor integration.** Vendor/approach
-   decided 2026-07-24 (not yet implemented, stubs updated to match):
+7. **FAS — ProductionHSM real vendor integration.** ✅ CY/KW/BE done
+   2026-07-24 (vendor decided 2026-07-23, implemented same week):
    **Veriscent-hosted Thales payShield 10K via the real 10XPay REST API**
-   — mTLS, one endpoint per host command (`CY` → `verify_cvv/4` and the
-   ARQC/ARPC endpoints both confirmed directly against a real Postman
-   collection; PIN/issuer-script command selection still needs picking
-   from the real Host Commands manual before implementation). Reference
-   material + real mTLS credentials: `D:\momentPay\Products\E-VisionPlus\
-   Veriscent-HSM-cloud\` (a sibling folder, not part of this repo — never
-   copy `slot_1/`'s contents in). A parallel **direct TCP host-command
-   socket** option is kept as an equally real, equally unbuilt stub
-   (`VmuCore.FAS.HSM.SocketHSM`, config-swappable via the same
-   `:hsm_adapter` key as `ProductionHSM`) rather than committing to
-   REST-only before real deployment topology is known. Full detail:
-   `docs/fas/FAS_Implementation_Tracker.md` 7C. Sanctions/velocity also
-   still need verification against a real Redis instance (currently
-   untestable in dev) — unrelated to the HSM decision, same item.
+   — mTLS. `verify_cvv/4` (`CY`), `verify_arqc/6`/`generate_arpc/6`
+   (`KW`, VISA/MASTERCARD by default), and `verify_pin/3` (`BE`) are all
+   real, working commands, built from the real Postman collection + Core
+   Host Commands manual (not guessed).
+   **Live connectivity is unverified** — the reference mTLS certificate
+   in `Veriscent-HSM-cloud/slot_1/` has expired (confirmed live: TLS
+   handshake reaches certificate exchange, server responds
+   `certificate_unknown`); user will supply a renewed certificate to
+   verify end-to-end.
+   Along the way, found and fixed 3 real pre-existing/newly-surfaced
+   gaps: (1) `verify_arqc`/`generate_arpc` only received `pan_token` (a
+   one-way SHA-256 hash) — real EMV key derivation needs the actual PAN,
+   already in scope at the caller, just not forwarded; (2)
+   `generate_arpc` also needed the same ATC/UN `verify_arqc` uses (same
+   session key) — same fix pattern; (3) `ParameterEngine` never cached
+   `LogoParameter.card_scheme` at all — would have silently broken
+   scheme-ID resolution for every real request.
+   **PIN verification redesigned**, not just implemented — the original
+   `verify_pin`/`change_pin` design (and `CardPin.pin_hash`/`pin_salt`)
+   decoded the ISO PIN block to plaintext in application code and
+   compared a hash, which no real HSM/PCI-compliant flow does. Confirmed
+   with user before changing: `CardPin.reference_pin_lmk` (an opaque
+   LMK-encrypted reference) replaces both columns; `verify_pin/3` now
+   passes DE52's block through **still ZPK-encrypted**, comparing via the
+   real `BE` command entirely inside the HSM. `SoftHSM` redesigned to
+   match (dev-only simplification, documented as such).
+   `change_pin/3` stays `{:error, :not_implemented}` in `ProductionHSM`
+   for a specific, now well-understood reason: every real payShield
+   PIN-reference command is PAN-bound by format, but self-service
+   channels (IVR) never have the real PAN, by this codebase's own
+   PAN-handling policy — not fixable by picking a different command.
+   Fixing it for real needs either routing self-service PIN changes back
+   through the network as a real transaction, or a genuine PAN vault —
+   both materially bigger than an HSM adapter.
+   A separate, already-broken PIN subsystem (`CTA.PinIssuance` →
+   `DaProductApp.SoftHSM.generate_pin_block/3`, which doesn't exist) was
+   found during scoping and deliberately left untouched, per explicit
+   user decision to fix only the live path.
+   A parallel **direct TCP host-command socket** option remains an
+   equally real, unbuilt stub (`VmuCore.FAS.HSM.SocketHSM`).
+   27/27 new tests. Full FAS/ASM/CMS/COL/DPS/admin regression before and
+   after: same 10 pre-existing failures, zero regressions. Full detail:
+   `docs/fas/FAS_Implementation_Tracker.md` 7C/7E/7G.
+   Still open: `build_issuer_scripts/2` (IK/IM) not attempted this pass;
+   sanctions/velocity also still need verification against a real Redis
+   instance (unrelated to the HSM decision, same item).
 
 ~~MBS scope decision~~ — **resolved 2026-07-23, no vmu_core build needed.**
 Merchant onboarding/KYB/acquiring already lives in `MerchantManagementSystem`

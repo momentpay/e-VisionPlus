@@ -58,13 +58,13 @@ defmodule VmuCore.FAS.HSM.SocketHSM do
   end
 
   @impl VmuCore.FAS.HSM
-  def verify_arqc(_pan_token, _atc, _un, _txn_data, _arqc) do
+  def verify_arqc(_pan, _pan_token, _atc, _un, _txn_data, _arqc) do
     Logger.warning("[SocketHSM] verify_arqc not implemented — stub")
     {:error, :not_implemented}
   end
 
   @impl VmuCore.FAS.HSM
-  def generate_arpc(_arqc, _arc, _pan_token) do
+  def generate_arpc(_pan, _atc, _un, _arqc, _arc, _pan_token) do
     Logger.warning("[SocketHSM] generate_arpc not implemented — stub")
     {:error, :not_implemented}
   end

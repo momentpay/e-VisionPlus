@@ -78,6 +78,15 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
 
       Logger.warning("[EOD] AgeBuckets: account=#{account_id} DPD #{account.delinquency_bucket} → #{new_dpd}")
 
+      # FR-COL-025 — the only record of this transition anywhere; delinquency_bucket
+      # itself gets overwritten above with no trail. See VmuCore.COL.CollectionsMi.
+      Repo.insert!(
+        VmuCore.COL.DpdBucketHistory.changeset(%VmuCore.COL.DpdBucketHistory{}, %{
+          account_id: account_id, eod_date: eod_date,
+          old_bucket: account.delinquency_bucket, new_bucket: new_dpd
+        })
+      )
+
       if new_dpd > 0 do
         # Flag for COL handoff
         %{account_id: account_id, reason: "#{new_dpd}_DPD"}

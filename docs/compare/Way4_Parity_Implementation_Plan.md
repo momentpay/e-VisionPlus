@@ -219,10 +219,25 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    export renaming, and the identity no-mapping case still working
    unchanged). Full CMS/FAS/COL/admin regression before/after: same 10
    pre-existing failures, zero regressions.
-   Still open: (b) the MI dashboard (FR-025) — genuinely not built in
-   either copy, (c) XML agency-file *parsing* — still blocked on a real
+   ~~(b) the MI dashboard (FR-025)~~ ✅ Done 2026-07-24 — new
+   `col_dpd_bucket_history` table + `AgeBucketsJob` hook (found the same
+   kind of foundational gap FR-067 did: `delinquency_bucket` gets
+   overwritten in place every EOD run, no transition trail existed
+   anywhere — confirmed with user before building the full pipeline
+   rather than shipping only the two metrics that didn't need one) +
+   `VmuCore.COL.CollectionsMi` (promise-kept %/recovery % real from
+   existing data; roll rate/cure rate per DPD bucket, newly real) +
+   `CollectionsMiComponent` admin screen. Roll/cure rate honestly has no
+   data before 2026-07-24 — nothing to backfill from, stated in the UI.
+   7/7 tests. See `COL_Gap_Implementation_Tracker.md`'s COL-P10 for full
+   detail.
+   Still open: (c) XML agency-file *parsing* — still blocked on a real
    vendor sample (XML *generation* already existed and now honors
    export_mapping too).
+
+   **Item 4 (COL) is now fully closed** modulo the XML-parsing item,
+   which stays blocked on a real vendor sample rather than being guessed
+   at, per this repo's own established discipline.
 5. **LMS — warehouse-release job + reversal/chargeback clawback.** The
    clawback gap is real risk exposure (a reversed transaction currently
    leaves its earned points standing).

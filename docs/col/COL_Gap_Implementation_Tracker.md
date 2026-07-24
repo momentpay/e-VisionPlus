@@ -474,6 +474,42 @@ reaching `RECOVERED`. Test data cleaned up after (dev DB confirmed clean).
 
 ---
 
+## COL-P10 — Collections MI Dashboard (FR-COL-025) ✅ (2026-07-24)
+
+Two of the four required metrics were computable from data that already
+existed for other reasons; the other two needed a real foundational build
+first, same shape as FR-067's discovery in CMS.
+
+**Foundational gap found before implementing, not after:** `AgeBucketsJob`
+has always overwritten `cms_accounts.delinquency_bucket` in place, with no
+trail behind it — there was no way to answer "of accounts that reached 30
+DPD in March, what % rolled to 60 DPD by April" or "what % cured to 0."
+Confirmed with user (AskUserQuestion) before building: chose to build the
+full pipeline rather than ship only the two metrics that didn't need it.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P10.1 | `col_dpd_bucket_history` table + `VmuCore.COL.DpdBucketHistory` schema — one row per real bucket CHANGE (never per EOD run) | migration `20260724110001_...`, `lib/vmu_core/col/dpd_bucket_history.ex` | ✅ |
+| P10.2 | `AgeBucketsJob` writes a history row at the exact point it already detects `old_bucket != new_bucket` — no new detection logic, just a new side effect on an existing one | `lib/vmu_core/cms/eod/age_buckets_job.ex` | ✅ |
+| P10.3 | `VmuCore.COL.CollectionsMi` — `promise_kept_rate/2` (real, from `CollectionCase.promise_status`), `recovery_rate/2` (real, from `write_off_amount`/`write_off_date` + `ChargeOffRecovery`'s ledger), `roll_cure_rates/2` (new: per-bucket cohort = accounts that transitioned INTO the bucket during the window; roll = later reached a higher bucket; cure = later reached 0 — one defensible definition among several used in the industry, documented explicitly in the moduledoc rather than left ambiguous) | `lib/vmu_core/col/collections_mi.ex` | ✅ |
+| P10.4 | `CollectionsMiComponent` — date-range picker + 3 panels (promise-kept %, recovery %, roll/cure table). Read-only reporting, no mutations — registered as its own `collections_mi` admin module (view-only across SUPERVISOR/OPS/RISK/COMPLIANCE) rather than folded into `col`'s existing case-management screen | `lib/vmu_core_web/live/admin/collections_mi_component.ex`, `lib/vmu_core/asm/role_permission.ex`, `lib/vmu_core_web/live/admin/admin_live.ex` | ✅ |
+
+**Honest limitation, stated in the UI itself, not hidden**: roll rate and
+cure rate only have data from 2026-07-24 forward — there was nothing to
+backfill retroactive bucket transitions from. A near-empty cohort for an
+older date range is the correct answer, not a bug.
+
+7/7 tests: `collections_mi_test.exs` (5 — empty-window nil rates, a mixed
+30-DPD cohort with one roll/one cure/one unchanged verified against
+directly-inserted history rows, a transition outside the window correctly
+excluded, promise-kept rate through the real `PromiseVerification` flow,
+recovery rate through a real `WriteOffProcessor.write_off/1` +
+`ChargeOffRecovery.record_recovery/3`) + `collections_mi_component_test.exs`
+(2 — real seeded transition renders in the table, unauthenticated
+redirect). Full COL/admin regression before and after: same 4
+pre-existing `WriteOffRecoveryTest` failures (unrelated legacy test, see
+the re-port note above), zero regressions.
+
 ## COL module status as of 2026-07-10
 
 Nine phases (P1–P9) built in one continuous session. Every phase was verified
@@ -494,4 +530,5 @@ silently dropped):
   (FR-021-023), deceased/bankruptcy special handling (FR-024).
 - FR-COL-009 cure-detection auto-close — a kept promise or a cured DPD resets
   its own status/promise field but doesn't auto-close the whole case.
-- The "COL MI" dashboard (FR-025, Roadmap Phase 8 in the original plan).
+
+~~The "COL MI" dashboard (FR-025)~~ ✅ Done 2026-07-24 — see COL-P10 below.

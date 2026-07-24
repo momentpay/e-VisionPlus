@@ -24,7 +24,7 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   alias VmuCore.Repo
   alias VmuCore.FAS.{AuthLookup, PendingHold}
   alias VmuCore.FAS.GL.{CardAccountCodes, VmuCoreGlAdapter}
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.CMS.{LedgerEntry, PurchasePosting}
   alias WalletGl.GlPostingRecord
   alias WalletSharedKernel.Money
 
@@ -71,12 +71,34 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
     if already_posted?(key) do
       Logger.debug("[SettlementPostingAdapter] Already posted: #{key}")
       # Aggregate may still lag the ledger (e.g. a retried confirm after a
-      # crash between posting and the TRAM sync) — idempotent re-sync
+      # crash between posting and the TRAM sync) — idempotent re-sync.
+      # post_bucket/4 is separately idempotent on the same key, so a retry
+      # here is safe even if the very first attempt posted the GL entry
+      # but crashed before the bucket increment. Best-effort here (no open
+      # transaction to roll back to) — logged, not raised; the
+      # transactional first-attempt path below is where a real failure
+      # blocks the confirmation.
+      case post_bucket(auth, settled_amount, settled_date, key) do
+        :ok -> :ok
+        {:error, reason} ->
+          Logger.warning("[SettlementPostingAdapter] bucket re-sync failed for #{key}: #{inspect(reason)}")
+      end
+
       sync_tram(auth, settled_amount, settled_date)
       :ok
     else
       Repo.transaction(fn ->
         post_ledger(auth, settled_amount, settled_date, key)
+
+        # FR-067 — found live, 2026-07-24: this posted a real GL entry but
+        # never touched the account's outstanding balance anywhere. Atomic
+        # with the GL post (same transaction) — both commit or both roll
+        # back. See VmuCore.CMS.PurchasePosting.
+        case post_bucket(auth, settled_amount, settled_date, key) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback({:bucket_post_failed, reason})
+        end
+
         clear_hold(auth)
       end)
       |> case do
@@ -101,6 +123,25 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
 
   defp already_posted?(key) do
     Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^key)
+  end
+
+  # FR-067 — the real outstanding-balance side of a purchase, previously
+  # missing entirely. "atm" channel = cash advance (same convention
+  # TRAMS.AuthConsumer.transaction_type/1 already uses); everything else
+  # defaults to a retail purchase.
+  defp post_bucket(auth, amount, posting_date, key) do
+    bucket_field = if auth.channel == "atm", do: "cash_balance", else: "retail_balance"
+
+    case PurchasePosting.post(%{
+           account_id: auth.account_id,
+           amount: amount,
+           bucket_field: bucket_field,
+           transaction_date: posting_date,
+           idempotency_key: key
+         }) do
+      {:ok, _allocation} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp post_ledger(auth, amount, posting_date, key) do

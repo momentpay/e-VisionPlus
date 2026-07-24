@@ -90,6 +90,37 @@ defmodule VmuCore.CMS.ConfigCatalog do
             "to adjust its day-count math across a resegmentation boundary — flagged " <>
             "in VmuCore.CMS.CycleResegmentation's moduledoc as explicit follow-up, " <>
             "not silently missing."
+      },
+      %{
+        key: "payment_allocation_method",
+        module: "cms",
+        type: :enum,
+        allowed: ~w[fifo lifo highest_amount_first proportional],
+        default: "fifo",
+        scope: :bank,
+        description:
+          "How a payment allocated to one balance bucket (by " <>
+            "RepaymentDistributor's hierarchy) is further sub-allocated across the " <>
+            "individual outstanding transactions within that bucket " <>
+            "(VmuCore.CMS.PaymentAllocation, FR-067). \"fifo\" (oldest transaction " <>
+            "paid first) is the common regulatory-safe default; some markets " <>
+            "require it explicitly. \"proportional\" spreads the payment pro-rata " <>
+            "across every outstanding transaction instead of paying any one off " <>
+            "fully first."
+      },
+      %{
+        key: "exclude_disputed_from_allocation",
+        module: "cms",
+        type: :boolean,
+        allowed: nil,
+        default: true,
+        scope: :bank,
+        description:
+          "When true (default), a transaction under active dispute is skipped by " <>
+            "normal payment allocation — DPS's provisional credit already covers " <>
+            "it, so a new payment shouldn't also apply against it. Set false only " <>
+            "if this bank's dispute-accounting policy genuinely wants both to " <>
+            "apply concurrently."
       }
     ]
   end

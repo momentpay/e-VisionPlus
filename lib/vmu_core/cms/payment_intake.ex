@@ -31,7 +31,7 @@ defmodule VmuCore.CMS.PaymentIntake do
 
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.LedgerEntry,
                  CMS.InternalGlPoster, CMS.RepaymentDistributor,
-                 CMS.AccountStateCoordinator, CMS.Payment}
+                 CMS.AccountStateCoordinator, CMS.Payment, CMS.PaymentAllocation}
   alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
 
@@ -199,6 +199,16 @@ defmodule VmuCore.CMS.PaymentIntake do
       result =
         Repo.transaction(fn ->
           persist_bucket!(bucket, new_bucket)
+          # FR-067 — transaction-level detail on top of the bucket-level
+          # move above. Never re-decides amounts; RepaymentDistributor
+          # already assigned each posting to a bucket, this only spreads
+          # that same amount across the account's real outstanding
+          # transactions within it (fifo/lifo/highest-first/proportional,
+          # bank-configured).
+          Enum.each(postings, fn %{bucket_field: field, amount: posted_amount} ->
+            PaymentAllocation.allocate_payment(account, field, posted_amount)
+          end)
+
           post_payment_ledger!(account, amount, channel, reference)
           record_payment!(account, amount, allocated, remainder, channel,
                           reference, postings, suspense_row)

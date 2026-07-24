@@ -108,7 +108,7 @@ section in its tracker) — see each tracker for the exact test performed.
 | 064 | Payment reversal (bounce/return) | ✅ | CMS-G2.1 (`payment_reversal.ex`) |
 | 065 | Autopay mandates | ✅ | CMS-G2.2 |
 | 066 | Payment holidays / hardship plans | ✅ | Cross-module: `COL.WorkoutCommand` `PAYMENT_HOLIDAY` (COL-P9), wired into `AgeBucketsJob` |
-| 067 | **Transaction-level payment allocation** (dispute/EMI/BNPL precision) | ⬜ | **Confirmed missing** — `PaymentIntake`/`RepaymentDistributor` allocate at the balance-bucket level only; no per-transaction precision exists (TRAM spec §7.2 state 8). |
+| 067 | **Transaction-level payment allocation** (dispute/EMI/BNPL precision) | ✅ | **Done 2026-07-24** — `VmuCore.CMS.TransactionAllocation` (new `cms_transaction_allocations` table) + `VmuCore.CMS.PaymentAllocation`, sub-allocating a bucket-level payment across the account's real outstanding transactions in that bucket (`retail_balance`/`cash_balance`/`bt_balance`). Method (fifo/lifo/highest_amount_first/proportional) and whether disputed transactions are skipped are both bank-configurable via `VmuCore.CMS.ConfigCatalog` (`payment_allocation_method`, `exclude_disputed_from_allocation`), not hardcoded, per region/regulatory requirement. Wired into `PaymentIntake.apply_payment/5` right after the existing bucket-level distribution — never re-decides amounts, only adds transaction-level detail on top. **Foundational gap found and fixed along the way**: purchases were never populating any transaction-level record at all — `VmuCore.CMS.PurchasePosting` (new) closes that by hooking `FAS.SettlementPostingAdapter.confirm_one/1` (the sole real settlement-confirmation path, reached from both the auth-consumer and the TRAMS posting-cycle job) to post each settled purchase into `cms_transaction_allocations` and increment the matching `BalanceBucket` field atomically with the existing GL post, idempotent on the same `"settlement:<approval_code>:<rrn>"` key already used elsewhere. 14/14 tests passing (5 `PurchasePostingTest` + 10 `PaymentAllocationTest`, 1 shared fixture pattern). Deliberately not backfilled: existing pre-feature balances have no transaction-level detail behind them and are left as-is; only purchases posted from now on get FR-067 precision. |
 | 068 | OTB restore on payment | ✅ | CMS-G1.5 |
 | 069 | Unapplied / suspense payment handling | ✅ | CMS-G2.3 |
 | 070 | Payment receipt notification triggers | ⬜ | **Not found** — confirmed via grep; no notification/messaging dispatch on payment receipt anywhere in `cms/`. |
@@ -121,11 +121,10 @@ section in its tracker) — see each tracker for the exact test performed.
 | Balances & Limits | 13 | 1 | 1 | 15 |
 | Interest & Fees | 12 | 2 | 1 | 15 |
 | Billing Cycle / EOD | 15 | 0 | 0 | 15 |
-| Payments | 8 | 0 | 2 | 10 |
-| **Total** | **60** | **3** | **7** | **70** |
+| Payments | 9 | 0 | 1 | 10 |
+| **Total** | **61** | **3** | **6** | **70** |
 
-**86% done, 4% partial, 10% genuinely open** (updated 2026-07-24 — FR-057
-and FR-058 both closed, see their rows above). Remaining CMS backlog:
+**87% done, 4% partial, 9% genuinely open** (updated 2026-07-24 — FR-067
+closed, see its row above). Remaining CMS backlog:
 FR-010 (memo), FR-011 (account flags), FR-013 (short name), FR-029 (EMI
-foreclosure), FR-038 (fee caps), FR-067 (transaction-level allocation),
-FR-070 (payment notifications).
+foreclosure), FR-038 (fee caps), FR-070 (payment notifications).

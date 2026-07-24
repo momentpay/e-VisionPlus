@@ -161,9 +161,20 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    `CMS_Feature_Status.md` FR-058 row for full detail, including the one
    explicit scope limit (interest-engine proration not wired — flagged,
    not silently missing).
-   Still open: FR-067 (transaction-level, not just bucket-level, payment
-   allocation — needs a real data-model change to `RepaymentDistributor`),
-   FR-070 (payment-receipt notifications — this codebase has no
+   ~~FR-067 (transaction-level payment allocation)~~ ✅ Done 2026-07-24 —
+   new `cms_transaction_allocations` table + `VmuCore.CMS.PurchasePosting`/
+   `PaymentAllocation`, allocation method (fifo/lifo/highest_amount_first/
+   proportional) and disputed-transaction exclusion both bank-configurable
+   via the `cms` Module Configuration catalog, same pattern as FR-058.
+   Found and fixed a foundational gap along the way: purchases never
+   populated any transaction-level record at all (only the aggregate
+   `BalanceBucket` moved) — traced the real settlement-confirmation path to
+   `FAS.SettlementPostingAdapter.confirm_one/1` (reached from both the
+   auth-consumer and the TRAMS posting-cycle job) and hooked purchase
+   posting there, atomic with the existing GL post. Deliberately not
+   backfilled — only purchases posted from now on get transaction-level
+   detail. See `CMS_Feature_Status.md` FR-067 row for full detail.
+   Still open: FR-070 (payment-receipt notifications — this codebase has no
    notification/messaging channel anywhere yet, so this one likely needs
    an adapter abstraction built first, same pattern as DPS's
    evidence-store stubs).

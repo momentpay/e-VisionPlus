@@ -37,6 +37,53 @@ that never matched this schema in either copy and predates the M2 split).
 Full CMS/FAS/COL/admin regression before and after: same 10 pre-existing
 failures, zero regressions.
 
+## LMS-P2 — Warehouse-Release Job + Reversal/Chargeback Clawback (FR-LMS-012) ✅ (2026-07-24)
+
+The two items LMS-P1 explicitly flagged as still open, plus one more real
+bug found while building the second one. Neither exists in Avenza's copy
+either — genuinely new work, not a re-port.
+
+**Foundational bug found before it could ship, not after:**
+`lms_points_ledger.source_clearing_id` was created `:bigint` in the
+original 2026-06-14 LMS migration, before `trams_clearing_records`'
+real `uuid` primary key (`clearing_id`) was finalized (2026-07-03) —
+never reconciled afterward. `PointsEngine.post_earned_points/7` has
+always passed a real `ClearingRecord.clearing_id` (uuid) into this
+column, which fails every real Ecto cast. 0 rows had this column
+populated in dev, confirming the real earn pipeline
+(`PointsCalculationJob` → `PointsEngine.process_transaction/2`) has
+never actually succeeded against real clearing data in either copy of
+this codebase. Fixed via a type-change migration (bigint → uuid); no
+data to migrate.
+
+Also found: `PointsExpiryJob` (LMS-P1) was never actually scheduled
+anywhere despite its own moduledoc claiming "runs on the 1st of each
+month" — fixed alongside the new job, same class of gap.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P2.1 | `lms_points_ledger.source_clearing_id` bigint → uuid fix | migration `20260724120001_...`, `lib/vmu_core/lms/points_ledger.ex` | ✅ |
+| P2.2 | `VmuCore.LMS.Oban.WarehouseReleaseJob` — daily, promotes `WAREHOUSE`-state entries to `ACTIVE` once the owning scheme's `warehouse_days` has elapsed since posting, incrementing `open_to_redeem` by the released amount (`points_balance`/`lifetime_earned` were already correct at earn time — only `open_to_redeem` was withheld) | `lib/vmu_core/lms/oban/warehouse_release_job.ex` | ✅ |
+| P2.3 | `VmuCore.LMS.Clawback.claw_back_transaction/1` (FR-LMS-012) — given a `TRAMS.Transaction` id, finds every `ClearingRecord` matched to it, then every still-`ACTIVE` `PointsLedger` entry earned from those, and reverses each (moves to `HISTORY`, posts a negative `CLAWBACK` ledger entry, decrements `points_balance`/`open_to_redeem`). Honestly scoped: already-redeemed/expired entries are NOT clawed back (the cardholder already received their value) — the return value reports `already_spent` separately so this isn't silently swallowed | `lib/vmu_core/lms/clawback.ex` | ✅ |
+| P2.4 | Hooked into `DPS.Dispute.transition/2` on the transition to `CLOSED_WIN` only — that status means the cardholder never actually paid for the disputed purchase (scheme reimburses, no customer-balance impact per `Dispute`'s own moduledoc); `CLOSED_LOSE`/`CANCELLED` re-debit the cardholder, who keeps the points. Fail-safe: LMS being unreachable never blocks dispute resolution, same posture as this file's existing network-filing call | `lib/vmu_core/dps/dispute.ex` | ✅ |
+| P2.5 | Both jobs added to the Oban crontab (`WarehouseReleaseJob` daily 23:45, after the 23:30 earn run; `PointsExpiryJob` monthly, 1st at 01:00 — the schedule its own moduledoc always claimed but never had) | `config/config.exs` | ✅ |
+
+**Explicit scope decision**: the auth-level `authorization_reversed` TRAM
+event (MTI 0400, before clearing) was considered and NOT hooked — points
+aren't earned until a clearing record reaches `MATCHED`, so an auth
+reversal before that point has nothing to claw back yet. Only the
+post-settlement chargeback-win path is a real clawback trigger.
+
+7/7 tests: `clawback_test.exs` (4 — a real end-to-end earn through a
+genuine `ClearingRecord` + `Clawback.claw_back_transaction/1` proving the
+`source_clearing_id` fix works, a clean no-op for a transaction that
+never earned points, an already-redeemed entry correctly reported as
+`already_spent` rather than clawed back, and the real
+`DPS.Dispute.transition/2` → `CLOSED_WIN` hook); `warehouse_release_job_test.exs`
+(3 — releases once elapsed, does not release early, an immediate-earn
+scheme is untouched). Full CMS/FAS/COL/DPS/admin regression before and
+after: same 10 pre-existing failures, zero regressions.
+
 ---
 
 ## LMS-P1 — `open_to_redeem` Correctness Fix ✅ (2026-07-11)

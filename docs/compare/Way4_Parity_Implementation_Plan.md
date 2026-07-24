@@ -249,10 +249,23 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    `redemption_processor.ex`/`oban/points_expiry_job.ex`). 5/5 new tests
    (`points_redemption_bugfix_test.exs`), zero regressions. See
    `LMS_Gap_Implementation_Tracker.md`'s re-port note for full detail.
-   The clawback gap is real risk exposure (a reversed transaction
-   currently leaves its earned points standing) — both this and the
-   warehouse-release job remain unstarted, on top of the now-restored
-   foundation.
+   ~~Warehouse-release job + reversal/chargeback clawback~~ ✅ Done
+   2026-07-24 — genuinely new work, not built in either copy. Found and
+   fixed one more real bug along the way: `lms_points_ledger.
+   source_clearing_id` was `bigint` while `trams_clearing_records.
+   clearing_id` (what it's supposed to reference) is `uuid` — created
+   before that table's real PK was finalized, never reconciled, meaning
+   the real earn pipeline (`PointsCalculationJob` → `PointsEngine`) has
+   never actually succeeded against real clearing data. Also found
+   `PointsExpiryJob` was never scheduled anywhere despite its own
+   moduledoc's claim — fixed alongside the new `WarehouseReleaseJob`
+   (both now in the Oban crontab). `VmuCore.LMS.Clawback` hooks into
+   `DPS.Dispute.transition/2`'s `CLOSED_WIN` transition specifically —
+   the point at which a chargeback means the cardholder never actually
+   paid for the purchase. 7/7 tests, zero regressions. See
+   `LMS_Gap_Implementation_Tracker.md`'s LMS-P2 for full detail.
+
+   **Item 5 (LMS) is now fully closed.**
 6. **ASM — MFA (TOTP) + real SSO/LDAP wiring.** `authn_source` config
    already exists and is unwired — same "config exists, no consumer"
    pattern found repeatedly elsewhere in this codebase.

@@ -125,7 +125,7 @@ defmodule VmuCore.LMS.PointsRedemptionBugfixTest do
   defp earn(account, ar_account_id, amount, clearing_id \\ nil) do
     PointsEngine.process_transaction(ar_account_id, %{
       amount: amount, transaction_date: Date.utc_today(),
-      merchant_id: nil, clearing_record_id: clearing_id || System.unique_integer([:positive])
+      merchant_id: nil, clearing_record_id: clearing_id || Ecto.UUID.generate()
     })
 
     Repo.get!(Account, account.id)

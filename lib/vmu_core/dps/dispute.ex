@@ -146,6 +146,7 @@ defmodule VmuCore.DPS.Dispute do
         # bug as `file/1`'s — found live closing out DPS-P5.
         updated = Repo.get!(__MODULE__, dispute_id)
         post_resolution_gl(updated)
+        maybe_claw_back_points(updated, new_status)
         schedule_next_deadline(updated)
         Repo.get!(__MODULE__, dispute_id)
       end)
@@ -191,6 +192,25 @@ defmodule VmuCore.DPS.Dispute do
   end
 
   defp maybe_file_with_network(_dispute, _status, updates), do: updates
+
+  # FR-LMS-012 — a won chargeback means the cardholder never actually paid
+  # for the disputed purchase, so any points earned on it get clawed back.
+  # CLOSED_LOSE/CANCELLED re-debit the cardholder instead — they still owe
+  # for it and keep the points. Fail-safe: LMS being unreachable/erroring
+  # must never block dispute resolution, same posture as network filing
+  # above and provisional-credit GL posting.
+  defp maybe_claw_back_points(%__MODULE__{trams_transaction_id: txn_id}, "CLOSED_WIN")
+       when not is_nil(txn_id) do
+    try do
+      VmuCore.LMS.Clawback.claw_back_transaction(txn_id)
+    rescue
+      e -> Logger.warning("[DPS.Dispute] LMS clawback failed for #{txn_id}: #{inspect(e)}")
+    end
+
+    :ok
+  end
+
+  defp maybe_claw_back_points(_dispute, _new_status), do: :ok
 
   defp put_deadlines(cs) do
     txn_date = get_field(cs, :transaction_date)

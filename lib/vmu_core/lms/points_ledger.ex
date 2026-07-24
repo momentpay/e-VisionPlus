@@ -19,7 +19,7 @@ defmodule VmuCore.LMS.PointsLedger do
     field :group_id,            :integer
     field :scheme_id,           :integer
     field :merchant_id,         :binary_id
-    field :source_clearing_id,  :integer
+    field :source_clearing_id,  :binary_id
     field :idempotency_key,     :string
     field :batch_date,          :date
     field :settled_at,          :utc_datetime
@@ -27,7 +27,7 @@ defmodule VmuCore.LMS.PointsLedger do
     field :inserted_at,         :utc_datetime
   end
 
-  @valid_txn_types    ~w(BASIC_EARNED BONUS_EARNED REDEEMED ADJUSTMENT EXPIRED)
+  @valid_txn_types    ~w(BASIC_EARNED BONUS_EARNED REDEEMED ADJUSTMENT EXPIRED CLAWBACK)
   @valid_warehouse    ~w(WAREHOUSE ACTIVE HISTORY)
 
   def changeset(entry, attrs) do

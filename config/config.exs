@@ -129,7 +129,15 @@ config :vmu_core, Oban,
        {"0 4 * * *", VmuCore.CTA.Oban.CardExpirySweepJob},
        # ASM operator audit retention sweep — weekly, Sunday 03:00 (after the
        # TRAMS archive sweep at 02:00)
-       {"0 3 * * 0", VmuCore.ASM.Oban.AuditRetentionSweepJob}
+       {"0 3 * * 0", VmuCore.ASM.Oban.AuditRetentionSweepJob},
+       # LMS warehouse-release sweep — daily, 23:45 (after PointsCalculationJob's
+       # 23:30 earn run, so same-day earns are eligible for release the moment
+       # their warehouse_days window elapses, not a full day later)
+       {"45 23 * * *", VmuCore.LMS.Oban.WarehouseReleaseJob},
+       # LMS points expiry sweep — found unscheduled anywhere despite its own
+       # moduledoc claiming "runs on the 1st of each month"; fixed alongside
+       # the warehouse-release job (same class of gap)
+       {"0 1 1 * *", VmuCore.LMS.Oban.PointsExpiryJob}
      ]}
   ],
   queues: [

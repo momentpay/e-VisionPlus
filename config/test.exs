@@ -26,3 +26,7 @@ config :vmu_core, VmuCoreWeb.Endpoint,
 # network I/O — see that module's moduledoc.
 config :vmu_core, :notification_http_plug,
   {Req.Test, VmuCore.CMS.NotificationDispatcher.HttpGateway}
+
+# Same reasoning for VmuCore.ASM.OidcClient's token/jwks HTTP calls (SSO,
+# Way4 parity plan Phase 0 item 6).
+config :vmu_core, :oidc_http_plug, {Req.Test, VmuCore.ASM.OidcClient}

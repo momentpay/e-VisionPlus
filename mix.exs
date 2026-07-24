@@ -18,7 +18,7 @@ defmodule VmuCore.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :eldap],
       mod: {VmuCore.Application, []}
     ]
   end
@@ -63,6 +63,12 @@ defmodule VmuCore.MixProject do
       # than a real listener — Bypass's ranch ~> 1.3 requirement conflicts
       # with muNSwitch/wallet-app's ranch ~> 2.1.
       {:req, "~> 0.5"},
+
+      # --- SSO/OIDC ID-token verification (ASM item 6) ---
+      # Already resolved transitively; declared explicitly for the same
+      # reason as req above. LDAP/AD auth uses Erlang/OTP's built-in
+      # :eldap — no dependency needed.
+      {:jose, "~> 1.11"},
 
       # --- Standalone Switch ---
       # Protocol/types engine (packagers, MTIConverter, FAS.Authorizer behaviour) plus the

@@ -201,6 +201,68 @@ unaffected by default, matching the additive, non-enforcing design.
 No changes to `Authz.can?/3`, `RolePermission`, `RolePermission.default_matrix/0`, or
 `priv/repo/seed_role_permissions.exs` — the permission engine itself is untouched.
 
+## ASM-P8 — SSO/AD/LDAP `authn_source` wired ✅ (Way4 parity plan Phase 0 item 6, 2026-07-24)
+
+Closes the gap ASM-P6.3 explicitly left open ("`authn_source`/`authn_provider_config`
+are **not** wired — a real SSO/AD/LDAP integration is a full feature, deliberately
+out of scope"). User's explicit ask: build the configuration-driven consumer for
+SSO/AD/LDAP, without needing real corporate IdP/directory credentials to verify
+against.
+
+**Re-port note (SSO half):** found this had already been built once, real end-to-end,
+on 2026-07-13 — `VmuCore.ASM.OidcConfig`/`OidcClient`, `Auth.authenticate_sso/2`, a
+self-hosted `VmuCoreWeb.MockIdp` (real RSA keypair, real RS256-signed tokens, real
+authorize/token/JWKS HTTP flow — dev/test only), and the controller wiring — but,
+like COL's P1-P9 and LMS-P1, it was lost to the "M2: extract into Avenza umbrella"
+commit and never carried back after the platform-of-record reversal to standalone
+vmu_core. Re-ported verbatim except session handling: Avenza's copy had moved onto a
+shared `WalletAuth.Token.AccessToken`/`OperatorClaims` JWT session mechanism that
+doesn't exist in standalone vmu_core — `OidcSessionController` was rewritten to use
+this app's real plain `put_session("operator_id", ...)` mechanism instead, matching
+`OperatorSessionController`'s existing pattern exactly.
+
+**AD/LDAP half is genuinely new** — neither copy of this codebase ever built it.
+Active Directory accepts a `userPrincipalName` (`user@corp.example.com`) as a simple-
+bind principal exactly like a plain LDAP DN, so "ad" and "ldap" share one mechanism
+(`VmuCore.ASM.LdapConfig`/`LdapClient`) — only the configured `bind_dn_template`
+differs between an AD and an OpenLDAP deployment. Built on Erlang/OTP's built-in
+`:eldap` (no new external dependency).
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P8.1 | `VmuCore.ASM.OidcConfig`/`OidcClient` — real Authorization Code flow client (redirect URL, code exchange, RS256 JWKS-verified ID-token check with `iss`/`aud`/`nonce`/`exp` validation, `alg` always pinned to RS256 explicitly against JWT "alg confusion"). `Auth.authenticate_sso/2` — matches a verified claim's username to an **existing** `Operator` only, deliberately no JIT auto-provisioning (a `role` carries real authorization weight this phase doesn't decide) | `lib/vmu_core/asm/oidc_config.ex`, `oidc_client.ex`, `auth.ex` | ✅ |
+| P8.2 | `VmuCoreWeb.MockIdp` + `MockIdpController` — dev/test-only self-hosted IdP fixture (real RSA keypair generated at boot, real signed tokens), so `OidcClient`'s actual signature-verification code path is exercised against a real counterpart, not skipped. Compiled/started only in `Mix.env() in [:dev, :test]` — a fake IdP must never exist in a production build | `lib/vmu_core_web/mock_idp.ex`, `controllers/mock_idp_controller.ex`, `router.ex`, `application.ex` | ✅ |
+| P8.3 | `OidcSessionController` (`/auth/oidc/start`/`/callback`) — adapted to this app's plain-session model (see re-port note above) | `lib/vmu_core_web/controllers/oidc_session_controller.ex` | ✅ |
+| P8.4 | `VmuCore.ASM.LdapConfig`/`LdapClient` — real `:eldap` simple-bind client. `Auth.authenticate_directory/2` — same no-JIT-provisioning posture as SSO. **Honestly unverified against a live directory** — no real AD/LDAP server exists in this environment; same posture as FAS's `ProductionHSM` stub (real protocol code, never proven against a live counterpart) | `lib/vmu_core/asm/ldap_config.ex`, `ldap_client.ex`, `auth.ex` | ✅ |
+| P8.5 | `DirectorySessionController` (`POST /login/directory`) | `lib/vmu_core_web/controllers/directory_session_controller.ex` | ✅ |
+| P8.6 | Login page — SSO link and a collapsed "directory credentials" form, each shown only when actually enabled+configured (a dead link/form for an unconfigured bank would be worse than none); reads/clears a `login_error` session key so all three sign-in paths (local/SSO/directory) can report failures through the same page | `lib/vmu_core_web/controllers/operator_session_controller.ex` | ✅ |
+
+**Test-time HTTP faking**: `OidcClient`'s `token_endpoint`/`jwks_endpoint` calls route
+through `Req.Test` (`config/test.exs`'s `:oidc_http_plug` — same pattern as CMS
+FR-070's `NotificationDispatcher.HttpGateway`), letting the real signature-
+verification/claims-validation logic run against a real `MockIdp`-signed token without
+a live TCP listener — a deliberate, small adaptation from the ported code (Avenza's
+copy had no test coverage for this at all).
+
+26/26 new tests: `oidc_test.exs` (10 — config resolution incl. reading the client
+secret from a real env var never the config map, a full real signature-verify against
+a genuine MockIdp token, nonce/audience mismatch rejection, a non-200 token endpoint
+handled cleanly, `authenticate_sso/2`'s match/no-match/disabled paths), `ldap_test.exs`
+(8 — config resolution for both "ad" and "ldap" sources, a real `:eldap` connection
+attempt against a guaranteed-unreachable address confirming the failure path is clean
+rather than silently treated as success, `authenticate_directory/2`'s match/no-match/
+locked paths), `oidc_session_controller_test.exs` (5 — this repo's first plain-
+controller test, real router dispatch, full start→callback flow including a state-
+mismatch short-circuit that never reaches the token endpoint), `directory_session_
+controller_test.exs` (3 — not-configured, unreachable-server, and missing-credentials
+paths, confirming none of them ever set `operator_id`). Full ASM/COL/CMS/FAS/DPS/admin
+regression before and after: same 10 pre-existing, already-documented failures, zero
+regressions.
+
+**MFA (TOTP) remains deferred** — ASM-P4.4's original reasoning (decision pends the
+SSO/LDAP question) is now partly resolved (SSO exists), but building TOTP itself was
+not part of this item's scope; flagged, not silently dropped.
+
 ---
 
 *Recommended start: immediately after CMS-G1 — ASM-P1 gates production use of every admin screen.*

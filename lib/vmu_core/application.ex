@@ -44,6 +44,16 @@ defmodule VmuCore.Application do
       VmuCoreWeb.Endpoint
     ]
 
+    # 12. Mock OIDC provider (Way4 parity plan Phase 0 item 6, 2026-07-24) —
+    #     dev/test only, see VmuCoreWeb.MockIdp's moduledoc. Never started
+    #     in a prod release.
+    children =
+      if Mix.env() in [:dev, :test] do
+        children ++ [VmuCoreWeb.MockIdp]
+      else
+        children
+      end
+
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: VmuCore.Supervisor]

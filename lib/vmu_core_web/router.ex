@@ -18,6 +18,26 @@ defmodule VmuCoreWeb.Router do
     plug VmuCoreWeb.Plugs.InternalApiAuth
   end
 
+  # Way4 parity plan Phase 0 item 6 (2026-07-24) — dev/test-only mock OIDC
+  # provider (see VmuCoreWeb.MockIdp's moduledoc for why: no real
+  # corporate IdP is available in this environment, so VmuCore.ASM.
+  # OidcClient is exercised against a real, correctly-signed RS256 token
+  # flow rather than skipping verification). Compiled out of prod builds
+  # entirely — a fake IdP must never exist in a production router.
+  if Mix.env() in [:dev, :test] do
+    pipeline :mock_idp do
+      plug :accepts, ["html", "json"]
+    end
+
+    scope "/mock_idp", VmuCoreWeb do
+      pipe_through :mock_idp
+
+      get  "/authorize", MockIdpController, :authorize
+      post "/token",     MockIdpController, :token
+      get  "/jwks",      MockIdpController, :jwks
+    end
+  end
+
   # Internal FAS API — consumed by settlement_core (FAS-P4)
   scope "/api/fas", VmuCoreWeb do
     pipe_through :api
@@ -41,6 +61,13 @@ defmodule VmuCoreWeb.Router do
     get    "/visionplus/admin/login",  VmuCoreWeb.OperatorSessionController, :new
     post   "/visionplus/admin/login",  VmuCoreWeb.OperatorSessionController, :create
     get    "/visionplus/admin/logout", VmuCoreWeb.OperatorSessionController, :delete
+
+    # SSO (Way4 parity plan Phase 0 item 6, 2026-07-24)
+    get  "/visionplus/admin/auth/oidc/start",    VmuCoreWeb.OidcSessionController, :start
+    get  "/visionplus/admin/auth/oidc/callback", VmuCoreWeb.OidcSessionController, :callback
+
+    # AD/LDAP directory sign-in (same item)
+    post "/visionplus/admin/login/directory", VmuCoreWeb.DirectorySessionController, :create
 
     # VisionPlus hierarchy-based admin UI — operator-gated (ASM-P1.4)
     live_session :admin,

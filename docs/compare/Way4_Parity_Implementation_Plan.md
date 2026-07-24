@@ -266,9 +266,23 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    `LMS_Gap_Implementation_Tracker.md`'s LMS-P2 for full detail.
 
    **Item 5 (LMS) is now fully closed.**
-6. **ASM — MFA (TOTP) + real SSO/LDAP wiring.** `authn_source` config
-   already exists and is unwired — same "config exists, no consumer"
-   pattern found repeatedly elsewhere in this codebase.
+6. **ASM — SSO/AD/LDAP wiring (MFA/TOTP deferred).**
+   **Scoped down 2026-07-24 per explicit user request**: SSO/AD/LDAP
+   configuration + a real consumer, no live-credential verification
+   (user has no real corporate IdP/directory to test against). ✅ Done
+   2026-07-24. Found the SSO half had already been built once
+   (2026-07-13, real Authorization Code flow + a self-hosted mock IdP)
+   but lost to the same M2 extraction as COL/LMS — 7th confirmed
+   instance of the merge-drift pattern. Re-ported it, adapting session
+   handling to this app's real plain-session model (Avenza's copy had
+   moved onto shared JWT session infrastructure that doesn't exist here).
+   AD/LDAP is genuinely new — built on Erlang/OTP's built-in `:eldap`,
+   real protocol code but honestly unverified against a live directory
+   (same posture as FAS's HSM stub). 26/26 new tests, including this
+   repo's first-ever plain-controller (non-LiveView) test. See
+   `docs/asm/ASM_Implementation_Tracker.md`'s ASM-P8 for full detail.
+   MFA (TOTP) itself remains deferred — out of this item's scope, not
+   silently dropped.
 7. **FAS — ProductionHSM real vendor integration.** Vendor/approach
    decided 2026-07-24 (not yet implemented, stubs updated to match):
    **Veriscent-hosted Thales payShield 10K via the real 10XPay REST API**

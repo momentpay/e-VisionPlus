@@ -121,6 +121,35 @@ defmodule VmuCore.CMS.ConfigCatalog do
             "it, so a new payment shouldn't also apply against it. Set false only " <>
             "if this bank's dispute-accounting policy genuinely wants both to " <>
             "apply concurrently."
+      },
+      %{
+        key: "notification_channels_enabled",
+        module: "cms",
+        type: :list,
+        allowed: ~w[email sms whatsapp webhook],
+        default: [],
+        scope: :bank,
+        description:
+          "Which notification channels (FR-070) fire on a payment receipt for this " <>
+            "bank — any subset of email/sms/whatsapp/webhook. Empty (the default) " <>
+            "means no notifications fire; a bank opts in per channel, not globally, " <>
+            "since regulatory consent and preferred-contact rules vary by market."
+      },
+      %{
+        key: "notification_gateway_config",
+        module: "cms",
+        type: :map,
+        allowed: nil,
+        default: %{},
+        scope: :bank,
+        description:
+          "Per-channel gateway settings, keyed by channel name: " <>
+            "%{\"email\" => %{\"url\" => ..., \"headers\" => %{...}}, \"sms\" => " <>
+            "%{...}, \"whatsapp\" => %{...}, \"webhook\" => %{...}}. `url` is the " <>
+            "bank's own notification middleware or a vendor's REST API directly — " <>
+            "`headers` carries auth (e.g. a bearer token), never a raw secret checked " <>
+            "into this repo. A channel enabled in notification_channels_enabled but " <>
+            "missing here is skipped (status SKIPPED), not treated as a failure."
       }
     ]
   end

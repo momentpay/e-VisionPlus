@@ -174,10 +174,25 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    posting there, atomic with the existing GL post. Deliberately not
    backfilled — only purchases posted from now on get transaction-level
    detail. See `CMS_Feature_Status.md` FR-067 row for full detail.
-   Still open: FR-070 (payment-receipt notifications — this codebase has no
-   notification/messaging channel anywhere yet, so this one likely needs
-   an adapter abstraction built first, same pattern as DPS's
-   evidence-store stubs).
+   ~~FR-070 (payment-receipt notifications)~~ ✅ Done 2026-07-24 — new
+   `VmuCore.CMS.NotificationDispatcher` (behaviour + email/sms/whatsapp/
+   webhook adapters, an adapter abstraction same shape as DPS's
+   evidence-store stubs) + `VmuCore.CMS.Notification` context, new
+   `cms_notification_log` table. Unlike DPS's S3/Azure stubs, all 4
+   channels are real working code, not stubs — each is just a
+   bank-configured HTTP POST (via `Req`, newly added as an explicit dep;
+   it was already resolved transitively) carrying content/content_format/
+   channel/priority, so there's no specific vendor SDK this codebase is
+   missing. Which channels fire and where they POST is bank-configurable
+   (`cms.notification_channels_enabled`/`notification_gateway_config`),
+   same Module Configuration pattern as FR-058/067. Wired into
+   `PaymentIntake.apply_payment/5` best-effort, outside the DB transaction.
+   6/6 tests, HTTP faked via `Req.Test` (a real Plug pipeline) rather than
+   Bypass — Bypass's `ranch ~> 1.3` requirement conflicted with
+   muNSwitch/wallet-app's `ranch ~> 2.1`.
+
+   Item 3 (CMS backlog) is now fully closed — all four FR-057/058/067/070
+   gaps done.
 4. **COL — MI dashboard + agency-file parsing**, using a real vendor
    sample once available (don't build against a guessed format, per this
    repo's own established discipline).

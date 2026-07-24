@@ -31,7 +31,8 @@ defmodule VmuCore.CMS.PaymentIntake do
 
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.LedgerEntry,
                  CMS.InternalGlPoster, CMS.RepaymentDistributor,
-                 CMS.AccountStateCoordinator, CMS.Payment, CMS.PaymentAllocation}
+                 CMS.AccountStateCoordinator, CMS.Payment, CMS.PaymentAllocation,
+                 CMS.Notification}
   alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
 
@@ -234,6 +235,14 @@ defmodule VmuCore.CMS.PaymentIntake do
           Logger.info("[PaymentIntake] account=#{account.account_id} " <>
                       "amount=#{amount} allocated=#{allocated} " <>
                       "remainder=#{remainder} channel=#{channel} ref=#{reference}")
+
+          # FR-070 — best-effort, outside the transaction (external HTTP
+          # call); a notification-gateway outage must never affect whether
+          # the payment itself succeeded.
+          Notification.notify_payment_receipt(account, %{
+            amount: amount, allocated: allocated, remainder: remainder,
+            payment_channel: channel, reference: reference
+          })
 
           {:ok, %{allocated: allocated, remainder: remainder, postings: postings}}
 

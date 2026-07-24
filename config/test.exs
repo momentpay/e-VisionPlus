@@ -20,3 +20,9 @@ config :vmu_core, Oban, testing: :inline
 # (never share a secret across environments), test-only, not a real secret.
 config :vmu_core, VmuCoreWeb.Endpoint,
   secret_key_base: "test_only_secret_key_base_vmu_core_admin_console_64chars_min_req!!"
+
+# FR-070's NotificationDispatcher.HttpGateway posts to a real URL by
+# default; in test, route through Req.Test's Plug pipeline instead of real
+# network I/O — see that module's moduledoc.
+config :vmu_core, :notification_http_plug,
+  {Req.Test, VmuCore.CMS.NotificationDispatcher.HttpGateway}

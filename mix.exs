@@ -56,6 +56,14 @@ defmodule VmuCore.MixProject do
       # --- High-throughput clearing pipeline (G7) ---
       {:broadway, "~> 1.1"},
 
+      # --- Outbound notification gateway calls (CMS FR-070) ---
+      # Already resolved transitively (a path dep pulls it in) — declared
+      # explicitly here so vmu_core's own code can compile against it.
+      # Test-time HTTP faking uses Req.Test (built into req itself) rather
+      # than a real listener — Bypass's ranch ~> 1.3 requirement conflicts
+      # with muNSwitch/wallet-app's ranch ~> 2.1.
+      {:req, "~> 0.5"},
+
       # --- Standalone Switch ---
       # Protocol/types engine (packagers, MTIConverter, FAS.Authorizer behaviour) plus the
       # issuer-facing Ranch listener (MIP 7585 / VAP 8600). Replaces vmu_core's own redundant

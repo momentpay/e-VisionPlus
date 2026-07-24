@@ -193,9 +193,25 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
 
    Item 3 (CMS backlog) is now fully closed — all four FR-057/058/067/070
    gaps done.
-4. **COL — MI dashboard + agency-file parsing**, using a real vendor
-   sample once available (don't build against a guessed format, per this
-   repo's own established discipline).
+4. **COL — MI dashboard + agency-file parsing.**
+   **Major re-scope, 2026-07-24**: found the entire P1-P9 COL build (agency
+   placement, write-off/workout/settlement, contact history, CSV/JSON
+   agency file exchange, admin UI) had been verified once already
+   (2026-07-10) but never committed — extracted into `Avenza/apps/vmu_col`
+   by an old commit and never carried back after the platform-of-record
+   reversal to standalone vmu_core. Re-ported it in full (see
+   `COL_Gap_Implementation_Tracker.md`'s "Re-port note") before doing any
+   new work — this item is NOT a from-scratch build.
+   With the foundation restored, real remaining scope: (a) a configurable
+   **field-mapper** for agency file ingestion/generation — agency file
+   layouts genuinely vary by region/agency (different column names, date
+   formats), so a fixed CSV/JSON schema per agency is the wrong long-term
+   shape; ADR needed on mapping-config design (per-agency header→field
+   mapping stored via the `col` Module Configuration catalog, same pattern
+   as every other region-varying policy this session has built), (b) the
+   MI dashboard (FR-025) — genuinely not built in either copy, (c) XML
+   agency-file parsing — still blocked on a real vendor sample, unchanged
+   from the original scope note.
 5. **LMS — warehouse-release job + reversal/chargeback clawback.** The
    clawback gap is real risk exposure (a reversed transaction currently
    leaves its earned points standing).

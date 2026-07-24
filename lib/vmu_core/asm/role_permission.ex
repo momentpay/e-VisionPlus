@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -58,6 +58,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "dps",          ~w[view create edit approve]},
       {"SUPERVISOR", "cms_eod",      ~w[view edit]},
       {"SUPERVISOR", "cms_resegmentation", ~w[view edit]},
+      {"SUPERVISOR", "col",          ~w[view edit]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -70,6 +71,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "dps",          ~w[view create edit]},
       {"OPS", "cms_eod",      ~w[view edit]},
       {"OPS", "cms_resegmentation", ~w[view edit]},
+      {"OPS", "col",          ~w[view edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
@@ -77,6 +79,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"CS_AGENT", "auth_history", ~w[view]},
       {"CS_AGENT", "tram_inquiry", ~w[view]},
       {"CS_AGENT", "dps",          ~w[view create]},
+      {"CS_AGENT", "col",          ~w[view]},
 
       # TELLER — lookups only
       {"TELLER", "customer", ~w[view]},
@@ -89,6 +92,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "tram_inquiry", ~w[view]},
       {"RISK", "approvals",    ~w[view approve]},
       {"RISK", "dps",          ~w[view create edit approve]},
+      {"RISK", "col",          ~w[view edit]},
 
       # COMPLIANCE — read everything, change nothing
       {"COMPLIANCE", "system",       ~w[view]},
@@ -104,6 +108,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "dps",          ~w[view]},
       {"COMPLIANCE", "cms_eod",      ~w[view]},
       {"COMPLIANCE", "cms_resegmentation", ~w[view]},
+      {"COMPLIANCE", "col",          ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}

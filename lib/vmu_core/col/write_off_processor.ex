@@ -18,11 +18,19 @@ defmodule VmuCore.COL.WriteOffProcessor do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.AccountStateCoordinator, CMS.InternalGlPoster}
   alias VmuCore.COL.CollectionCase
   alias Decimal, as: D
 
-  @gl_charged_off "5001"  # Charged-off receivable
+  # M2 (2026-07-17): config-injected — CMS isn't extracted yet.
+  @repo Application.compile_env(:vmu_col, :repo, VmuCore.Repo)
+  @account_schema Application.compile_env(:vmu_col, :cms_account_schema, VmuCore.CMS.Account)
+  @account_state_coordinator Application.compile_env(:vmu_col, :cms_account_state_coordinator, VmuCore.CMS.AccountStateCoordinator)
+  @internal_gl_poster Application.compile_env(:vmu_col, :cms_internal_gl_poster, VmuCore.CMS.InternalGlPoster)
+
+  # M5 Phase 2 (2026-07-18) — reconciled onto WalletGl.ChartOfAccounts;
+  # "5001" previously collided with CardAccountCodes' unrelated "5001
+  # Interchange/MDR Expense".
+  @gl_charged_off "1005"  # Charged-off receivable
   @gl_retail_recv "1001"  # Retail receivable
 
   @doc """
@@ -30,22 +38,22 @@ defmodule VmuCore.COL.WriteOffProcessor do
   Returns {:ok, %{write_off_amount: Decimal.t()}} or {:error, reason}.
   """
   def write_off(account_id) do
-    Repo.transaction(fn ->
-      account = Repo.get!(Account, account_id)
+    @repo.transaction(fn ->
+      account = @repo.get!(@account_schema, account_id)
 
       unless account.account_status in ["DELINQUENT", "BLOCKED", "SUSPENDED"] do
-        Repo.rollback(:account_not_eligible)
+        @repo.rollback(:account_not_eligible)
       end
 
       write_off_amount = D.sub(account.credit_limit, account.open_to_buy)
 
       if D.compare(write_off_amount, D.new(0)) != :gt do
-        Repo.rollback(:zero_balance)
+        @repo.rollback(:zero_balance)
       end
 
       # 1. GL entry — move to charged-off bucket
       idempotency_key = "WRITEOFF-#{account_id}-#{Date.utc_today()}"
-      InternalGlPoster.post(%{
+      @internal_gl_poster.post(%{
         account_id:       account_id,
         idempotency_key:  idempotency_key,
         transaction_code: "ADJUSTMENT",
@@ -59,8 +67,8 @@ defmodule VmuCore.COL.WriteOffProcessor do
       })
 
       # 2. Update account
-      Repo.update_all(
-        from(a in Account, where: a.account_id == ^account_id),
+      @repo.update_all(
+        from(a in @account_schema, where: a.account_id == ^account_id),
         set: [
           account_status: "WRITTEN_OFF",
           open_to_buy:    D.new(0),
@@ -69,7 +77,7 @@ defmodule VmuCore.COL.WriteOffProcessor do
       )
 
       # 3. Update collection case
-      Repo.update_all(
+      @repo.update_all(
         from(c in CollectionCase,
           where: c.account_id == ^account_id and c.status in ["OPEN", "AGENCY"]),
         set: [
@@ -81,7 +89,7 @@ defmodule VmuCore.COL.WriteOffProcessor do
       )
 
       # 4. Refresh coordinator — account will now decline all new auths
-      AccountStateCoordinator.refresh(account_id)
+      @account_state_coordinator.refresh(account_id)
 
       Logger.warning("[COL] Written off: account=#{account_id} amount=#{write_off_amount}")
       %{write_off_amount: write_off_amount}
@@ -93,14 +101,14 @@ defmodule VmuCore.COL.WriteOffProcessor do
   Does NOT reverse the write-off — posts to recovery income GL.
   """
   def post_recovery(account_id, amount, source_ref) do
-    InternalGlPoster.post(%{
+    @internal_gl_poster.post(%{
       account_id:       account_id,
       idempotency_key:  "RECOVERY-#{source_ref}",
       transaction_code: "PAYMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1000",   # Cash/settlement account
-      gl_account_cr:    "6001",   # Recovery income
+      gl_account_dr:    "3001",   # Cash/settlement account (Payment / Adjustment Clearing)
+      gl_account_cr:    "4004",   # Recovery income
       posting_date:     Date.utc_today(),
       value_date:       Date.utc_today(),
       narrative:        "Recovery payment ref=#{source_ref}",

@@ -5,9 +5,29 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
   DPD (Days Past Due) aging:
     0   → 30  if minimum_payment due was missed this cycle
     30  → 60  if still unpaid after 30 days
-    60  → 90, 90 → 120+
+    60  → 90, 90 → 120, 120 → 150, 150 → 180+ (caps at 180)
 
-  Accounts at 120+ DPD are flagged for COL handoff.
+  Any bucket change past 0 hands off to COL (`CollectionQueueJob` — case open/update,
+  DunningJob treatment-step dispatch per `col.bucket_strategy_matrix`, and a
+  write-off request once `col.writeoff_dpd_threshold` is reached — see
+  `VmuCore.COL.WriteOffCommand`).
+
+  **COL-P3 fix:** this used to only hand off at `new_dpd >= 120`, which meant a
+  collection case was never opened and no dunning ever fired for accounts at
+  30/60/90 DPD via the automatic EOD flow — `CollectionQueueJob`'s
+  early-bucket queue routing and `DunningJob`'s early treatment steps were
+  unreachable dead code. Handoff now fires on every bucket change past 0,
+  matching FR-COL-001 ("auto case creation on delinquency," not "on severe
+  delinquency").
+
+  **COL-P7:** also verifies any `PROMISED` case's promise against real payments
+  (`VmuCore.COL.PromiseVerification`, FR-COL-006b) once the promise date arrives.
+
+  **COL-P9:** if `VmuCore.COL.WorkoutCommand.active_holiday?/2` is true for this
+  account (an ACTIVE `PAYMENT_HOLIDAY` workout plan covering `eod_date`), fee
+  assessment and DPD aging are both suppressed for this run — the account's
+  bucket and DPD hold exactly where they are.
+
   Enqueues GenerateStatementJob on success.
   """
 
@@ -16,14 +36,16 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
   require Logger
   import Ecto.Query
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.FeeEngine, CMS.LedgerEntry}
+  alias VmuCore.COL.{CollectionCase, PromiseVerification, WorkoutCommand}
 
-  @dpd_buckets [0, 30, 60, 90, 120]
+  @dpd_buckets [0, 30, 60, 90, 120, 150, 180]
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"account_id" => account_id, "eod_date" => eod_date_str}}) do
     eod_date = Date.from_iso8601!(eod_date_str)
 
     account = Repo.get!(Account, account_id)
+    on_holiday = WorkoutCommand.active_holiday?(account_id, eod_date)
 
     bucket =
       Repo.one(
@@ -33,12 +55,12 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
           limit: 1
       )
 
-    new_dpd = age_delinquency(account, bucket, eod_date)
+    new_dpd = if on_holiday, do: account.delinquency_bucket, else: age_delinquency(account, bucket, eod_date)
     minimum_met = minimum_met?(account, bucket, eod_date)
 
     # ── Fee assessment ─────────────────────────────────────────────────────────
-    # Assess late fee if minimum payment was missed
-    unless minimum_met or is_nil(bucket) do
+    # Assess late fee if minimum payment was missed (suppressed during a payment holiday)
+    unless on_holiday or minimum_met or is_nil(bucket) do
       account_map = %{
         sys_id:   account.sys_id,  bank_id: account.bank_id,
         logo_id:  account.logo_id, block_id: account.block_id,
@@ -48,7 +70,7 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
       FeeEngine.assess_overlimit_fee(account_id, account_map, eod_date)
     end
 
-    if new_dpd != account.delinquency_bucket do
+    if not on_holiday and new_dpd != account.delinquency_bucket do
       Repo.update_all(
         from(a in Account, where: a.account_id == ^account_id),
         set: [delinquency_bucket: new_dpd, updated_at: NaiveDateTime.utc_now()]
@@ -56,19 +78,28 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
 
       Logger.warning("[EOD] AgeBuckets: account=#{account_id} DPD #{account.delinquency_bucket} → #{new_dpd}")
 
-      if new_dpd >= 120 do
+      if new_dpd > 0 do
         # Flag for COL handoff
-        %{account_id: account_id, reason: "120_DPD"}
+        %{account_id: account_id, reason: "#{new_dpd}_DPD"}
         |> VmuCore.COL.CollectionQueueJob.new()
         |> Oban.insert()
       end
     end
+
+    verify_pending_promise(account_id, eod_date)
 
     %{account_id: account_id, eod_date: eod_date_str}
     |> VmuCore.CMS.EOD.GenerateStatementJob.new()
     |> Oban.insert()
 
     :ok
+  end
+
+  defp verify_pending_promise(account_id, eod_date) do
+    case Repo.one(from c in CollectionCase, where: c.account_id == ^account_id and c.status == "PROMISED", limit: 1) do
+      nil -> :ok
+      case_row -> PromiseVerification.verify_case(case_row, eod_date)
+    end
   end
 
   defp age_delinquency(account, nil, _date), do: account.delinquency_bucket
@@ -123,6 +154,6 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
 
   defp next_bucket(current) do
     idx = Enum.find_index(@dpd_buckets, &(&1 == current)) || 0
-    Enum.at(@dpd_buckets, idx + 1, 120)
+    Enum.at(@dpd_buckets, idx + 1, List.last(@dpd_buckets))
   end
 end

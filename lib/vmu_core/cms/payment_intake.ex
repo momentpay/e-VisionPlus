@@ -36,7 +36,7 @@ defmodule VmuCore.CMS.PaymentIntake do
   alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
 
-  @valid_channels ~w[gateway direct_debit mobile_wallet branch_cash branch transfer]
+  @valid_channels ~w[gateway direct_debit mobile_wallet branch_cash branch transfer agency]
 
   @doc """
   Apply a payment.

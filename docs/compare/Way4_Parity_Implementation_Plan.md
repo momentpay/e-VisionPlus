@@ -147,13 +147,26 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    a stub, unchanged scope.
 3. **CMS — close the highest-value FR-057/058/067/070 gaps.**
    ~~FR-057 (EOD job status/rerun admin screen)~~ ✅ Done 2026-07-24 — see
-   `CMS_Feature_Status.md` FR-057 row. Still open: FR-058 (cycle
-   resegmentation batch), FR-067 (transaction-level, not just
-   bucket-level, payment allocation — the bigger of the three, needs a
-   real data-model change to `RepaymentDistributor`), FR-070
-   (payment-receipt notifications — this codebase has no notification/
-   messaging channel anywhere yet, so this one likely needs an adapter
-   abstraction built first, same pattern as DPS's evidence-store stubs).
+   `CMS_Feature_Status.md` FR-057 row.
+   ~~FR-058 (cycle resegmentation batch)~~ ✅ Done 2026-07-24 —
+   `VmuCore.CMS.CycleResegmentation` + admin screen, every policy lever
+   (notice period, min interval, allowed billing days, rebalance
+   threshold, manual/auto mode) bank-configurable via a new `cms` Module
+   Configuration catalog rather than hardcoded — the region/regulatory
+   configurability this item's own scoping asked for. Found and fixed a
+   real pre-existing bug in `EodSchedulerJob` along the way:
+   `ReinstateLimitJob` was nested inside the "cycle_codes due today"
+   branch despite its own comment saying it should always run daily — on
+   any day with zero due cycle_codes it silently never ran at all. See
+   `CMS_Feature_Status.md` FR-058 row for full detail, including the one
+   explicit scope limit (interest-engine proration not wired — flagged,
+   not silently missing).
+   Still open: FR-067 (transaction-level, not just bucket-level, payment
+   allocation — needs a real data-model change to `RepaymentDistributor`),
+   FR-070 (payment-receipt notifications — this codebase has no
+   notification/messaging channel anywhere yet, so this one likely needs
+   an adapter abstraction built first, same pattern as DPS's
+   evidence-store stubs).
 4. **COL — MI dashboard + agency-file parsing**, using a real vendor
    sample once available (don't build against a guessed format, per this
    repo's own established discipline).

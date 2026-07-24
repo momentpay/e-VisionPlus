@@ -54,6 +54,11 @@ defmodule VmuCore.CMS.Account do
 
     # ── Billing ─────────────────────────────────────────────────────────────────
     field :cycle_code,          :integer, default: 1  # Day of month for billing
+    # Pending cycle_code resegmentation (FR-058) — see VmuCore.CMS.CycleResegmentation
+    field :pending_cycle_code,           :integer
+    field :cycle_change_effective_date,  :date
+    field :cycle_change_proration_method, :string
+    field :cycle_code_changed_at,        :naive_datetime
     field :delinquency_bucket,  :integer, default: 0  # 0/30/60/90/120+
     # Penalty APR persistence (CMS-G1 ADR-C2): once triggered, penalty pricing
     # holds until the logo's penalty_apr_cure_rule is satisfied
@@ -89,7 +94,9 @@ defmodule VmuCore.CMS.Account do
   @required [:customer_id, :sys_id, :bank_id, :logo_id, :block_id,
              :pan_token, :last_four, :expiry_date, :credit_limit]
   @optional [:open_to_buy, :cash_limit, :cash_open_to_buy,
-             :cycle_code, :account_status, :delinquency_bucket,
+             :cycle_code, :pending_cycle_code, :cycle_change_effective_date,
+             :cycle_change_proration_method, :cycle_code_changed_at,
+             :account_status, :delinquency_bucket,
              :penalty_apr_active, :penalty_cure_cycles,
              :next_statement_date, :last_payment_date, :open_date, :close_date,
              :closure_requested_at, :dormant_since,

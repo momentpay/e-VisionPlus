@@ -94,7 +94,7 @@ section in its tracker) — see each tracker for the exact test performed.
 | 055 | Daily balance snapshot job | ✅ | Native phase-tracker G10 |
 | 056 | Bureau reporting extract (Metro2 + local formats) | ✅ | Sprint 4E + CMS-G5.2 (CIBIL TUDF, AECB) |
 | 057 | **EOD job status visibility + rerun controls** | ✅ | **Done 2026-07-24** — `VmuCore.CMS.EodMonitor` (reads `Oban.Job` directly — `eod_date` in job args is the natural run-grouping key, no new table) + `CmsEodComponent` admin screen: per-run/per-stage state-count overview, a "needs attention" list (retryable/discarded, plus jobs stuck `executing` past 30 min — Oban has no automatic recovery for those without `Lifeline`, and this dev DB genuinely had 2 such stuck rows found live), and a retry action gated to real failures only (never a stuck-executing row, to avoid a possible duplicate GL post). 3/3 tests passing. See `Way4_Parity_Implementation_Plan.md` Phase 0 item 3. |
-| 058 | Cycle resegmentation batch | ⬜ | **Not found** — confirmed via grep. Basic cycle-code *assignment* (FR-008) exists; a mass-resegmentation *batch* does not. |
+| 058 | Cycle resegmentation batch | ✅ | **Done 2026-07-24** — `VmuCore.CMS.CycleResegmentation` + `CmsResegmentationComponent` admin screen. Every policy lever bank-configurable per `VmuCore.CMS.ConfigCatalog` (mode manual/auto, notice-period days, min-interval-between-changes months, rebalance-imbalance threshold, allowed billing days, proration method captured for audit) — no hardcoded regional rules. A resegmentation is never instant: `schedule_resegmentation/3` sets pending fields only, a real daily EOD job (`ApplyCycleResegmentationJob`, found+fixed a pre-existing bug where its sibling `ReinstateLimitJob` silently never ran on days with zero due cycle_codes) applies it once the configured notice period elapses. 18/18 tests passing. Explicit scope limit, flagged not silently missing: the interest engine doesn't yet consume the captured proration_method to adjust its day-count math across a resegmentation boundary. |
 | 059 | Dormancy / inactivity sweep | ✅ | CMS-G3.3 |
 | 060 | Statement reversal + regeneration | ✅ | Sprint 3A |
 
@@ -120,14 +120,12 @@ section in its tracker) — see each tracker for the exact test performed.
 | Account Master | 12 | 0 | 3 | 15 |
 | Balances & Limits | 13 | 1 | 1 | 15 |
 | Interest & Fees | 12 | 2 | 1 | 15 |
-| Billing Cycle / EOD | 14 | 0 | 1 | 15 |
+| Billing Cycle / EOD | 15 | 0 | 0 | 15 |
 | Payments | 8 | 0 | 2 | 10 |
-| **Total** | **59** | **3** | **8** | **70** |
+| **Total** | **60** | **3** | **7** | **70** |
 
-**84% done, 4% partial, 11% genuinely open** (updated 2026-07-24 — FR-057
-closed, see its row above; the other eight ⬜ items are unchanged). Remaining
-CMS backlog: FR-010 (memo), FR-011 (account flags), FR-013 (short name),
-FR-029 (EMI foreclosure), FR-038 (fee caps), FR-058 (resegmentation batch),
-FR-067 (transaction-level allocation), FR-070 (payment notifications). Prior
-to 2026-07-24's FR-057 work, none were
-implementation work.
+**86% done, 4% partial, 10% genuinely open** (updated 2026-07-24 — FR-057
+and FR-058 both closed, see their rows above). Remaining CMS backlog:
+FR-010 (memo), FR-011 (account flags), FR-013 (short name), FR-029 (EMI
+foreclosure), FR-038 (fee caps), FR-067 (transaction-level allocation),
+FR-070 (payment notifications).

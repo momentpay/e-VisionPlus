@@ -19,7 +19,7 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
   alias VmuCore.Shared.{ModuleConfigEngine, ModuleConfigWriter, ModuleConfigCatalog}
   alias VmuCore.ASM.Authz
 
-  @modules ~w[cta asm dps]
+  @modules ~w[cta asm dps cms]
 
   # ── Mount / Update ──────────────────────────────────────────────────────────
 
@@ -254,7 +254,7 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
             <div class="field">
               <label>Module</label>
               <div style="display:flex;gap:8px;">
-                <button :for={m <- ~w[cta asm dps]} type="button"
+                <button :for={m <- ~w[cta asm dps cms]} type="button"
                   phx-click="cfg_module" phx-value-module={m} phx-target={@myself}
                   class={"btn #{if @active_module == m, do: "btn-primary", else: "btn-secondary"}"}>
                   <%= String.upcase(m) %>

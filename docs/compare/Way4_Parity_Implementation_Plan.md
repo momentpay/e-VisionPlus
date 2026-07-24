@@ -202,16 +202,27 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    reversal to standalone vmu_core. Re-ported it in full (see
    `COL_Gap_Implementation_Tracker.md`'s "Re-port note") before doing any
    new work — this item is NOT a from-scratch build.
-   With the foundation restored, real remaining scope: (a) a configurable
-   **field-mapper** for agency file ingestion/generation — agency file
-   layouts genuinely vary by region/agency (different column names, date
-   formats), so a fixed CSV/JSON schema per agency is the wrong long-term
-   shape; ADR needed on mapping-config design (per-agency header→field
-   mapping stored via the `col` Module Configuration catalog, same pattern
-   as every other region-varying policy this session has built), (b) the
-   MI dashboard (FR-025) — genuinely not built in either copy, (c) XML
-   agency-file parsing — still blocked on a real vendor sample, unchanged
-   from the original scope note.
+   With the foundation restored:
+   ~~(a) configurable field-mapper for agency file ingestion/generation~~
+   ✅ Done 2026-07-24 — `col.agency_config` per-agency now optionally
+   carries `import_mapping` (their header → our field), `activity_type_map`
+   (their activity-type vocabulary → ours), `date_format` (strptime-style
+   `%Y`/`%m`/`%d`), and `export_mapping` (our field → their desired
+   header/tag, applied symmetrically to CSV/JSON/XML assignment-file
+   generation, column/tag ORDER always stays canonical). All four keys are
+   optional and default to identity — an agency that already sends our own
+   shape needs zero config, so this subsumes "one fixed format for all"
+   as the trivial case rather than being a separate mode. 6/6 new
+   `agency_desk_field_mapper_test.exs` tests (import remap + value
+   translation + custom date format on a real PAYMENT posting through the
+   full `PaymentIntake` pipeline, a rejected-unmapped-value case, CSV/JSON
+   export renaming, and the identity no-mapping case still working
+   unchanged). Full CMS/FAS/COL/admin regression before/after: same 10
+   pre-existing failures, zero regressions.
+   Still open: (b) the MI dashboard (FR-025) — genuinely not built in
+   either copy, (c) XML agency-file *parsing* — still blocked on a real
+   vendor sample (XML *generation* already existed and now honors
+   export_mapping too).
 5. **LMS — warehouse-release job + reversal/chargeback clawback.** The
    clawback gap is real risk exposure (a reversed transaction currently
    leaves its earned points standing).

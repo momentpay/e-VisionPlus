@@ -15,6 +15,31 @@ defmodule VmuCore.COL.AgencyDesk do
             | [%{"upto" => 1000, "percent" => 1.0},           # tiered_percent: first tier
                %{"upto" => nil,  "percent" => 2.0}]           # whose "upto" >= amount wins;
                                                                # "upto" => nil means uncapped
+
+          # Field mapper (FR-COL-018/019 follow-up, 2026-07-24) — agency file
+          # layouts genuinely vary by region/agency; a fixed CSV/JSON schema per
+          # agency was the wrong long-term shape. All four keys below are
+          # optional — absent means identity (this repo's own field
+          # names/ISO-8601 dates), so an agency that already sends our shape
+          # needs none of this.
+          "import_mapping"     => %{"AcctNo" => "account_id", "Type" => "activity_type",
+                                     "PmtAmt" => "amount", "Date" => "activity_date"},
+          # Agency's own header name => our canonical field name (CSV header row
+          # or JSON object key). Any header not listed passes through unchanged
+          # (so an agency can rename just the columns that actually differ).
+          "activity_type_map"  => %{"PYMT" => "PAYMENT", "CALL" => "CONTACT", "PTP" => "PROMISE"},
+          # Agency's own activity_type vocabulary => ours
+          # (VmuCore.COL.AgencyActivity.activity_types/0). Applied after
+          # import_mapping resolves which column IS the activity type.
+          "date_format"        => "%m/%d/%Y",
+          # strptime-style %Y/%m/%d date format for parsing "activity_date" (and
+          # generation, symmetrically). Absent => ISO-8601 (yyyy-mm-dd).
+          "export_mapping"     => %{"account_id" => "AcctNo", "last_four" => "Last4",
+                                     "outstanding" => "Balance", "placed_at" => "PlacedDate"}
+          # Our canonical field name => the agency's desired header/tag name,
+          # for `generate_assignment_file/3` (CSV header row / JSON object key /
+          # XML tag name). Column/field ORDER stays our canonical order
+          # regardless of mapping — only the label changes.
         }
       }
 
@@ -151,7 +176,9 @@ defmodule VmuCore.COL.AgencyDesk do
         )
 
       format = Map.get(agency_cfg, "file_format", "CSV")
-      {:ok, encode_assignment_rows(rows, format), format}
+      export_mapping = Map.get(agency_cfg, "export_mapping", %{})
+      date_format = Map.get(agency_cfg, "date_format")
+      {:ok, encode_assignment_rows(rows, format, export_mapping, date_format), format}
     end
   end
 
@@ -163,33 +190,65 @@ defmodule VmuCore.COL.AgencyDesk do
     :ok
   end
 
-  defp encode_assignment_rows(rows, "JSON") do
-    Jason.encode!(rows)
+  # Canonical field order — export_mapping only ever renames labels, never
+  # reorders columns/tags.
+  @assignment_fields ~w[account_id last_four outstanding placed_at]a
+
+  defp export_header(field, export_mapping), do: Map.get(export_mapping, Atom.to_string(field), Atom.to_string(field))
+
+  defp export_value(:placed_at, r, date_format), do: format_date(r.placed_at, date_format)
+  defp export_value(field, r, _date_format), do: Map.get(r, field)
+
+  defp encode_assignment_rows(rows, "JSON", export_mapping, date_format) do
+    rows
+    |> Enum.map(fn r ->
+      Enum.into(@assignment_fields, %{}, fn f -> {export_header(f, export_mapping), export_value(f, r, date_format)} end)
+    end)
+    |> Jason.encode!()
   end
 
-  defp encode_assignment_rows(rows, "XML") do
+  defp encode_assignment_rows(rows, "XML", export_mapping, date_format) do
     body =
       rows
       |> Enum.map(fn r ->
-        "<placement><account_id>#{r.account_id}</account_id>" <>
-          "<last_four>#{r.last_four}</last_four><outstanding>#{r.outstanding}</outstanding>" <>
-          "<placed_at>#{r.placed_at}</placed_at></placement>"
+        @assignment_fields
+        |> Enum.map(fn f ->
+          tag = export_header(f, export_mapping)
+          "<#{tag}>#{export_value(f, r, date_format)}</#{tag}>"
+        end)
+        |> Enum.join()
+        |> then(&"<placement>#{&1}</placement>")
       end)
       |> Enum.join()
 
     "<placements>#{body}</placements>"
   end
 
-  defp encode_assignment_rows(rows, _csv_or_other) do
-    header = "account_id,last_four,outstanding,placed_at"
+  defp encode_assignment_rows(rows, _csv_or_other, export_mapping, date_format) do
+    header = @assignment_fields |> Enum.map(&export_header(&1, export_mapping)) |> Enum.join(",")
 
     lines =
       Enum.map(rows, fn r ->
-        "#{r.account_id},#{r.last_four},#{r.outstanding},#{r.placed_at}"
+        @assignment_fields |> Enum.map(&export_value(&1, r, date_format)) |> Enum.join(",")
       end)
 
     Enum.join([header | lines], "\n")
   end
+
+  # Symmetric with parse_date/2 below — nil/absent format keeps the
+  # existing ISO-8601 (or plain to_string for a %DateTime{}) behavior.
+  defp format_date(nil, _format), do: ""
+  defp format_date(%Date{} = d, nil), do: Date.to_iso8601(d)
+  defp format_date(%DateTime{} = d, nil), do: DateTime.to_iso8601(d)
+
+  defp format_date(%Date{} = d, format) do
+    format
+    |> String.replace("%Y", String.pad_leading(to_string(d.year), 4, "0"))
+    |> String.replace("%m", String.pad_leading(to_string(d.month), 2, "0"))
+    |> String.replace("%d", String.pad_leading(to_string(d.day), 2, "0"))
+  end
+
+  defp format_date(%DateTime{} = d, format), do: format_date(DateTime.to_date(d), format)
 
   # ---------------------------------------------------------------------------
   # Activity file (in)
@@ -242,6 +301,7 @@ defmodule VmuCore.COL.AgencyDesk do
   end
 
   defp import_row(row, agency_code, agency_cfg) do
+    row = remap_import_row(row, agency_cfg)
     account_id = row["account_id"]
     activity_type = row["activity_type"]
 
@@ -251,7 +311,7 @@ defmodule VmuCore.COL.AgencyDesk do
         placement_id:  placement.id,
         activity_type: activity_type,
         amount:        parse_decimal(row["amount"]),
-        activity_date: parse_date(row["activity_date"]),
+        activity_date: parse_date(row["activity_date"], Map.get(agency_cfg, "date_format")),
         raw_line:      row
       }
 
@@ -261,6 +321,29 @@ defmodule VmuCore.COL.AgencyDesk do
       end
     else
       _ -> :rejected
+    end
+  end
+
+  # Field mapper (col.agency_config's import_mapping/activity_type_map) — a
+  # no-op (returns row unchanged) when the agency isn't configured with a
+  # mapping, so an agency that already sends our own field names/vocabulary
+  # needs no config at all.
+  defp remap_import_row(row, agency_cfg) do
+    import_mapping = Map.get(agency_cfg, "import_mapping", %{})
+
+    mapped =
+      if import_mapping == %{} do
+        row
+      else
+        Enum.into(row, %{}, fn {header, value} -> {Map.get(import_mapping, header, header), value} end)
+      end
+
+    activity_type_map = Map.get(agency_cfg, "activity_type_map", %{})
+
+    case {Map.get(mapped, "activity_type"), activity_type_map} do
+      {nil, _} -> mapped
+      {_val, map} when map == %{} -> mapped
+      {val, map} -> Map.put(mapped, "activity_type", Map.get(map, val, val))
     end
   end
 
@@ -437,6 +520,36 @@ defmodule VmuCore.COL.AgencyDesk do
     case Date.from_iso8601(value) do
       {:ok, d} -> d
       {:error, _} -> nil
+    end
+  end
+
+  # date_format-aware variant — used for activity_date on import. nil/absent
+  # format falls back to the plain ISO-8601 parse above.
+  defp parse_date(value, nil), do: parse_date(value)
+  defp parse_date(value, ""), do: parse_date(value)
+  defp parse_date(nil, _format), do: nil
+  defp parse_date("", _format), do: nil
+
+  defp parse_date(value, format) when is_binary(value) and is_binary(format) do
+    case parse_with_format(value, format) do
+      {:ok, date} -> date
+      :error -> parse_date(value)
+    end
+  end
+
+  defp parse_with_format(value, format) do
+    pattern =
+      format
+      |> String.replace("%Y", "(?<year>\\d{4})")
+      |> String.replace("%m", "(?<month>\\d{1,2})")
+      |> String.replace("%d", "(?<day>\\d{1,2})")
+
+    with {:ok, regex} <- Regex.compile("^" <> pattern <> "$"),
+         %{"year" => y, "month" => m, "day" => d} <- Regex.named_captures(regex, value),
+         {:ok, date} <- Date.new(String.to_integer(y), String.to_integer(m), String.to_integer(d)) do
+      {:ok, date}
+    else
+      _ -> :error
     end
   end
 end

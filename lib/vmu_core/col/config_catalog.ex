@@ -89,9 +89,13 @@ defmodule VmuCore.COL.ConfigCatalog do
         default: %{},
         scope: :bank,
         description:
-          "Per-agency file format (\"file_format\": CSV/JSON/XML) and commission terms " <>
+          "Per-agency file format (\"file_format\": CSV/JSON/XML), commission terms " <>
             "(\"commission_type\": flat_percent/fixed_fee/tiered_percent + \"commission_value\"), " <>
-            "keyed by agency code. See VmuCore.COL.AgencyDesk moduledoc for the exact shape."
+            "and an optional field mapper (\"import_mapping\"/\"activity_type_map\"/" <>
+            "\"date_format\"/\"export_mapping\") for agencies whose file layout differs " <>
+            "from this repo's own field names/vocabulary/date format — absent means " <>
+            "identity, no config needed for an agency that already matches. Keyed by " <>
+            "agency code. See VmuCore.COL.AgencyDesk moduledoc for the exact shape."
       },
       %{
         key: "writeoff_dpd_threshold",

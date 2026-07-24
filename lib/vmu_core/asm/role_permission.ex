@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -55,6 +55,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "auth_history", ~w[view]},
       {"SUPERVISOR", "tram_inquiry", ~w[view approve]},
       {"SUPERVISOR", "approvals",    ~w[view approve]},
+      {"SUPERVISOR", "dps",          ~w[view create edit approve]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -64,12 +65,14 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "exceptions",   ~w[view edit]},
       {"OPS", "auth_history", ~w[view]},
       {"OPS", "tram_inquiry", ~w[view]},
+      {"OPS", "dps",          ~w[view create edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
       {"CS_AGENT", "account",      ~w[view]},
       {"CS_AGENT", "auth_history", ~w[view]},
       {"CS_AGENT", "tram_inquiry", ~w[view]},
+      {"CS_AGENT", "dps",          ~w[view create]},
 
       # TELLER — lookups only
       {"TELLER", "customer", ~w[view]},
@@ -81,6 +84,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "auth_history", ~w[view]},
       {"RISK", "tram_inquiry", ~w[view]},
       {"RISK", "approvals",    ~w[view approve]},
+      {"RISK", "dps",          ~w[view create edit approve]},
 
       # COMPLIANCE — read everything, change nothing
       {"COMPLIANCE", "system",       ~w[view]},
@@ -93,6 +97,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "auth_history", ~w[view]},
       {"COMPLIANCE", "tram_inquiry", ~w[view]},
       {"COMPLIANCE", "audit_log",    ~w[view]},
+      {"COMPLIANCE", "dps",          ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}

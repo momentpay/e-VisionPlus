@@ -27,7 +27,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     OperatorComponent,
     ApprovalInboxComponent,
     AuditLogComponent,
-    ModuleConfigComponent
+    ModuleConfigComponent,
+    DpsComponent
   }
 
   @modules %{
@@ -41,6 +42,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "exceptions"   => %{label: "Exception Queue",         icon: "🚨",  section: :fas},
     "auth_history" => %{label: "Auth History",            icon: "🔍",  section: :fas},
     "tram_inquiry" => %{label: "TRAM Inquiry",            icon: "🧾",  section: :fas},
+    "dps"          => %{label: "Disputes (DPS)",          icon: "⚖️",  section: :fas},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
@@ -137,6 +139,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"exceptions" in @visible_modules}   mod="exceptions"   label="Exception Queue" icon="🚨" active={@active_module} />
           <.sidebar_nav_item :if={"auth_history" in @visible_modules} mod="auth_history" label="Auth History"    icon="🔍" active={@active_module} />
           <.sidebar_nav_item :if={"tram_inquiry" in @visible_modules} mod="tram_inquiry" label="TRAM Inquiry"    icon="🧾" active={@active_module} />
+          <.sidebar_nav_item :if={"dps" in @visible_modules}          mod="dps"          label="Disputes (DPS)"  icon="⚖️" active={@active_module} />
         </div>
 
         <% security_visible = Enum.any?(~w[operators approvals audit_log], &(&1 in @visible_modules)) %>
@@ -225,6 +228,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                 <.live_component module={AuthHistoryComponent} id="auth-history-component" />
               <% "tram_inquiry" -> %>
                 <.live_component module={TramInquiryComponent} id="tram-inquiry-component" />
+              <% "dps" -> %>
+                <.live_component module={DpsComponent} id="dps-component"
+                                 current_operator={@current_operator} />
               <% "operators" -> %>
                 <.live_component module={OperatorComponent} id="operators-component"
                                  current_operator={@current_operator} />

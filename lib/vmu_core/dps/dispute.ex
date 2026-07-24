@@ -103,7 +103,15 @@ defmodule VmuCore.DPS.Dispute do
         {:ok, dispute} ->
           post_provisional_credit(dispute)
           schedule_chargeback_deadline(dispute)
-          dispute
+          # `post_provisional_credit/1` flips `provisional_credit_posted` via
+          # its own `Repo.update_all` (real DB write, confirmed by the
+          # dispute-lifecycle test suite) — returning the original `dispute`
+          # struct here left it stale (still `false`) for every caller that
+          # trusted this function's return value instead of re-fetching.
+          # Found live, 2026-07-23, getting that suite to actually run for
+          # the first time (see git history — it never successfully inserted
+          # before today).
+          Repo.get!(__MODULE__, dispute.dispute_id)
 
         {:error, cs} ->
           Repo.rollback(cs)
@@ -128,10 +136,18 @@ defmodule VmuCore.DPS.Dispute do
           set: updates
         )
 
-        updated = %{dispute | status: new_status, network_ref: Keyword.get(updates, :network_ref, dispute.network_ref)}
+        # Re-fetch rather than hand-patch specific fields onto the pre-update
+        # struct — `post_resolution_gl/1`/`schedule_next_deadline/1` below
+        # only read `status` (already correct here) and the still-unchanged
+        # `provisional_credit_posted`, so this is safe before they run; a
+        # second re-fetch after them picks up whatever they separately wrote
+        # (e.g. `post_resolution_gl/1`'s own `provisional_credit_posted`
+        # flip on CLOSED_LOSE/CANCELLED). Same stale-return-value class of
+        # bug as `file/1`'s — found live closing out DPS-P5.
+        updated = Repo.get!(__MODULE__, dispute_id)
         post_resolution_gl(updated)
         schedule_next_deadline(updated)
-        updated
+        Repo.get!(__MODULE__, dispute_id)
       end)
 
     # Mirror into the TRAM event log AFTER commit (TRAM-P5 5C) — fail-safe,
@@ -153,7 +169,7 @@ defmodule VmuCore.DPS.Dispute do
   # transition on an adapter error — external-system-optional, same fail-safe
   # posture as `post_resolution_gl/1`'s GL-post failures.
   defp maybe_file_with_network(%__MODULE__{} = dispute, "CHARGEBACK_FILED", updates) do
-    case Repo.get(Account, dispute.account_id) do
+    case valid_uuid?(dispute.account_id) && Repo.get(Account, dispute.account_id) do
       %Account{sys_id: sys_id, bank_id: bank_id} ->
         adapter = NetworkAdapter.for_network(dispute.network, sys_id, bank_id)
 
@@ -169,7 +185,7 @@ defmodule VmuCore.DPS.Dispute do
             updates
         end
 
-      nil ->
+      falsy when falsy in [nil, false] ->
         updates
     end
   end
@@ -195,7 +211,15 @@ defmodule VmuCore.DPS.Dispute do
     account_id = get_field(cs, :account_id)
     filed_at   = get_field(cs, :filed_at)
 
-    case account_id && Repo.get(Account, account_id) do
+    # `account_id` is `:binary_id` at the changeset level, which accepts any
+    # string (Ecto's :binary_id cast is lenient — it's only the query dumper
+    # that enforces real UUID format). Found live, 2026-07-23, verifying
+    # DPS-P5: an account_id that isn't a well-formed UUID made `Repo.get/2`
+    # raise `Ecto.Query.CastError`, crashing `file/1` entirely instead of
+    # falling through to the existing "account not found" `_ -> cs` clause
+    # below. Same class of gap `dps_component.ex` (DPS-P5) had to guard
+    # against for its own account lookups.
+    case account_id && valid_uuid?(account_id) && Repo.get(Account, account_id) do
       %Account{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} ->
         {:ok, window_days} =
           ModuleConfigEngine.get("dps", "provisional_credit_window_days", sys_id, bank_id, logo_id)
@@ -207,6 +231,15 @@ defmodule VmuCore.DPS.Dispute do
         cs
     end
   end
+
+  defp valid_uuid?(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, _} -> true
+      :error -> false
+    end
+  end
+
+  defp valid_uuid?(_), do: false
 
   defp post_provisional_credit(%__MODULE__{} = d) do
     key = "PROV-CREDIT-#{d.dispute_id}"

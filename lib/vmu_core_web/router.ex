@@ -53,6 +53,14 @@ defmodule VmuCoreWeb.Router do
   scope "/" do
     pipe_through [:browser, :operator]
 
+    # DPS evidence download (DPS-P5) — plain controller route so the browser
+    # can trigger a real file download; not expressible as a LiveView action.
+    get "/visionplus/admin/dps/evidence/:id/download", VmuCoreWeb.DpsEvidenceController, :download
+  end
+
+  scope "/" do
+    pipe_through [:browser, :operator]
+
     # VisionPlus terminal UI — legacy (command mode + menu)
     live "/visionplus",        VmuCoreWeb.Live.VisionPlusLiveLegacy
     live "/visionplus/legacy", VmuCoreWeb.Live.VisionPlusLiveLegacy

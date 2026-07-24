@@ -14,7 +14,8 @@ defmodule VmuCore.LMS.Oban.PointsExpiryJob do
 
   require Logger
   alias VmuCore.LMS.{Account, PointsLedger}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
 
   @impl Oban.Worker
@@ -29,7 +30,7 @@ defmodule VmuCore.LMS.Oban.PointsExpiryJob do
           and l.expiry_date < ^today
           and l.points_amount > 0
       )
-      |> Repo.all()
+      |> @repo.all()
 
     Logger.info("[LMS/Expiry] #{length(expired_entries)} entries to expire")
 
@@ -42,8 +43,8 @@ defmodule VmuCore.LMS.Oban.PointsExpiryJob do
   # ---------------------------------------------------------------------------
 
   defp expire_entry(entry, today) do
-    Repo.transaction(fn ->
-      Repo.update_all(
+    @repo.transaction(fn ->
+      @repo.update_all(
         from(l in PointsLedger, where: l.id == ^entry.id),
         set: [warehouse_state: "HISTORY"]
       )
@@ -64,11 +65,14 @@ defmodule VmuCore.LMS.Oban.PointsExpiryJob do
         idempotency_key:  "expire_#{entry.id}",
         inserted_at:      DateTime.utc_now()
       })
-      |> Repo.insert(on_conflict: :nothing, conflict_target: :idempotency_key)
+      |> @repo.insert(on_conflict: :nothing, conflict_target: :idempotency_key)
 
-      Repo.update_all(
+      # LMS-P1 (2026-07-11): expiry must also release the expired amount from
+      # open_to_redeem — it was only ever incremented on earn, never touched
+      # here, so expired ACTIVE points stayed "redeemable" indefinitely.
+      @repo.update_all(
         from(a in Account, where: a.id == ^entry.lms_account_id),
-        inc: [points_balance: expired_amount]
+        inc: [points_balance: expired_amount, open_to_redeem: expired_amount]
       )
     end)
   end

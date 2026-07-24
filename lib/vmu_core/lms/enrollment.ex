@@ -2,7 +2,8 @@ defmodule VmuCore.LMS.Enrollment do
   @moduledoc "Manages LMS account enrollment (auto on CDM approval, or manual via ASM)."
 
   alias VmuCore.LMS.Account
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
 
   @doc """
   Enroll an AR account in a scheme.
@@ -23,7 +24,7 @@ defmodule VmuCore.LMS.Enrollment do
       status:           "ACTIVE"
     })
 
-    case Repo.insert(cs, on_conflict: :nothing, conflict_target: [:ar_account_id, :scheme_id]) do
+    case @repo.insert(cs, on_conflict: :nothing, conflict_target: [:ar_account_id, :scheme_id]) do
       {:ok, %Account{id: nil}} -> {:ok, :already_enrolled}
       {:ok, account}           -> {:ok, account}
       {:error, cs}             -> {:error, cs}
@@ -33,7 +34,7 @@ defmodule VmuCore.LMS.Enrollment do
   @doc "Unenroll an account from a scheme (sets status=CLOSED)."
   def unenroll(lms_account_id) do
     import Ecto.Query
-    Repo.update_all(
+    @repo.update_all(
       from(a in Account, where: a.id == ^lms_account_id),
       set: [status: "CLOSED", updated_at: DateTime.utc_now()]
     )

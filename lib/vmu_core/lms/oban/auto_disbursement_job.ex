@@ -10,7 +10,8 @@ defmodule VmuCore.LMS.Oban.AutoDisbursementJob do
 
   require Logger
   alias VmuCore.LMS.{Account, RedemptionProcessor}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
   alias Decimal, as: D
 
@@ -31,7 +32,7 @@ defmodule VmuCore.LMS.Oban.AutoDisbursementJob do
           and a.status == "ACTIVE"
           and a.open_to_redeem >= ^disbursement_packet
       )
-      |> Repo.all()
+      |> @repo.all()
 
     Logger.info("[LMS/AutoDisburse] #{length(eligible_accounts)} eligible accounts")
 

@@ -13,7 +13,8 @@ defmodule VmuCore.LMS.MerchantSettlementService do
 
   require Logger
   alias VmuCore.LMS.{Group, PointsLedger, MerchantSettlement, GlProvisioner}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
   alias Decimal, as: D
 
@@ -23,7 +24,7 @@ defmodule VmuCore.LMS.MerchantSettlementService do
 
     bonus_groups =
       from(g in Group, where: g.group_type == "BONUS" and g.status == "ACTIVE")
-      |> Repo.all()
+      |> @repo.all()
 
     Enum.each(bonus_groups, &settle_group(&1, period_from, period_to))
 
@@ -45,7 +46,7 @@ defmodule VmuCore.LMS.MerchantSettlementService do
           and is_nil(l.settled_at),
         select: sum(l.points_amount)
       )
-      |> Repo.one()
+      |> @repo.one()
 
     total = (total_bonus_points && D.new(total_bonus_points)) || D.new(0)
 
@@ -66,11 +67,11 @@ defmodule VmuCore.LMS.MerchantSettlementService do
           status:               "PENDING",
           inserted_at:          DateTime.utc_now()
         })
-        |> Repo.insert!()
+        |> @repo.insert!()
 
       GlProvisioner.post_merchant_settlement(settlement)
 
-      Repo.update_all(
+      @repo.update_all(
         from(l in PointsLedger,
           where: l.group_id == ^group.id
             and l.transaction_type == "BONUS_EARNED"

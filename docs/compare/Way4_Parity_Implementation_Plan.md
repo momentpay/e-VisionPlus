@@ -238,9 +238,21 @@ Group A/B rows, and it's the only phase with zero open scope decisions.
    **Item 4 (COL) is now fully closed** modulo the XML-parsing item,
    which stays blocked on a real vendor sample rather than being guessed
    at, per this repo's own established discipline.
-5. **LMS — warehouse-release job + reversal/chargeback clawback.** The
-   clawback gap is real risk exposure (a reversed transaction currently
-   leaves its earned points standing).
+5. **LMS — warehouse-release job + reversal/chargeback clawback.**
+   **Re-port done 2026-07-24, before any new work** (same discovery
+   pattern as item 4): LMS-P1's real `open_to_redeem` bug fix (2026-07-11
+   — a live bug, not just a missing feature; any account that redeemed
+   once was permanently locked out of redeeming again) was verified once
+   but never committed, lost to the same M2 extraction that took COL's
+   P1-P9 build. Re-ported the 10 diverged files from `Avenza/apps/vmu_lms`
+   (4 with real logic: `points_engine.ex`/`points_ledger.ex`/
+   `redemption_processor.ex`/`oban/points_expiry_job.ex`). 5/5 new tests
+   (`points_redemption_bugfix_test.exs`), zero regressions. See
+   `LMS_Gap_Implementation_Tracker.md`'s re-port note for full detail.
+   The clawback gap is real risk exposure (a reversed transaction
+   currently leaves its earned points standing) — both this and the
+   warehouse-release job remain unstarted, on top of the now-restored
+   foundation.
 6. **ASM — MFA (TOTP) + real SSO/LDAP wiring.** `authn_source` config
    already exists and is unwired — same "config exists, no consumer"
    pattern found repeatedly elsewhere in this codebase.

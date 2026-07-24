@@ -12,7 +12,8 @@ defmodule VmuCore.LMS.CmsInterface do
 
   alias VmuCore.LMS.{Enrollment, Scheme}
   alias VmuCore.LMS.Oban.PointsCalculationJob
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
 
   @doc "Enqueue a PointsCalculationJob for the given batch date (called by FlushGLJob)."
@@ -29,7 +30,7 @@ defmodule VmuCore.LMS.CmsInterface do
   def auto_enroll(ar_account_id, org_id) do
     schemes =
       from(s in Scheme, where: s.org_id == ^org_id and s.status == "ACTIVE")
-      |> Repo.all()
+      |> @repo.all()
 
     Enum.each(schemes, fn scheme ->
       Enrollment.enroll(ar_account_id, scheme.id, method: "AUTO")

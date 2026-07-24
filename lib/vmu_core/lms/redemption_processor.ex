@@ -12,7 +12,8 @@ defmodule VmuCore.LMS.RedemptionProcessor do
 
   require Logger
   alias VmuCore.LMS.{Account, PointsLedger, Redemption}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
   alias Decimal, as: D
 
@@ -24,7 +25,7 @@ defmodule VmuCore.LMS.RedemptionProcessor do
     redemption_type     = Keyword.get(opts, :type, "ONLINE")
     disbursement_method = Keyword.get(opts, :method, "CREDIT")
 
-    Repo.transaction(fn ->
+    @repo.transaction(fn ->
       account = lock_account!(lms_account_id)
 
       with :ok <- check_eligibility(account),
@@ -35,7 +36,7 @@ defmodule VmuCore.LMS.RedemptionProcessor do
         update_account_redeemed(lms_account_id, D.new(points_requested))
         redemption
       else
-        {:error, reason} -> Repo.rollback(reason)
+        {:error, reason} -> @repo.rollback(reason)
       end
     end)
   end
@@ -45,7 +46,7 @@ defmodule VmuCore.LMS.RedemptionProcessor do
   # ---------------------------------------------------------------------------
 
   defp lock_account!(id) do
-    Repo.one!(from a in Account, where: a.id == ^id, lock: "FOR UPDATE")
+    @repo.one!(from a in Account, where: a.id == ^id, lock: "FOR UPDATE")
   end
 
   defp check_eligibility(%Account{status: status}) when status in ["BLOCKED", "DELINQUENT"] do
@@ -68,7 +69,7 @@ defmodule VmuCore.LMS.RedemptionProcessor do
         order_by: [asc: l.transaction_date, asc: l.id],
         lock: "FOR UPDATE"
       )
-      |> Repo.all()
+      |> @repo.all()
 
     do_deduct(active_entries, total)
   end
@@ -81,7 +82,7 @@ defmodule VmuCore.LMS.RedemptionProcessor do
 
     new_state = if D.eq?(new_balance, D.new(0)), do: "HISTORY", else: "ACTIVE"
 
-    Repo.update_all(
+    @repo.update_all(
       from(l in PointsLedger, where: l.id == ^entry.id),
       set: [points_amount: new_balance, warehouse_state: new_state]
     )
@@ -103,17 +104,20 @@ defmodule VmuCore.LMS.RedemptionProcessor do
       idempotency_key:    "redeem_#{account.id}_#{System.unique_integer([:positive])}",
       inserted_at:        DateTime.utc_now()
     })
-    |> Repo.insert!()
+    |> @repo.insert!()
   end
 
+  # LMS-P1 (2026-07-11): was unconditionally zeroing open_to_redeem with a
+  # comment claiming nightly recalculation — no such job existed anywhere,
+  # so every account was locked out of redeeming again after its first
+  # redemption. Recompute from the ledger instead (deduct_points_oldest_first/2
+  # already mutated the ACTIVE rows earlier in this same transaction, so this
+  # reflects the correct post-deduction balance).
   defp update_account_redeemed(lms_account_id, points) do
-    Repo.update_all(
+    @repo.update_all(
       from(a in Account, where: a.id == ^lms_account_id),
-      inc: [lifetime_redeemed: points]
-    )
-    Repo.update_all(
-      from(a in Account, where: a.id == ^lms_account_id),
-      set: [open_to_redeem: Decimal.new(0)]  # recalculated nightly
+      inc: [lifetime_redeemed: points],
+      set: [open_to_redeem: PointsLedger.active_balance(lms_account_id)]
     )
   end
 

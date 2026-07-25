@@ -344,6 +344,12 @@ issuer-side merchant reference feeding TRAM inquiry + LMS offers (per
 extend. No further MBS work is in this plan.
 
 ### Phase 1 — Card portfolio expansion (net-new, built natively on the vmu_core spine)
+
+> **Started 2026-07-25** — see [`Way4_Phase1_Card_Portfolio_Tracker.md`](Way4_Phase1_Card_Portfolio_Tracker.md)
+> for sequencing (checked Avenza for lost work first, same as every Phase
+> 0 item — found real ready-to-port work for Virtual/Corporate/Fleet
+> Cards, but Debit/Prepaid's Avenza code isn't worth porting) and live
+> per-item status.
 Every product below follows the same proven pattern already used for
 Credit: a `cms_accounts`/`cta_cards` row with an `account_class`/product
 flag, parameters resolved through the SYS→BANK→LOGO→BLOCK cascade, auth

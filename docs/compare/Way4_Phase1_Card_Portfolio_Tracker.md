@@ -85,20 +85,48 @@ pre-existing, already-documented failures, zero regressions.
 
 ## 2. Corporate Cards
 
-**Status: ⬜ Pending — not started**
+**Status: ✅ Done (2026-07-25)**
 
 vmu_core's baseline (`HCS.Company`, `EmployeeCard`, `SpendingControl`,
 `LimitController`, `ConsolidatedStatementGenerator`, `PaymentSweep`,
-`CompanyOnboarding`) already matches Avenza closely — this phase ports
-the **additive** pieces only.
+`CompanyOnboarding`) already matched Avenza closely — this item ported
+the **additive** pieces.
+
+**Found already-staged, untracked migrations**: `20260712000001` (adds
+`daily_spend`/`daily_spend_date` to `hcs_employee_cards`) and
+`20260712000005` (creates `hcs_facility_limit_changes`) already existed
+in the working tree, already applied to both dev and test DBs — from an
+earlier, never-finished attempt to re-port this same 2026-07-12 Avenza
+work. No new migrations needed; the Ecto schemas just hadn't been
+updated to use the columns yet.
 
 | # | Task | Avenza source | Status |
 |---|---|---|---|
-| C1.1 | `HCS.FacilityLimitChange` schema (PENDING_APPROVAL/APPROVED/REJECTED) | `vmu_hcs/lib/vmu_core/hcs/facility_limit_change.ex` | ⬜ |
-| C1.2 | `HCS.FacilityLimitCommand` — `request/3`/`approve/2`/`reject/2`/`pending/1`, maker≠checker via `ModuleConfigEngine`, mirrors `COL.WorkoutCommand`'s pattern | `vmu_hcs/lib/vmu_core/hcs/facility_limit_command.ex` | ⬜ |
-| C1.3 | `LimitController`/`SpendingControl` — DAILY_CAP control type + per-transaction `daily_spend` tracking, cash-access check | diff vs. vmu_core's current `limit_controller.ex`/`spending_control.ex` (~235 diff-lines) | ⬜ |
-| C1.4 | Admin UI wiring for the approval workflow (confirm whether Avenza built one or if this needs a new LiveComponent, matching COL/CMS's admin-screen pattern) | TBD — check at implementation time | ⬜ |
-| C1.5 | Real tests | new | ⬜ |
+| C1.1 | `HCS.FacilityLimitChange` schema (PENDING_APPROVAL/APPROVED/REJECTED) | `vmu_hcs/lib/vmu_core/hcs/facility_limit_change.ex` | ✅ |
+| C1.2 | `HCS.FacilityLimitCommand` — `request/3`/`approve/2`/`reject/2`/`pending/1`, maker≠checker via `ModuleConfigEngine`, mirrors `COL.WorkoutCommand`'s pattern | `vmu_hcs/lib/vmu_core/hcs/facility_limit_command.ex` | ✅ |
+| C1.3 | `LimitController`/`SpendingControl` — DAILY_CAP control type + per-transaction `daily_spend` tracking, cash-access check. Ported the Corporate-only slice of Avenza's diff (~235 lines total); the fleet-card generalization half is deferred to item 3, same file gets a second pass then | diff vs. vmu_core's current `limit_controller.ex` | ✅ |
+| C1.4 | Admin UI — new `HcsComponent` (company list/create/detail, employee card + spending control read-only rosters, facility-limit-change request), ported from Avenza's 959-line `hcs_component.ex` (Corporate-only slice — its fleet vehicle/driver/report sections are deferred to item 3, same file gets a second pass then). Wired into `RolePermission`/`AdminLive`/`ApprovalInboxComponent` | `vmu_core_web/live/admin/hcs_component.ex` | ✅ |
+| C1.5 | Real tests | new | ✅ 20/20 (9 `facility_limit_command_test.exs`, 8 `limit_controller_test.exs`, 3 `hcs_component_test.exs`) |
+
+**Real pre-existing bugs found and fixed**:
+- `CompanyOnboarding.onboard_company/1` and `add_employee_card/3` both
+  referenced `parent_account.id`/`employee_account.id` — but `CMS.
+  Account`'s real primary key field is `account_id`, not `id`. This
+  function has never actually succeeded until this fix (no test existed
+  to catch it, in either repo).
+- `HcsComponent`'s `create_company_save` handler used `params["registration_no"]
+  || "PENDING"` — `||` only catches `nil`, not the empty string an
+  untouched HTML form field actually submits, so a blank field produced
+  `registration_number: ""` and failed CORPORATE-tier validation. Found
+  live by this item's own admin-UI test (a bug Avenza's zero-test version
+  also has).
+- `DAILY_CAP` was a schema-valid, documented `SpendingControl` type with
+  no enforcement clause at all (silent no-op); `can_withdraw_cash`
+  existed on `EmployeeCard` but was never read anywhere — every card
+  could take cash regardless of the field.
+
+Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after: same 10
+pre-existing, already-documented failures, zero regressions.
 
 ---
 

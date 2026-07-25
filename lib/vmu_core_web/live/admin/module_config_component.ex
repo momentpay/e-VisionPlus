@@ -19,7 +19,12 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
   alias VmuCore.Shared.{ModuleConfigEngine, ModuleConfigWriter, ModuleConfigCatalog}
   alias VmuCore.ASM.Authz
 
-  @modules ~w[cta asm dps cms]
+  # Found missing 2026-07-25 building HCS-P1: "col" and "fas" both already
+  # had real ModuleConfigCatalog entries (COL's writeoff/workout/
+  # settlement matrices, FAS's Veriscent key material) but were never
+  # addable here either — same hardcoded-list bug already fixed once for
+  # "cms" (2026-07-24), evidently not swept for every module at the time.
+  @modules ~w[cta asm dps cms col fas hcs]
 
   # ── Mount / Update ──────────────────────────────────────────────────────────
 
@@ -254,7 +259,7 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
             <div class="field">
               <label>Module</label>
               <div style="display:flex;gap:8px;">
-                <button :for={m <- ~w[cta asm dps cms]} type="button"
+                <button :for={m <- @modules} type="button"
                   phx-click="cfg_module" phx-value-module={m} phx-target={@myself}
                   class={"btn #{if @active_module == m, do: "btn-primary", else: "btn-secondary"}"}>
                   <%= String.upcase(m) %>

@@ -259,7 +259,7 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
          :ok <- check_open_to_buy(state, amount),
          :ok <- check_cash_otb(state, amount, cash_txn),
          :ok <- check_velocity(state, amount, channel),
-         :ok <- VmuCore.HCS.LimitController.check_hcs_limits(state.account_id, amount, channel, mcc) do
+         :ok <- VmuCore.HCS.LimitController.check_hcs_limits(state.account_id, amount, channel, mcc, cash_txn) do
       new_otb      = Decimal.sub(state.open_to_buy, amount)
       new_cash_otb =
         if cash_txn,

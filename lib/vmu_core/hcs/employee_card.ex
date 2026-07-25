@@ -16,6 +16,11 @@ defmodule VmuCore.HCS.EmployeeCard do
     field :monthly_spend_cap,   :decimal
     field :status,              :string, default: "ACTIVE"
     field :issued_at,           :utc_datetime
+    # Way4 parity plan Phase 1 item 2 (2026-07-25) — DAILY_CAP enforcement
+    # (LimitController). Migration 20260712000001 already added these
+    # columns; they were never added to this schema.
+    field :daily_spend,         :decimal, default: Decimal.new(0)
+    field :daily_spend_date,    :date
 
     belongs_to :company, VmuCore.HCS.Company, define_field: false
 
@@ -29,7 +34,8 @@ defmodule VmuCore.HCS.EmployeeCard do
     card
     |> cast(attrs, [:company_id, :employee_account_id, :employee_name, :employee_id,
                     :department, :cost_centre, :individual_limit, :available_individual,
-                    :card_type, :can_withdraw_cash, :monthly_spend_cap, :status, :issued_at])
+                    :card_type, :can_withdraw_cash, :monthly_spend_cap, :status, :issued_at,
+                    :daily_spend, :daily_spend_date])
     |> validate_required([:company_id, :employee_account_id, :employee_name,
                           :individual_limit, :available_individual])
     |> validate_inclusion(:card_type, @valid_card_types)

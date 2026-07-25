@@ -28,7 +28,11 @@ defmodule VmuCore.HCS.CompanyOnboarding do
       {:ok, company} =
         %Company{}
         |> Company.changeset(Map.merge(attrs.company_attrs, %{
-          parent_account_id: parent_account.id,
+          # Found live 2026-07-25 (Way4 parity plan Phase 1 item 2): this
+          # referenced parent_account.id, but CMS.Account's real primary
+          # key field is account_id — onboard_company/1 has never
+          # actually succeeded until this fix.
+          parent_account_id: parent_account.account_id,
           available_limit:   Map.get(attrs.company_attrs, :credit_limit, D.new(0))
         }))
         |> Repo.insert()
@@ -81,7 +85,8 @@ defmodule VmuCore.HCS.CompanyOnboarding do
             %EmployeeCard{}
             |> EmployeeCard.changeset(Map.merge(card_attrs, %{
               company_id:          company_id,
-              employee_account_id: employee_account.id,
+              # Same account_id (not id) fix as onboard_company/1 above.
+              employee_account_id: employee_account.account_id,
               available_individual: proposed_limit,
               individual_limit:    proposed_limit,
               status:              "ACTIVE",

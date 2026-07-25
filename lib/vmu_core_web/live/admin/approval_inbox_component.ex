@@ -20,6 +20,10 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
     `col.settlement_authority_matrix`, tiered by the offer's discount size (a
     role's tier is its ceiling — mirrors the adjustment authority-limit check's
     shape but by discount percent instead of a dollar delta).
+  - **HCS facility limit changes** (Way4 parity plan Phase 1 item 2,
+    2026-07-25) — `FacilityLimitCommand.pending/1`; role-list gate via
+    `hcs.facility_limit_approval_matrix`, same shape as COL's write-offs/
+    workout plans.
 
   Visibility requires `approvals:view` (SUPERVISOR / RISK / ADMIN); action
   buttons additionally require `approvals:approve`, re-checked server-side.
@@ -33,11 +37,12 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
   alias VmuCore.ASM.Authz
   alias VmuCore.TRAMS.{AdjustmentCommand, MaintenanceCommand}
   alias VmuCore.COL.{WriteOffCommand, WorkoutCommand, SettlementCommand}
+  alias VmuCore.HCS.FacilityLimitCommand
 
   @impl true
   def mount(socket) do
     {:ok, assign(socket, adjustments: [], maintenance: [], col_writeoffs: [],
-                 col_workouts: [], col_settlements: [], notice: nil,
+                 col_workouts: [], col_settlements: [], hcs_facility_limits: [], notice: nil,
                  notice_kind: :info, current_operator: nil, can_approve: false)}
   end
 
@@ -208,6 +213,37 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
     with_approver(socket, fn operator ->
       case SettlementCommand.reject(id, operator.username) do
         {:ok, _} -> socket |> put_notice("Settlement offer rejected.", :success) |> load_pending()
+        {:error, reason} -> put_notice(socket, "Reject failed: #{inspect(reason)}", :error)
+      end
+    end)
+  end
+
+  # Way4 parity plan Phase 1 item 2 (2026-07-25).
+  def handle_event("approve_facility_limit", %{"id" => id}, socket) do
+    with_approver(socket, fn operator ->
+      case FacilityLimitCommand.approve(id, operator) do
+        {:ok, _} ->
+          socket |> put_notice("Facility limit change approved and applied.", :success) |> load_pending()
+
+        {:error, :maker_cannot_approve} ->
+          put_notice(socket,
+            "4-eyes: you requested this change — a different operator must approve.", :error)
+
+        {:error, {:role_not_authorized, allowed}} ->
+          put_notice(socket,
+            "Your role (#{operator.role}) is not authorized to approve facility limit changes " <>
+            "for this company's bank. Allowed roles: #{Enum.join(allowed, ", ")}.", :error)
+
+        {:error, reason} ->
+          put_notice(socket, "Approve failed: #{inspect(reason)}", :error)
+      end
+    end)
+  end
+
+  def handle_event("reject_facility_limit", %{"id" => id}, socket) do
+    with_approver(socket, fn operator ->
+      case FacilityLimitCommand.reject(id, operator.username) do
+        {:ok, _} -> socket |> put_notice("Facility limit change rejected.", :success) |> load_pending()
         {:error, reason} -> put_notice(socket, "Reject failed: #{inspect(reason)}", :error)
       end
     end)
@@ -442,6 +478,43 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
         </table>
       </div>
 
+      <%# HCS facility limit changes (Way4 parity plan Phase 1 item 2) %>
+      <h3 style="margin:1.5rem 0 0.5rem">HCS Facility Limit Changes (<%= length(@hcs_facility_limits) %>)</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Requested</th><th>Company</th><th>Current → Requested</th>
+              <th>Reason</th><th>Requested By</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= if @hcs_facility_limits == [] do %>
+              <tr><td colspan="6" style="text-align:center;color:#888">Nothing pending.</td></tr>
+            <% end %>
+            <%= for c <- @hcs_facility_limits do %>
+              <tr>
+                <td style="white-space:nowrap"><%= Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M") %></td>
+                <td><%= c.company_id %></td>
+                <td><%= c.current_limit %> → <%= c.requested_limit %></td>
+                <td><%= c.reason %></td>
+                <td><code><%= c.requested_by %></code></td>
+                <td>
+                  <%= if @can_approve do %>
+                    <button class="btn-sm btn-success" phx-click="approve_facility_limit"
+                            phx-value-id={c.id} phx-target={@myself}>Approve</button>
+                    <button class="btn-sm btn-warning" phx-click="reject_facility_limit"
+                            phx-value-id={c.id} phx-target={@myself}>Reject</button>
+                  <% else %>
+                    <span class="text-muted">—</span>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
       <p class="text-muted" style="margin-top:0.75rem; font-size:0.85em">
         CMS temp limits, fee waivers, and financial adjustments use inline
         supervisor sign-off at the point of entry (Account module) — the
@@ -465,7 +538,8 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
       maintenance: MaintenanceCommand.pending(100),
       col_writeoffs: WriteOffCommand.pending(100),
       col_workouts: WorkoutCommand.pending(100),
-      col_settlements: SettlementCommand.pending(100))
+      col_settlements: SettlementCommand.pending(100),
+      hcs_facility_limits: FacilityLimitCommand.pending(100))
   end
 
   defp with_approver(socket, fun) do

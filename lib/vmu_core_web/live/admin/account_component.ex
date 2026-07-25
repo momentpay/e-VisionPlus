@@ -11,7 +11,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     LedgerEntry, AccountStateCoordinator, EmiSchedule
   }
   alias VmuCore.Shared.{Customer, BankParameter, LogoParameter, BlockParameter}
-  alias VmuCore.CTA.{Cards, CardLifecycle}
+  alias VmuCore.CTA.{Cards, CardLifecycle, CredentialVault}
   alias VmuCore.ASM.AuditLog
 
   @card_block_reasons [
@@ -100,6 +100,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        # Action panel
        active_action: :none,
        action_data: %{},
+       revealed: nil,
        supp_search: "",
        supp_search_results: [],
        # Wizard
@@ -305,6 +306,61 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   def handle_event("card_action_open", %{"a" => action, "id" => card_id}, socket) do
     {:noreply, assign(socket, active_action: String.to_atom(action),
                        selected_card_id: card_id, result: nil)}
+  end
+
+  # Way4 parity plan Phase 1 item 1 (2026-07-25) — issue a brand-new card
+  # (PRIMARY/SUPPLEMENTARY/VIRTUAL), the first admin-UI consumer of
+  # CardLifecycle.issue_new/2 / issue_virtual_with_credentials/2.
+  def handle_event("card_issue_open", _params, socket) do
+    {:noreply, assign(socket, active_action: :card_issue, result: nil, revealed: nil)}
+  end
+
+  def handle_event("card_issue_save", params, socket) do
+    account = socket.assigns.account
+    card_type = params["card_type"] || "PRIMARY"
+    opts = [emboss_name: blank_to_nil(params["emboss_name"]), activate: params["activate"] == "true"]
+
+    result =
+      if card_type == "VIRTUAL" do
+        CardLifecycle.issue_virtual_with_credentials(account, opts)
+      else
+        CardLifecycle.issue_new(account, Keyword.put(opts, :card_type, card_type))
+      end
+
+    case result do
+      {:ok, card} ->
+        message =
+          if card_type == "VIRTUAL" do
+            "Virtual card gen #{card.generation} issued and activated — use " <>
+              "\"Reveal\" once to show the cardholder their PAN/CVV (one-time only)."
+          else
+            "#{card_type} card gen #{card.generation} issued."
+          end
+
+        {:noreply, socket |> load_detail(account.account_id)
+                   |> assign(active_action: :none, result: {:ok, message})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, result: {:error, "Issuance failed — #{inspect(reason)}"})}
+    end
+  end
+
+  # Exactly-once reveal (CTA.CredentialVault) — a second click for the same
+  # card_id, or one after the vault's TTL, correctly returns :not_found;
+  # never logged, never re-shown after this render cycle moves on.
+  def handle_event("card_reveal", %{"id" => card_id}, socket) do
+    case CredentialVault.reveal(card_id) do
+      {:ok, credentials} ->
+        {:noreply, assign(socket, revealed: Map.put(credentials, :card_id, card_id), result: nil)}
+
+      {:error, :not_found} ->
+        {:noreply, assign(socket, revealed: nil,
+                     result: {:error, "Nothing to reveal — already revealed, expired, or not a virtual-card issuance."})}
+    end
+  end
+
+  def handle_event("card_reveal_dismiss", _params, socket) do
+    {:noreply, assign(socket, revealed: nil)}
   end
 
   def handle_event("card_activate_save", params, socket) do
@@ -1013,6 +1069,10 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     Enum.find(assigns.cards, &(&1.card_id == assigns.selected_card_id))
   end
 
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(v), do: v
+
   # Tri-state select: current field value (true/false/nil) vs. the option's
   # string form value ("true"/"false"/"").
   defp tri_selected(true,  "true"),  do: true
@@ -1391,8 +1451,17 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         </div>
       </div>
 
-      <%!-- Action panels --%>
-      <%= if @active_action != :none do %>
+      <%!-- Account-level action panels only — card-level actions
+           (:card_issue/:card_activate/:card_block/etc.) render inside
+           tab_cards/1's own gated block instead, contextually within the
+           Cards tab. Found live 2026-07-25 (Way4 parity plan Phase 1 item
+           1's first-ever test for this file): this condition previously
+           fired for ANY non-:none action, so every card_* action was
+           silently rendering its panel TWICE — once here, once in
+           tab_cards — with no test coverage to ever catch it. --%>
+      <%= if @active_action != :none and @active_action not in
+              [:card_issue, :card_activate, :card_block, :card_unblock,
+               :card_replace, :card_renew, :card_channels] do %>
         <%= render_action_panel(assigns) %>
       <% end %>
 
@@ -1851,6 +1920,49 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     """
   end
 
+  # Way4 parity plan Phase 1 item 1 (2026-07-25).
+  defp render_action_panel(%{active_action: :card_issue} = assigns) do
+    ~H"""
+    <div class="action-panel" style="margin-bottom:16px;">
+      <div class="action-panel-title">
+        <span>💳 Issue New Card</span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <form phx-submit="card_issue_save" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Card type</label>
+            <select class="input" name="card_type">
+              <option value="PRIMARY">Primary</option>
+              <option value="SUPPLEMENTARY">Supplementary</option>
+              <option value="VIRTUAL">Virtual</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Emboss name (optional — defaults to account holder)</label>
+            <input type="text" class="input" name="emboss_name" maxlength="26"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" name="activate" value="true"/> Activate immediately
+          </label>
+        </div>
+        <div class="form-hint">
+          A brand-new generation-1 card with a freshly generated PAN.
+          Virtual cards always activate immediately and generate a real
+          CVV — reveal the PAN/CVV exactly once afterward via the
+          "Reveal" button on that card's row.
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-primary">Issue Card</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
   defp render_action_panel(%{active_action: :link_supp} = assigns) do
     ~H"""
     <div class="action-panel" style="margin-bottom:16px;">
@@ -2267,11 +2379,24 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   defp tab_cards(assigns) do
     ~H"""
     <div>
-      <div class="form-pane-section-title">
-        Cards (<%= length(@cards) %> generation<%= if length(@cards) != 1, do: "s" %>)
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Cards (<%= length(@cards) %> generation<%= if length(@cards) != 1, do: "s" %>)</span>
+        <button class="btn btn-sm btn-primary" phx-click="card_issue_open" phx-target={@myself}>+ Issue New Card</button>
       </div>
 
-      <%= if @active_action in [:card_activate, :card_block, :card_unblock, :card_replace, :card_renew, :card_channels] do %>
+      <%= if @revealed do %>
+        <div style="margin-bottom:16px;background:#fef3c7;border:1px solid #fcd34d;padding:12px 16px;border-radius:8px;font-size:13px;">
+          <div style="font-weight:600;margin-bottom:6px;">🔓 One-Time Reveal — will not be shown again</div>
+          <div style="display:flex;gap:24px;font-family:monospace;font-size:14px;">
+            <span>PAN: <strong><%= @revealed.pan %></strong></span>
+            <span>CVV: <strong><%= @revealed.cvv %></strong></span>
+            <span>Expiry: <strong><%= @revealed.expiry %></strong></span>
+          </div>
+          <button class="btn btn-xs btn-ghost" style="margin-top:8px;" phx-click="card_reveal_dismiss" phx-target={@myself}>Dismiss</button>
+        </div>
+      <% end %>
+
+      <%= if @active_action in [:card_issue, :card_activate, :card_block, :card_unblock, :card_replace, :card_renew, :card_channels] do %>
         <%= render_action_panel(assigns) %>
       <% end %>
 
@@ -2327,6 +2452,10 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
                           phx-value-a="card_replace" phx-value-id={c.card_id} phx-target={@myself}>Replace</button>
                         <button class="btn btn-xs" phx-click="card_action_open"
                           phx-value-a="card_renew" phx-value-id={c.card_id} phx-target={@myself}>Renew</button>
+                      <% end %>
+                      <%= if c.card_type == "VIRTUAL" and c.status == "ACTIVE" do %>
+                        <button class="btn btn-xs btn-success" phx-click="card_reveal"
+                          phx-value-id={c.card_id} phx-target={@myself}>Reveal</button>
                       <% end %>
                     </div>
                   </td>

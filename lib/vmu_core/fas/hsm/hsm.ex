@@ -45,6 +45,17 @@ defmodule VmuCore.FAS.HSM do
               :ok | {:error, :cvv_mismatch}
 
   @doc """
+  Generate a CVV / CVV2 / iCVV value — the forward counterpart to
+  `verify_cvv/4` (payShield's `CW` command; found needed 2026-07-25
+  building virtual card issuance — a newly-minted card needs a real CVV
+  computed for it, not just the ability to verify one presented at
+  authorization time). Same field meanings as `verify_cvv/4` minus the
+  value being verified.
+  """
+  @callback generate_cvv(pan :: String.t(), expiry :: String.t(), service_code :: String.t()) ::
+              {:ok, cvv :: String.t()} | {:error, term()}
+
+  @doc """
   Verify an EMV Application Request Cryptogram (ARQC) from DE55 tag 9F26.
 
   - `pan`             — full PAN (with check digit) — real EMV key
@@ -163,6 +174,10 @@ defmodule VmuCore.FAS.HSM do
   @doc "Delegates `verify_cvv/4` to the configured adapter."
   def verify_cvv(pan, expiry, service_code, cvv),
     do: adapter().verify_cvv(pan, expiry, service_code, cvv)
+
+  @doc "Delegates `generate_cvv/3` to the configured adapter."
+  def generate_cvv(pan, expiry, service_code),
+    do: adapter().generate_cvv(pan, expiry, service_code)
 
   @doc "Delegates `verify_arqc/6` to the configured adapter."
   def verify_arqc(pan, pan_token, atc, un, txn_data, arqc),

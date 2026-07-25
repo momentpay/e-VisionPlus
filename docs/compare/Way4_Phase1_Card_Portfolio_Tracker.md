@@ -42,26 +42,44 @@ land).
 
 ## 1. Virtual Cards — finish the issuance flow
 
-**Status: ⬜ Pending — not started**
+**Status: ✅ Done (2026-07-25)**
 
-Port from Avenza (`apps/vmu_cta`, `apps/vmu_core_web`), re-verified
-against vmu_core's own current schema/conventions before trusting any of
-it, same discipline as every prior re-port this session (COL/LMS/ASM all
-found real divergence, not a clean copy-paste).
+Port from Avenza (`apps/vmu_cta`), re-verified against vmu_core's own
+current schema/conventions before trusting any of it, same discipline as
+every prior re-port this session.
+
+**Scope correction found before building the API layer**: Avenza's
+`VirtualCardController`/`/api/v1` existed specifically for `wallet-app`
+to call remotely (service-account bearer auth) — that layer doesn't
+exist in vmu_core at all, and there's no external caller for it here.
+Confirmed with user: expose issuance/reveal through the admin console
+instead (`AccountComponent`'s existing Cards tab, which already hosts
+every other card-lifecycle action), not a new REST API with no consumer.
 
 | # | Task | Avenza source | Status |
 |---|---|---|---|
-| V1.1 | `CTA.PanGenerator` — BIN + random digits + Luhn check digit, SHA-256 pan_token | `vmu_cta/lib/vmu_core/cta/pan_generator.ex` | ⬜ |
-| V1.2 | `CardLifecycle.issue_new/2` — general new-card issuance (PRIMARY/SUPPLEMENTARY/VIRTUAL) | `vmu_cta/lib/vmu_core/cta/card_lifecycle.ex` | ⬜ |
-| V1.3 | `CTA.CredentialVault` — ETS-backed, exactly-once reveal, TTL sweep | `vmu_cta/lib/vmu_core/cta/credential_vault.ex` | ⬜ |
-| V1.4 | `CardLifecycle.issue_virtual_with_credentials/2` — issue + auto-activate + CVV (reuse existing `HSM.generate_cvv/3`, do not re-extend `SoftHSM`) + vault stash | `vmu_cta/lib/vmu_core/cta/card_lifecycle.ex` | ⬜ |
-| V1.5 | `VirtualCardController` — `POST /api/v1/cards/virtual` (issue), `POST /api/v1/cards/:card_id/reveal` (one-time reveal), scope-checked, audited | `vmu_core_web/controllers/api/v1/virtual_card_controller.ex` | ⬜ |
-| V1.6 | Router wiring — confirm vmu_core's own `/api/v1` pipeline/auth (`ApiV1Auth`) matches what Avenza's controller assumes; adapt if it's diverged the way ASM's session handling had | `router.ex` | ⬜ |
-| V1.7 | Real tests — this repo's own discipline, not inherited from Avenza (all `vmu_*` apps there have zero tests, confirmed) | new | ⬜ |
+| V1.1 | `CTA.PanGenerator` — BIN + random digits + Luhn check digit, SHA-256 pan_token | `vmu_cta/lib/vmu_core/cta/pan_generator.ex` | ✅ |
+| V1.2 | `CardLifecycle.issue_new/2` — general new-card issuance (PRIMARY/SUPPLEMENTARY/VIRTUAL) | `vmu_cta/lib/vmu_core/cta/card_lifecycle.ex` | ✅ |
+| V1.3 | `CTA.CredentialVault` — ETS-backed, exactly-once reveal, TTL sweep; registered in `VmuCore.Application`'s supervision tree | `vmu_cta/lib/vmu_core/cta/credential_vault.ex` | ✅ |
+| V1.4 | `CardLifecycle.issue_virtual_with_credentials/2` — issue + auto-activate + CVV + vault stash | `vmu_cta/lib/vmu_core/cta/card_lifecycle.ex` | ✅ |
+| V1.4a | `HSM.generate_cvv/3` (`CW` command) — did **not** exist in vmu_core's `VmuCore.FAS.HSM` behaviour at all (only `verify_cvv/4`); added to the behaviour + `SoftHSM` (reuses the existing private `compute_cvv/4`) + `ProductionHSM` (real `CW` REST call, built from the manual, mirrors `CY`'s shape) + `SocketHSM` stub | new, not in Avenza's scope either | ✅ |
+| V1.5 | Admin UI — "Issue New Card" action + exactly-once "Reveal" button on VIRTUAL cards, added to the existing `AccountComponent` Cards tab (not a new component) | new (replaces Avenza's `VirtualCardController`) | ✅ |
+| V1.6 | Real tests | new | ✅ 21/21 (5 `pan_generator_test.exs`, 3 `credential_vault_test.exs`, 8 `card_lifecycle_issue_test.exs`, 2 `account_component_card_issue_test.exs`, + coverage from fixing the bug below) |
 
-**Known gaps carried over, not silently fixed in this pass**: no
-automated tests existed in Avenza's version — this pass adds them, per
-this repo's standing discipline, not because Avenza had any to copy.
+**Real pre-existing bug found and fixed**: `AccountComponent`'s
+top-level `<%= if @active_action != :none do %>` block rendered
+`render_action_panel/1` for **every** action, including all `card_*`
+ones — which `tab_cards/1` **also** renders in its own gated block. Every
+existing card action (`card_activate`/`card_block`/`card_unblock`/
+`card_replace`/`card_renew`/`card_channels`) has been double-rendering
+its panel since this file was written; never caught because it had zero
+tests before this item's own test suite (the first for this 2900+-line
+component) hit it via the new `:card_issue` action. Fixed by excluding
+card-level actions from the top-level condition — they render once,
+correctly, inside the Cards tab.
+
+Full CTA/CMS/FAS/ASM/COL/admin regression before and after: same 10
+pre-existing, already-documented failures, zero regressions.
 
 ---
 

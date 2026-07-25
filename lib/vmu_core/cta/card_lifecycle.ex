@@ -5,6 +5,8 @@ defmodule VmuCore.CTA.CardLifecycle do
 
   | Op | FR | Effect |
   |----|----|--------|
+  | `issue_new/2` | — | brand-new generation-1 card (PRIMARY/SUPPLEMENTARY/VIRTUAL), real PAN via `PanGenerator` (Way4 parity plan Phase 1 item 1) |
+  | `issue_virtual_with_credentials/2` | — | issues + auto-activates a VIRTUAL card, computes a real CVV, stashes one-time-reveal credentials in `CredentialVault` |
   | `activate/2`  | 014 | INACTIVE→ACTIVE + account denormal sync |
   | `block/3`     | 015 | →BLOCKED; LOST/STOLEN/FRAUD also sets the account `block_code` (L/S/F) so `HotCardCache` declines auth |
   | `unblock/2`   | 015 | BLOCKED→ACTIVE; clears the account block_code |
@@ -18,13 +20,125 @@ defmodule VmuCore.CTA.CardLifecycle do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CTA.Card, CTA.Cards, CMS.Account, CMS.FeeEngine,
-                 FAS.HotCardCache, ASM.AuditLog}
-  alias VmuCore.Shared.ModuleConfigEngine
+  alias VmuCore.{Repo, CTA.Card, CTA.Cards, CTA.PanGenerator, CTA.CredentialVault,
+                 CMS.Account, CMS.FeeEngine, FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
+  alias VmuCore.Shared.{ModuleConfigEngine, LogoParameter}
 
   @reason_to_block_code %{"LOST" => "L", "STOLEN" => "S", "FRAUD" => "F"}
   @new_pan_reasons ~w[LOST STOLEN FRAUD]
   @replaceable ~w[INACTIVE ACTIVE BLOCKED EXPIRED]
+  @issuable_types ~w[PRIMARY SUPPLEMENTARY VIRTUAL]
+
+  # ---------------------------------------------------------------------------
+  # Issue a new card (Way4 parity plan Phase 1 item 1, 2026-07-25 —
+  # first real caller of PanGenerator)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Issue a brand-new generation-1 card for an account — distinct from
+  `replace/3`/`renew/2`, which both issue a new generation of an
+  *existing* card. Generates a real PAN via `PanGenerator` scoped to the
+  account's own LOGO (never a guessed/hardcoded BIN).
+
+  Always issues to `INACTIVE` first via `Cards.issue/1` (audited), then —
+  if `opts[:activate]` is true — chains into the existing, already-correct
+  `activate/2` (stamps `activated_at`, syncs account denormals for PRIMARY)
+  rather than setting `status: "ACTIVE"` directly, which would skip that
+  stamping.
+
+  Opts: `:card_type` (default `"PRIMARY"`), `:emboss_name` (defaults to the
+  account's own), `:activate` (default `false`), `:operator`.
+  """
+  @spec issue_new(Account.t(), keyword()) :: {:ok, Card.t()} | {:error, term()}
+  def issue_new(%Account{} = account, opts \\ []) do
+    card_type = Keyword.get(opts, :card_type, "PRIMARY")
+
+    if card_type not in @issuable_types do
+      {:error, {:invalid_card_type, card_type}}
+    else
+      with {:ok, %{pan_token: pan_token, last_four: last_four}} <-
+             PanGenerator.generate(account.sys_id, account.bank_id, account.logo_id),
+           {:ok, card} <-
+             Cards.issue(%{
+               account_id:   account.account_id,
+               pan_token:    pan_token,
+               last_four:    last_four,
+               expiry:       default_expiry(account.sys_id, account.bank_id, account.logo_id),
+               emboss_name:  Keyword.get(opts, :emboss_name, account.emboss_name),
+               card_type:    card_type
+             }) do
+        AuditLog.record(opts[:operator], "card_issue_new", card.card_id,
+          %{card_type: card_type})
+
+        if Keyword.get(opts, :activate, false) do
+          activate(card.card_id, operator: opts[:operator])
+        else
+          {:ok, card}
+        end
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Issue a virtual card with one-time-reveal credentials (Way4 parity
+  # plan Phase 1 item 1, 2026-07-25)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Issues a VIRTUAL card, activates it immediately (a virtual card is
+  useless until usable — unlike physical plastic, there's no dispatch
+  step to wait for), computes its CVV via `HSM.generate_cvv/3`, and
+  stashes `{pan, cvv, expiry}` in `CTA.CredentialVault` for exactly one
+  later reveal. Returns only the card record — **never the raw
+  credentials** — those come back from a separate reveal call so
+  issuance and reveal are two independently auditable events.
+
+  Uses `PanGenerator.generate_with_raw/3` rather than `generate/3`: this
+  is the only caller in the codebase that legitimately needs the raw PAN
+  even momentarily (to compute the CVV and populate the vault) — every
+  other caller only ever needs `pan_token`.
+  """
+  @spec issue_virtual_with_credentials(Account.t(), keyword()) :: {:ok, Card.t()} | {:error, term()}
+  def issue_virtual_with_credentials(%Account{} = account, opts \\ []) do
+    expiry = default_expiry(account.sys_id, account.bank_id, account.logo_id)
+
+    with {:ok, %{pan_token: pan_token, last_four: last_four, raw_pan: raw_pan}} <-
+           PanGenerator.generate_with_raw(account.sys_id, account.bank_id, account.logo_id),
+         {:ok, cvv} <- HSM.generate_cvv(raw_pan, expiry, "000"),
+         {:ok, card} <-
+           Cards.issue(%{
+             account_id:  account.account_id,
+             pan_token:   pan_token,
+             last_four:   last_four,
+             expiry:      expiry,
+             emboss_name: Keyword.get(opts, :emboss_name, account.emboss_name),
+             card_type:   "VIRTUAL"
+           }) do
+      AuditLog.record(opts[:operator], "card_issue_virtual", card.card_id, %{card_type: "VIRTUAL"})
+
+      case activate(card.card_id, operator: opts[:operator]) do
+        {:ok, activated} ->
+          CredentialVault.put(card.card_id, %{pan: raw_pan, cvv: cvv, expiry: expiry})
+          {:ok, activated}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp default_expiry(sys_id, bank_id, logo_id) do
+    years =
+      case Repo.get_by(LogoParameter, sys_id: sys_id, bank_id: bank_id, logo_id: logo_id) do
+        %LogoParameter{card_validity_years: y} when is_integer(y) and y > 0 -> y
+        _ -> 3
+      end
+
+    today = Date.utc_today()
+    mm = today.month |> Integer.to_string() |> String.pad_leading(2, "0")
+    yy = (today.year + years) |> rem(100) |> Integer.to_string() |> String.pad_leading(2, "0")
+    mm <> yy
+  end
 
   # ---------------------------------------------------------------------------
   # Activate (FR-014)

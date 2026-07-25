@@ -87,6 +87,18 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
     end
   end
 
+  @impl VmuCore.FAS.HSM
+  def generate_cvv(pan, expiry, service_code) do
+    case get_cvk() do
+      nil ->
+        Logger.debug("[SoftHSM] CVK not configured — returning a fixed dev CVV")
+        {:ok, "000"}
+
+      cvk ->
+        {:ok, compute_cvv(pan, expiry, service_code, cvk)}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # ARQC Verification (7G)
   # ---------------------------------------------------------------------------

@@ -40,6 +40,9 @@ defmodule VmuCore.Application do
       VmuCore.FAS.RiskFeedSubscriber,
       #     HoldAgingMonitor: polls expired holds every 60s; broadcasts to "fas:hold_alerts"
       VmuCore.FAS.HoldAgingMonitor,
+      # 10a. Virtual card one-time-reveal credential store (Way4 parity
+      #      plan Phase 1 item 1) — ETS-backed, never persisted to Postgres
+      VmuCore.CTA.CredentialVault,
       # 11. Admin web UI — LiveDashboard on http://localhost:4001/dashboard
       VmuCoreWeb.Endpoint
     ]

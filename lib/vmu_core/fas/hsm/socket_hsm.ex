@@ -58,6 +58,12 @@ defmodule VmuCore.FAS.HSM.SocketHSM do
   end
 
   @impl VmuCore.FAS.HSM
+  def generate_cvv(_pan, _expiry, _service_code) do
+    Logger.warning("[SocketHSM] generate_cvv not implemented — stub")
+    {:error, :not_implemented}
+  end
+
+  @impl VmuCore.FAS.HSM
   def verify_arqc(_pan, _pan_token, _atc, _un, _txn_data, _arqc) do
     Logger.warning("[SocketHSM] verify_arqc not implemented — stub")
     {:error, :not_implemented}

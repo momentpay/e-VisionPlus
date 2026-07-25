@@ -36,6 +36,7 @@ defmodule VmuCore.FAS.HSM.ProductionHSM do
   | Callback | Host command | Confidence |
   |---|---|---|
   | `verify_cvv/4` | `CY` — Verify a Card Verification Code or Value | Real Postman sample + manual response fields (page 363-365) |
+  | `generate_cvv/3` | `CW` — Generate a Card Verification Code or Value | Real manual spec (page 306-308), mirrors `CY`'s field shape exactly — added 2026-07-25 for virtual card issuance (Way4 parity plan Phase 1 item 1) |
   | `verify_arqc/6` | `KW`, Mode Flag `0` (verify only) | Real Postman sample (Mode Flag `0`); response fields from manual — only VISA/MASTERCARD (Scheme ID `0`/`1`, EMV Option A) mapped by default, see `VmuCore.FAS.ConfigCatalog`'s `scheme_id_map` |
   | `generate_arpc/6` | `KW`, Mode Flag `2` (ARPC generation only) | Manual-derived (page 542-544) — Mode Flag `2`'s exact field list was not independently cross-checked against a Postman sample the way Mode `0` was; built from the same base request shape with `arc` added and `arqc` removed per the manual's field-presence table, but flagged as the least-verified of the CY/KW/BE trio |
   | `verify_pin/3` | `BE` — Verify an Interchange PIN Using the Comparison Method | Real manual spec (page 336-338) — direct pass-through of the still-ZPK-encrypted DE52 block against `CardPin.reference_pin_lmk`, no plaintext ever decoded. Redesigned 2026-07-24 — see moduledoc below and `docs/fas/FAS_Implementation_Tracker.md` |
@@ -113,6 +114,29 @@ defmodule VmuCore.FAS.HSM.ProductionHSM do
       case HttpClient.post(body) do
         {:ok, %{"errorCode" => "00"}} -> :ok
         {:ok, %{"errorCode" => "01"}} -> {:error, :cvv_mismatch}
+        {:ok, %{"errorCode" => code}} -> {:error, {:hsm_error, code}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @impl VmuCore.FAS.HSM
+  def generate_cvv(pan, expiry, service_code) do
+    with {:ok, {sys_id, bank_id, _logo_id}} <- resolve_bin(pan),
+         {:ok, cvk} <- fas_config(sys_id, bank_id, "cvk"),
+         {:ok, lmk_id} <- fas_config(sys_id, bank_id, "lmk_identifier") do
+      body = %{
+        "messageHeader" => message_header(),
+        "commandCode" => "CW",
+        "cardVerificationKey" => cvk,
+        "pan" => pan,
+        "expirationDate" => expiry,
+        "serviceCode" => service_code,
+        "lmkIdentifier" => lmk_id
+      }
+
+      case HttpClient.post(body) do
+        {:ok, %{"errorCode" => "00", "cvv" => cvv}} -> {:ok, cvv}
         {:ok, %{"errorCode" => code}} -> {:error, {:hsm_error, code}}
         {:error, reason} -> {:error, reason}
       end

@@ -175,3 +175,39 @@ requires building a real subsystem (file delivery, encryption, wallet tokenizati
 that doesn't exist today, by explicit user decision.
 
 **CTA gap plan + module configuration complete (15/15) as of 2026-07-08.**
+
+## CTA-P5 — New-Card Issuance (Way4 parity plan Phase 1 item 1) ✅ (2026-07-25)
+
+Ported from `Avenza/apps/vmu_cta` (real, complete, self-contained work —
+see `docs/compare/Way4_Phase1_Card_Portfolio_Tracker.md` for the
+port-vs-build sequencing decision across all 7 Phase 1 items), re-verified
+against this repo's own current schema/conventions, not a clean
+copy-paste. First real PAN generator this codebase has ever had —
+`CardLifecycle.replace/3`'s "new PAN" path still requires a
+caller-supplied `opts[:new_pan_token]`, unchanged, out of this item's
+scope.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P5.1 | `CTA.PanGenerator` — 6-digit BIN (from the account's own LOGO) + 9 random digits + Luhn check digit; `generate/3` (pan_token only) and `generate_with_raw/3` (also raw PAN, only caller is virtual-card issuance) | `cta/pan_generator.ex` | ✅ |
+| P5.2 | `CardLifecycle.issue_new/2` — brand-new generation-1 card (PRIMARY/SUPPLEMENTARY/VIRTUAL), chains into the existing `activate/2` when `opts[:activate]` | `cta/card_lifecycle.ex` | ✅ |
+| P5.3 | `CTA.CredentialVault` — ETS-backed exactly-once reveal GenServer, TTL sweep; registered in `VmuCore.Application` | `cta/credential_vault.ex`, `application.ex` | ✅ |
+| P5.4 | `CardLifecycle.issue_virtual_with_credentials/2` — issue + auto-activate + real CVV + vault stash | `cta/card_lifecycle.ex` | ✅ |
+| P5.5 | `HSM.generate_cvv/3` — did not exist anywhere in this codebase (only `verify_cvv/4` did); added to the `VmuCore.FAS.HSM` behaviour + `SoftHSM` (reuses `compute_cvv/4`) + `ProductionHSM` (real `CW` command, built from the manual) + `SocketHSM` stub | `fas/hsm/hsm.ex`, `soft_hsm.ex`, `production_hsm.ex`, `socket_hsm.ex` | ✅ |
+| P5.6 | Admin UI — "Issue New Card" + exactly-once "Reveal" on the existing `AccountComponent` Cards tab (Avenza's version was a `/api/v1` REST API for `wallet-app`; that external caller and API layer don't exist in vmu_core — confirmed with user to use the admin console instead) | `vmu_core_web/live/admin/account_component.ex` | ✅ |
+
+**Real pre-existing bug found and fixed**: `AccountComponent`'s top-level
+`@active_action != :none` block rendered `render_action_panel/1`
+unconditionally for any action, duplicating what `tab_cards/1`'s own
+gated block already renders for every `card_*` action
+(`card_activate`/`card_block`/`card_unblock`/`card_replace`/
+`card_renew`/`card_channels`) — a bug that's existed since this file was
+written, invisible with zero test coverage until this item's tests (the
+first ever for this 2900+-line component) exercised `:card_issue` and
+hit it. Fixed by excluding card-level actions from the top-level
+condition.
+
+21/21 new tests (`pan_generator_test.exs`, `credential_vault_test.exs`,
+`card_lifecycle_issue_test.exs`, `account_component_card_issue_test.exs`).
+Full CTA/CMS/FAS/ASM/COL/admin regression before and after: same 10
+pre-existing, already-documented failures, zero regressions.

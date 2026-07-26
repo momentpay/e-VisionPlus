@@ -53,6 +53,19 @@ defmodule VmuCore.CTA.Cards do
     )
   end
 
+  @doc """
+  All cards for a debit account, newest generation first (Way4 parity
+  plan Phase 1 item 4, D5).
+  """
+  @spec by_debit_account(Ecto.UUID.t()) :: [Card.t()]
+  def by_debit_account(debit_account_id) do
+    Repo.all(
+      from c in Card,
+        where: c.debit_account_id == ^debit_account_id,
+        order_by: [desc: c.generation, desc: c.inserted_at]
+    )
+  end
+
   @doc "The live card holding a pan_token (nil if none)."
   @spec by_pan_token(String.t()) :: Card.t() | nil
   def by_pan_token(pan_token) do
@@ -144,9 +157,11 @@ defmodule VmuCore.CTA.Cards do
   @doc """
   Force the account's current-card denormals to match `card` (ADR-CTA1).
   Used by replacement/renewal where a newly issued card supersedes the old
-  one without going through `transition/3`.
+  one without going through `transition/3`. No-op for a debit-issued card
+  (`account_id` is nil — `CMS.Account` has no denormal slot for it).
   """
   @spec sync_account_from_card(Card.t()) :: :ok
+  def sync_account_from_card(%Card{account_id: nil}), do: :ok
   def sync_account_from_card(%Card{} = card) do
     Repo.update_all(
       from(a in Account, where: a.account_id == ^card.account_id),
@@ -181,7 +196,15 @@ defmodule VmuCore.CTA.Cards do
   defp stamp(attrs, _), do: attrs
 
   # ADR-CTA1: mirror the live PRIMARY card onto the account row so FAS's
-  # hot path (which reads cms_accounts) stays correct.
+  # hot path (which reads cms_accounts) stays correct. No-op for a
+  # debit-issued card (account_id is nil) — found live (Way4 parity plan
+  # Phase 1 item 4, D5) building the first real test for debit card
+  # activation: Ecto forbids `field == ^nil` comparisons outright
+  # (raises, doesn't silently no-op), so this guard is required, not
+  # just tidy — `sync_account_from_card/1` had the identical gap, fixed
+  # alongside this.
+  defp sync_account_denormals(%Card{account_id: nil}, _new_status), do: :ok
+
   defp sync_account_denormals(%Card{card_type: "PRIMARY"} = card, new_status)
        when new_status in ["ACTIVE", "INACTIVE"] do
     Repo.update_all(

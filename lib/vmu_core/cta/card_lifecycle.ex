@@ -21,7 +21,7 @@ defmodule VmuCore.CTA.CardLifecycle do
   import Ecto.Query
 
   alias VmuCore.{Repo, CTA.Card, CTA.Cards, CTA.PanGenerator, CTA.CredentialVault,
-                 CMS.Account, CMS.FeeEngine, FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
+                 CMS.Account, CMS.DebitAccount, CMS.FeeEngine, FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
   alias VmuCore.Shared.{ModuleConfigEngine, LogoParameter}
 
   @reason_to_block_code %{"LOST" => "L", "STOLEN" => "S", "FRAUD" => "F"}
@@ -68,6 +68,56 @@ defmodule VmuCore.CTA.CardLifecycle do
                card_type:    card_type
              }) do
         AuditLog.record(opts[:operator], "card_issue_new", card.card_id,
+          %{card_type: card_type})
+
+        if Keyword.get(opts, :activate, false) do
+          activate(card.card_id, operator: opts[:operator])
+        else
+          {:ok, card}
+        end
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Issue a new debit card (Way4 parity plan Phase 1 item 4, D5)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Issue a brand-new generation-1 card against a `CMS.DebitAccount`
+  instead of a `CMS.Account` — the `debit_account_id` column, not
+  `account_id` (D1). Mirrors `issue_new/2` exactly; kept as its own
+  function rather than made polymorphic since `DebitAccount` has no
+  `emboss_name` denormal field to default from (a debit account has no
+  embossing-order workflow yet — pass `:emboss_name` explicitly or it's
+  left blank on the card).
+
+  `activate/2`, `block/3`, `unblock/2` already work unchanged for a
+  debit card issued this way — they operate purely by `card_id` through
+  `Cards.transition/3`, whose account-denormal sync already no-ops
+  safely when `card.account_id` is nil (confirmed, not assumed).
+  `replace/3`/`renew/2` are NOT yet debit-aware (both read `CMS.Account`
+  internally) — flagged, not fixed here.
+  """
+  @spec issue_new_debit(DebitAccount.t(), keyword()) :: {:ok, Card.t()} | {:error, term()}
+  def issue_new_debit(%DebitAccount{} = account, opts \\ []) do
+    card_type = Keyword.get(opts, :card_type, "PRIMARY")
+
+    if card_type not in @issuable_types do
+      {:error, {:invalid_card_type, card_type}}
+    else
+      with {:ok, %{pan_token: pan_token, last_four: last_four}} <-
+             PanGenerator.generate(account.sys_id, account.bank_id, account.logo_id),
+           {:ok, card} <-
+             Cards.issue(%{
+               debit_account_id: account.debit_account_id,
+               pan_token:        pan_token,
+               last_four:        last_four,
+               expiry:           default_expiry(account.sys_id, account.bank_id, account.logo_id),
+               emboss_name:      Keyword.get(opts, :emboss_name),
+               card_type:        card_type
+             }) do
+        AuditLog.record(opts[:operator], "debit_card_issue_new", card.card_id,
           %{card_type: card_type})
 
         if Keyword.get(opts, :activate, false) do
@@ -378,6 +428,13 @@ defmodule VmuCore.CTA.CardLifecycle do
     end
   end
 
+  # No-op for a debit-issued card (account_id is nil — CMS.Account has no
+  # denormal slot for it). Found live (Way4 parity plan Phase 1 item 4,
+  # D5): Ecto forbids `field == ^nil` comparisons outright (raises,
+  # doesn't silently no-op), same gap `Cards.sync_account_denormals/2`
+  # had, fixed there too.
+  defp maybe_set_account_block(%Card{account_id: nil}, _reason), do: :ok
+
   defp maybe_set_account_block(%Card{card_type: "PRIMARY"} = card, reason) do
     case Map.get(@reason_to_block_code, reason) do
       nil ->
@@ -395,6 +452,8 @@ defmodule VmuCore.CTA.CardLifecycle do
   end
 
   defp maybe_set_account_block(_card, _reason), do: :ok
+
+  defp clear_account_block(%Card{account_id: nil}), do: :ok
 
   defp clear_account_block(%Card{card_type: "PRIMARY"} = card) do
     Repo.update_all(

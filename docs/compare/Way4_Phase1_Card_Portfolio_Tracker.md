@@ -308,13 +308,52 @@ debit settlement confirmation.
 Full-suite regression: 265 tests, same 10 pre-existing failures, zero
 regressions.
 
-**A debit card can now authorize, clear-match, and settle end-to-end
-against real Postgres** — D1 (schema) → D2 (funding) → D3 (authorization,
-+ the CU-1 PAN-resolution re-port it depended on) → D4 (settlement
-posting) are all done. Remaining: D5 (card issuance + ops UI — reusing
-`CTA.CardLifecycle` via the `debit_account_id` column; debit-aware
-`CardActivation` belongs here too, flagged in §4a) and `HotCardCache`'s
-own debit design question (§4a), neither started.
+## 4d. D5 — Card issuance + ops UI
+
+**Status: ✅ Done (2026-07-26) — item 4 (Debit Card Issuing) now fully complete, D1-D5**
+
+| # | Task | Status |
+|---|---|---|
+| D5.1 | `CTA.CardLifecycle.issue_new_debit/2` — mirrors `issue_new/2` exactly, issues against `debit_account_id` instead of `account_id`. Kept as its own function rather than made polymorphic since `DebitAccount` has no `emboss_name` denormal to default from (no embossing-order workflow exists for Debit yet) | ✅ |
+| D5.2 | `CTA.Cards.by_debit_account/1` — parallel to `by_account/1`, needed for the admin UI's card roster | ✅ |
+| D5.3 | Admin UI — new `DebitComponent` (account list/search/create, detail view with balance/funding-history/card-roster, fund action, issue-card action, activate/block/unblock reusing `CardLifecycle` directly). Wired into `RolePermission` (`debit` module, view/edit for SUPERVISOR/OPS/RISK/COMPLIANCE) and `AdminLive` (sidebar + routing) | ✅ |
+| D5.4 | Real tests | ✅ 11/11 (8 `card_lifecycle_issue_debit_test.exs`, 3 `debit_component_test.exs` — account creation, full fund→issue→activate→block→unblock flow, external-channel reference validation) |
+
+**2 real bugs found and fixed, confirming `activate/2`/`block/3`/
+`unblock/2` "already work unchanged for debit" was asserted too early in
+D3/D4's notes** — writing the actual first real test for debit card
+activation caught what reasoning-by-analogy missed: `Cards.
+sync_account_denormals/2` (called from every `transition/3`) and
+`CardLifecycle.maybe_set_account_block/2`/`clear_account_block/1`
+(called from `block/3`/`unblock/2`) all did `where: a.account_id ==
+^card.account_id` — for a debit-issued card, `card.account_id` is `nil`,
+and **Ecto forbids `field == ^nil` comparisons outright** (raises
+`ArgumentError`, doesn't silently no-op as reasoned). All four functions
+now have an explicit `%Card{account_id: nil} -> :ok` guard clause.
+`Cards.sync_account_from_card/1` (used by `replace/3`/`renew/2`, not yet
+extended to Debit) got the same guard preventively, since it has the
+identical pattern.
+
+Full-suite regression: 276 tests, same 10 pre-existing failures, zero
+regressions.
+
+## 4e. Item 4 (Debit Card Issuing) — summary
+
+**All of D1-D5 done, 2026-07-26.** A real, network-issued debit account
+can be opened, funded (internal or external channel), issued a card,
+activated, authorize a real-time balance-checked transaction, clear-match
+against an inbound Base II/IPM record, settle with the correct
+liability-direction GL posting, and be blocked/unblocked — all verified
+against real Postgres, not stubbed.
+
+**Deliberately still open, each flagged with its own reasoning above,
+not silently skipped**:
+- `FAS.HotCardCache` (lost/stolen/fraud blocklist) has no Debit
+  equivalent — `DebitAccount` has no `block_code` concept yet (§4a)
+- `CTA.CardActivation` (IVR/first-use activation) is not debit-aware —
+  its whole body mutates `cms_accounts`-specific state (§4a)
+- `CardLifecycle.replace/3`/`renew/2` are not debit-aware — both read
+  `CMS.Account` internally (§4a, §4d)
 
 Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after D1: same
 10 pre-existing failures, zero regressions.

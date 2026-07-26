@@ -122,4 +122,32 @@ defmodule VmuCore.CMS.InternalGlPoster do
       narrative:        "Debit account funding: #{channel}"
     })
   end
+
+  @doc """
+  Post a cleared purchase against a debit account (Way4 parity plan
+  Phase 1 item 4, D4) — the exact reverse direction of
+  `post_debit_deposit/5`: the deposit liability (5001) decreases (DR),
+  the offsetting credit is the bank's own cash position (1006) paying
+  out to the network/merchant settlement. `available_balance` itself is
+  NOT touched here — `CMS.DebitAuthorization.authorize/2` already
+  decremented it in real time at approval (Debit has no OTB-then-settle
+  two-phase balance model; the auth-time debit is final money movement,
+  per this product's own confirmed v1 scope). This call only makes the
+  already-reserved journal entry permanent once clearing confirms it.
+  """
+  def post_debit_purchase(debit_account_id, amount, posting_date, currency, idempotency_key) do
+    post(%{
+      account_id:       debit_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "PURCHASE",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "5001",
+      gl_account_cr:    "1006",
+      currency:         currency || "AED",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        "Debit card purchase settlement"
+    })
+  end
 end

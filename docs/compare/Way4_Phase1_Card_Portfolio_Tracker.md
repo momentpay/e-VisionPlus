@@ -288,13 +288,33 @@ Full-suite regression: 261 tests, same 10 pre-existing failures, zero
 regressions (one pre-existing broken compile file in `test/vmu_core/lms/
 points_lifecycle_test.exs` excluded, unrelated, predates this session).
 
-**Still open for D4**: `FAS.SettlementPostingAdapter.confirm_one/1` (the
-step that turns a matched clearing record into a final posted GL entry)
-is still 100% credit-shaped — `post_ledger/3` hardcodes credit GL codes,
+## 4c. D4 — Settlement posting
+
+**Status: ✅ Done (2026-07-26)**
+
+Fixed the exact gap flagged above. `SettlementPostingAdapter.confirm_one/1`
+was 100% credit-shaped — `post_ledger/3` hardcoded credit GL codes,
 `post_bucket/4`'s `PurchasePosting.post/1` does `Repo.get(Account, ...)`
-which will always return `nil` for a `debit_account_id`. A debit
-transaction can authorize and clear-match correctly today, but its
-posting-cycle confirmation would fail. Flagged, not yet fixed.
+which always returns `nil` for a `debit_account_id`, rolling back every
+debit settlement confirmation.
+
+| # | Task | Status |
+|---|---|---|
+| D4.1 | `do_confirm/3` now dispatches on `DebitAuthorization.debit_account?/1` first — `do_confirm_credit/3` (renamed, unchanged body) vs. new `do_confirm_debit/3` | ✅ |
+| D4.2 | `InternalGlPoster.post_debit_purchase/5` — the exact reverse direction of D2's `post_debit_deposit/5` (DR 5001 deposit liability decreases / CR 1006 bank cash pays out). No new GL codes needed | ✅ |
+| D4.3 | Debit's settlement confirmation does **not** touch `available_balance` or any balance-bucket equivalent — it was already decremented in real time at authorization (no OTB-then-settle two-phase model for this product, confirmed by a dedicated test). Settlement only makes the journal entry permanent and clears the hold | ✅ |
+| D4.4 | Real tests | ✅ 4/4 `settlement_posting_adapter_debit_test.exs` — first-ever test coverage for `SettlementPostingAdapter` at all (ledger entry posts with correct GL direction, balance untouched at settlement, idempotent retry, `:not_found` for no match) |
+
+Full-suite regression: 265 tests, same 10 pre-existing failures, zero
+regressions.
+
+**A debit card can now authorize, clear-match, and settle end-to-end
+against real Postgres** — D1 (schema) → D2 (funding) → D3 (authorization,
++ the CU-1 PAN-resolution re-port it depended on) → D4 (settlement
+posting) are all done. Remaining: D5 (card issuance + ops UI — reusing
+`CTA.CardLifecycle` via the `debit_account_id` column; debit-aware
+`CardActivation` belongs here too, flagged in §4a) and `HotCardCache`'s
+own debit design question (§4a), neither started.
 
 Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after D1: same
 10 pre-existing failures, zero regressions.

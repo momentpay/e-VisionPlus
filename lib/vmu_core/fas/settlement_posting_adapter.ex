@@ -16,6 +16,19 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   Note on OTB: The ASC already decremented open_to_buy at auth time. At settlement
   the debit is confirmed (not reversed), so OTB stays correctly reduced — no
   `credit_open_to_buy` call is made. OTB is only restored when the customer pays.
+
+  ## Debit (Way4 parity plan Phase 1 item 4, D4)
+
+  `auth.account_id` may be a `CMS.DebitAccount.debit_account_id` instead
+  of a `CMS.Account.account_id` — found live: this whole confirmation
+  path was 100% credit-shaped (`post_ledger/3` hardcoded credit GL codes,
+  `post_bucket/4`'s `PurchasePosting.post/1` does `Repo.get(Account,
+  ...)`, always `nil` for a debit id, which would roll back every debit
+  settlement confirmation). `do_confirm/3` now branches on `DebitAuthorization.
+  debit_account?/1` first. Debit's `available_balance` was already
+  decremented in real time at authorization (no OTB-then-settle two-phase
+  model for this product) — settlement only needs to post the permanent
+  GL entry and clear the hold, not touch a balance bucket.
   """
 
   require Logger
@@ -24,7 +37,7 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   alias VmuCore.Repo
   alias VmuCore.FAS.{AuthLookup, PendingHold}
   alias VmuCore.FAS.GL.{CardAccountCodes, VmuCoreGlAdapter}
-  alias VmuCore.CMS.{LedgerEntry, PurchasePosting}
+  alias VmuCore.CMS.{LedgerEntry, PurchasePosting, DebitAuthorization, InternalGlPoster}
   alias WalletGl.GlPostingRecord
   alias WalletSharedKernel.Money
 
@@ -65,7 +78,20 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
     end
   end
 
+  # Way4 parity plan Phase 1 item 4 (Debit, D4) — everything below this
+  # point was unconditionally credit-shaped; `auth.account_id` may now be
+  # a `CMS.DebitAccount.debit_account_id`, which has no balance-bucket or
+  # credit-receivable concept at all. Dispatch first, same convention as
+  # `FAS.Authorization.run_authorization/1`'s product_type branch.
   defp do_confirm(auth, settled_amount, settled_date) do
+    if DebitAuthorization.debit_account?(auth.account_id) do
+      do_confirm_debit(auth, settled_amount, settled_date)
+    else
+      do_confirm_credit(auth, settled_amount, settled_date)
+    end
+  end
+
+  defp do_confirm_credit(auth, settled_amount, settled_date) do
     key = "settlement:#{auth.approval_code}:#{auth.rrn}"
 
     if already_posted?(key) do
@@ -108,6 +134,40 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
 
         {:error, reason} ->
           Logger.error("[SettlementPostingAdapter] Failed #{key}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  # Debit has no balance-bucket step at all — `available_balance` was
+  # already decremented in real time at authorization (`CMS.
+  # DebitAuthorization.authorize/2`), unlike credit's OTB-then-settle
+  # two-phase model. Settlement here only needs to (1) make the
+  # already-reserved journal entry permanent and (2) clear the hold.
+  defp do_confirm_debit(auth, settled_amount, settled_date) do
+    key = "settlement:#{auth.approval_code}:#{auth.rrn}"
+
+    if already_posted?(key) do
+      Logger.debug("[SettlementPostingAdapter] Already posted (debit): #{key}")
+      sync_tram(auth, settled_amount, settled_date)
+      :ok
+    else
+      Repo.transaction(fn ->
+        case InternalGlPoster.post_debit_purchase(auth.account_id, settled_amount, settled_date, auth.currency, key) do
+          {:ok, _entry} -> :ok
+          {:error, :duplicate} -> :ok
+          {:error, reason} -> Repo.rollback({:gl_post_failed, reason})
+        end
+
+        clear_hold(auth)
+      end)
+      |> case do
+        {:ok, _} ->
+          sync_tram(auth, settled_amount, settled_date)
+          :ok
+
+        {:error, reason} ->
+          Logger.error("[SettlementPostingAdapter] Failed (debit) #{key}: #{inspect(reason)}")
           {:error, reason}
       end
     end

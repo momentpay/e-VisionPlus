@@ -219,13 +219,82 @@ credit accounts, no shared-table nullable-field risk introduced.
 
 **Reused, not reinvented**: `FAS.PendingHold` (the existing generic
 credit-authorization hold table) has **no DB-level FK on `account_id`**
-— confirmed before assuming it — so Debit's holds (D3) can reuse it
-directly rather than a new `DebitHold` schema. One real touchpoint
-flagged for D3: `TRAMS.Oban.AuthExpirySweepJob.do_reverse/3`
-unconditionally calls `AccountStateCoordinator.credit_open_to_buy/2` on
-every expired hold it releases — needs an account-kind branch before
-Debit holds can safely expire through the same sweep, or expired Debit
-holds will crash that job.
+— confirmed before assuming it — so Debit's holds (D3) reuse it directly
+rather than a new `DebitHold` schema.
+
+## 4a. Foundational fix before D3 could work at all: PAN resolution (2026-07-26)
+
+Found while investigating a real user-reported gap ("does the TRAMS
+chargeback lookup handle debit transactions?"): standalone vmu_core's
+**entire PAN→account resolution surface** was still on the pre-CU-1
+model — every site resolved a PAN by querying `CMS.Account.pan_token`
+directly, never `cta_cards` (the "unified card master" CU-1 made
+canonical in the merged Avenza umbrella, 2026-07-22). That work never
+carried back after the 2026-07-23 platform-of-record reversal — the same
+"real work built once, lost on the reversal" pattern this session has
+now hit 9 times (COL, LMS, ASM-SSO, Virtual/Corporate/Fleet Cards,
+Debit's dead-code confirmation, and now CU-1 itself).
+
+This directly blocked D3: `FAS.Authorization.resolve_account/1` returning
+`{:error, :account_not_found}` for anything without a `cms_accounts` row
+meant a debit card's PAN could never resolve during authorization at all.
+
+**Fixed (re-ported CU-1's actual change, adapted for `Card` carrying
+`account_id` OR `debit_account_id`, never both)**:
+- `FAS.Authorization.resolve_account/1` — the auth hot path itself
+- `TRAMS.VisaBaseII.handle_chargeback/1` — the literal gap that surfaced this
+
+**Deliberately NOT fixed today — different shape of problem, own design
+question, not a PAN-lookup swap**:
+- `FAS.HotCardCache` — sources the lost/stolen/fraud blocklist from
+  `cms_accounts.block_code`; `DebitAccount` has no block_code concept at
+  all yet (only `status`). Extending hot-card blocking to Debit needs its
+  own design pass, not a quick swap.
+- `CTA.CardActivation` — `do_activate/2`'s entire body mutates
+  `cms_accounts.account_status`/`cta_embossing_orders`/calls
+  `AccountStateCoordinator.refresh/1` — a whole credit-account-status
+  workflow, not just a PAN lookup. Debit card activation is its own
+  future design question (likely D5).
+
+## 4b. D3 — Authorization
+
+| # | Task | Status |
+|---|---|---|
+| D3.1 | `CMS.DebitAuthorization.authorize/2` — atomic `available_balance` decrement (`UPDATE ... WHERE available_balance >= amount`, Postgres MVCC handles the race, no Horde GenServer needed — no OTB cascade to protect, unlike credit) | ✅ |
+| D3.2 | `FAS.Authorization` — added `product_type` dispatch (`run_authorization/1` → `run_credit_authorization/1` \| `run_debit_authorization/1`); `run_debit_authorization/1` returns the same `{:approved,...}`/`{:declined,...}`/`{:error,...}` shape ASC returns, so `handle_asc_result/2` and everything downstream (risk check, `persist_async`, `PendingHold`, TRAM feed) work unchanged for Debit — confirmed by reading that code before writing this branch, not assumed | ✅ |
+| D3.3 | `TRAMS.Oban.AuthExpirySweepJob.do_reverse/3` + `FAS.ReversalHandler.restore_otb/1` — both unconditionally called `AccountStateCoordinator.credit_open_to_buy/2`/`.reverse/3` on every released hold; branch on `DebitAuthorization.debit_account?/1` first | ✅ |
+| D3.4 | Real tests | ✅ 10/10 (8 `debit_authorization_test.exs` incl. a real concurrent-authorization oversell test, 2 new `authorization_integration_test.exs` Debit cases) |
+
+**Real bug caught before shipping, not after**: `DebitAuthorization.
+authorize/2`'s first draft did `Decimal.sub(new_balance, amount)` on the
+value `Repo.update_all`'s `select:` returned — but Ecto's `select:` on an
+`UPDATE` compiles to Postgres `RETURNING`, which reflects the row
+**after** the `inc:` already applied. Would have silently double-
+subtracted every real authorization. Caught by reasoning through Postgres
+semantics before running it, confirmed by the concurrency test's exact
+expected final balance.
+
+**Real regression caught by running the suite, not assumed clean**:
+`resolve_account/1`'s fix broke 2 previously-passing `FAS.
+AuthorizationIntegrationTest` cases — its own `seed_account/3` fixture
+predates the unified card master and never issued a matching `cta_cards`
+row. Fixed the fixture (issues a real card, matching how a real account
+actually gets one now), confirmed the 2 already-known-broken baseline
+failures in that file are a separate, unrelated, pre-existing bug
+(`AccountStateCoordinator.authorize/3` returns a 4-tuple; `handle_asc_result/2`
+only matches 3-tuples) — not something this fix touched or caused.
+
+Full-suite regression: 261 tests, same 10 pre-existing failures, zero
+regressions (one pre-existing broken compile file in `test/vmu_core/lms/
+points_lifecycle_test.exs` excluded, unrelated, predates this session).
+
+**Still open for D4**: `FAS.SettlementPostingAdapter.confirm_one/1` (the
+step that turns a matched clearing record into a final posted GL entry)
+is still 100% credit-shaped — `post_ledger/3` hardcodes credit GL codes,
+`post_bucket/4`'s `PurchasePosting.post/1` does `Repo.get(Account, ...)`
+which will always return `nil` for a `debit_account_id`. A debit
+transaction can authorize and clear-match correctly today, but its
+posting-cycle confirmation would fail. Flagged, not yet fixed.
 
 Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after D1: same
 10 pre-existing failures, zero regressions.

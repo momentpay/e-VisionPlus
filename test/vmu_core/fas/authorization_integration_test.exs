@@ -14,6 +14,7 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   alias VmuCore.FAS.Authorization
   alias VmuCore.FAS.STIP
   alias VmuCore.CMS.{Account, AccountStateCoordinator}
+  alias VmuCore.CTA.Cards
   alias VmuCore.Shared.{Customer, ParameterEngine}
 
   @table :vmu_parameter_cache
@@ -44,6 +45,44 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
 
   defp pan_token(pan), do: :crypto.hash(:sha256, pan) |> Base.encode16(case: :lower)
 
+  # Way4 parity plan Phase 1 item 4 (Debit, D3) — a distinct BIN/logo
+  # tagged product_type: "DEBIT", same raw-ETS-insert style this file
+  # already uses (no real ParameterEngine DB round-trip needed for these
+  # tests). Does NOT call ensure_ets_table/0 — that would wipe the
+  # credit hierarchy `setup` already seeded.
+  defp seed_debit_parameter_hierarchy do
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :bin_prefix}, "555555"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :description}, "Test Debit Logo"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :product_type}, "DEBIT"})
+  end
+
+  defp seed_debit_account(pan, initial_balance) do
+    {:ok, customer} =
+      Repo.insert(Customer.changeset(%Customer{}, %{
+        sys_id: "0001", bank_id: "0010", first_name: "Test", last_name: "DebitCardholder"
+      }))
+
+    {:ok, account} =
+      VmuCore.CMS.DebitAccountOpening.open(%{
+        customer_id: customer.customer_id, sys_id: "0001", bank_id: "0010",
+        logo_id: "0200", block_id: "1000"
+      })
+
+    {:ok, _} =
+      VmuCore.CMS.DebitFundingCommand.fund(%{
+        debit_account_id: account.debit_account_id, amount: initial_balance,
+        channel: "ADMIN_MANUAL", posted_by: "operator1"
+      })
+
+    {:ok, _card} =
+      Cards.issue(%{
+        debit_account_id: account.debit_account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
+
+    account
+  end
+
   defp seed_account(pan, credit_limit, status \\ "ACTIVE") do
     {:ok, customer} =
       Repo.insert(Customer.changeset(%Customer{}, %{
@@ -65,6 +104,18 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
         open_to_buy:    credit_limit,
         account_status: status
       }))
+
+    # Way4 parity plan Phase 1 item 4 (Debit, 2026-07-26) — FAS.Authorization.
+    # resolve_account/1 now resolves via the unified cta_cards master
+    # (CU-1's real fix, re-ported into standalone vmu_core), not
+    # cms_accounts.pan_token directly. A real account always has a real
+    # card issued against it; this fixture predates that model and needs
+    # to issue one explicitly to stay resolvable.
+    {:ok, _card} =
+      Cards.issue(%{
+        account_id: account.account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
 
     account
   end
@@ -159,6 +210,33 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
     test "declines offline when no threshold is configured" do
       STIP.init_cache()
       assert {:stip_declined, "91"} = STIP.authorize("0001", "XXXX", Decimal.new("50.00"))
+    end
+  end
+
+  describe "Authorization.process/1 — Debit (Way4 parity plan Phase 1 item 4)" do
+    test "approves a debit transaction within available_balance and decrements it" do
+      seed_debit_parameter_hierarchy()
+      pan = "5555550000000001"
+      account = seed_debit_account(pan, Decimal.new("500.00"))
+
+      request = %{pan: pan, amount: Decimal.new("120.00"), channel: :pos, mcc: "5411"}
+      assert {:ok, "00", approval_code} = Authorization.process(request)
+      assert Regex.match?(~r/^\d{6}$/, approval_code)
+
+      reloaded = Repo.get!(VmuCore.CMS.DebitAccount, account.debit_account_id)
+      assert Decimal.equal?(reloaded.available_balance, Decimal.new("380.00"))
+    end
+
+    test "declines a debit transaction that exceeds available_balance (RC 51), balance untouched" do
+      seed_debit_parameter_hierarchy()
+      pan = "5555550000000002"
+      account = seed_debit_account(pan, Decimal.new("50.00"))
+
+      request = %{pan: pan, amount: Decimal.new("500.00"), channel: :pos, mcc: "5411"}
+      assert {:error, "51"} = Authorization.process(request)
+
+      reloaded = Repo.get!(VmuCore.CMS.DebitAccount, account.debit_account_id)
+      assert Decimal.equal?(reloaded.available_balance, Decimal.new("50.00"))
     end
   end
 

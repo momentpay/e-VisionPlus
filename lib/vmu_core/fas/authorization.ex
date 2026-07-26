@@ -14,12 +14,31 @@ defmodule VmuCore.FAS.Authorization do
     2. BIN → logo params  (ETS, zero DB)
     3. PAN → account_id   (DB, single query — candidate for ETS caching)
     4. STAN duplicate check (DB, indexed)
-    5. AccountStateCoordinator.authorize (Horde GenServer, in-memory OTB)
-    6. STIP fallback if ASC unreachable (ETS)
+    5. Credit: AccountStateCoordinator.authorize (Horde GenServer, in-memory
+       OTB). Debit (Way4 parity plan Phase 1 item 4): a real-time
+       available_balance decrement, no OTB cascade to protect.
+    6. STIP fallback if ASC unreachable (ETS) — credit only.
     7. Async: persist fas_authorization + fas_pending_hold (Task)
 
   All unexpected errors return RC "96" (system malfunction) — fail-safe,
   never crash the caller.
+
+  ## PAN resolution (fixed 2026-07-26)
+
+  `resolve_account/1` resolves via `CTA.Cards.by_pan_token/1` — the
+  unified card master (`cta_cards`) — not `CMS.Account.pan_token`
+  directly. Found live building Debit: this whole module had silently
+  regressed to the pre-unification model (querying `cms_accounts.
+  pan_token` directly), meaning a card with no `cms_accounts` row (any
+  future Debit card) could never authorize at all. The intended fix
+  (resolve via the card master, not the account table) was real, tested
+  work done in the merged Avenza umbrella (CU-1, 2026-07-22) that never
+  carried back after the 2026-07-23 platform-of-record reversal to
+  standalone vmu_core — the same "real work built once, lost on the
+  reversal" pattern this session has hit repeatedly elsewhere (COL, LMS,
+  ASM-SSO, Virtual/Corporate/Fleet Cards). Re-ported here, adapted for
+  the fact that a `Card` here may carry `account_id` OR
+  `debit_account_id`, never both.
   """
 
   @behaviour DaSwitchCore.FAS.Authorizer
@@ -27,7 +46,8 @@ defmodule VmuCore.FAS.Authorization do
   require Logger
 
   alias VmuCore.Shared.ParameterEngine
-  alias VmuCore.CMS.{Account, AccountStateCoordinator, SupplementaryCard}
+  alias VmuCore.CMS.{AccountStateCoordinator, SupplementaryCard}
+  alias VmuCore.CTA.{Card, Cards}
   alias VmuCore.FAS.{STIP, AuthorizationRecord, PendingHold, RiskAdapter, CardValidator, HotCardCache,
                      ReversalHandler, IncrementalHandler, CompletionHandler, HSM, EmvHandler}
   alias VmuCore.FAS.Telemetry, as: FasTelemetry
@@ -172,13 +192,46 @@ defmodule VmuCore.FAS.Authorization do
   # Authorization pipeline
   # ---------------------------------------------------------------------------
 
-  defp run_authorization(%{account_id: account_id, amount: amount,
+  # Way4 parity plan Phase 1 item 4 (Debit, D3) — `product_type` was pure
+  # reference metadata never read by any business logic anywhere in this
+  # codebase before this fix (2026-07-26, see ParameterEngine.
+  # load_logo_parameters/0's own fix). sys_id/bank_id/logo_id are already
+  # resolved by ParameterEngine.resolve_bin/1 upstream, so this check adds
+  # zero extra DB round-trips — same ETS cascade every other lookup uses.
+  defp run_authorization(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} = ctx) do
+    case ParameterEngine.get(sys_id, bank_id, logo_id, nil, :product_type) do
+      {:ok, "DEBIT"} -> run_debit_authorization(ctx)
+      _ -> run_credit_authorization(ctx)
+    end
+  end
+
+  defp run_credit_authorization(%{account_id: account_id, amount: amount,
                             channel: channel, mcc: mcc,
                             supp_account_id: supp_id, sub_limit: sub_limit} = ctx) do
     auth_result = AccountStateCoordinator.authorize(account_id, amount,
                     channel: channel, mcc: mcc,
                     supplementary_account_id: supp_id,
                     sub_limit: sub_limit)
+    handle_asc_result(auth_result, ctx)
+  end
+
+  # `ctx.account_id` here is actually a `CMS.DebitAccount.debit_account_id`
+  # (resolve_account/1 puts either kind in the same slot). Returns the
+  # same {:approved,...}/{:declined,...}/{:error,...} shape
+  # AccountStateCoordinator.authorize/3 returns, so handle_asc_result/2
+  # and everything downstream (risk check, persist_async, PendingHold,
+  # TRAM feed) work completely unchanged for Debit — none of that
+  # persistence code is credit-specific, confirmed by reading it before
+  # writing this branch, not assumed.
+  defp run_debit_authorization(%{account_id: debit_account_id, amount: amount} = ctx) do
+    auth_result =
+      case VmuCore.CMS.DebitAuthorization.authorize(debit_account_id, amount) do
+        {:ok, new_balance}             -> {:approved, RC.approved(), new_balance}
+        {:error, :insufficient_funds}  -> {:declined, RC.insufficient_funds(), :insufficient_funds}
+        {:error, :not_found}           -> {:declined, RC.invalid_card(), :debit_account_not_found}
+        {:error, :not_active}          -> {:declined, RC.restricted_card(), :debit_account_not_active}
+      end
+
     handle_asc_result(auth_result, ctx)
   end
 
@@ -339,11 +392,11 @@ defmodule VmuCore.FAS.Authorization do
   defp resolve_account(pan) do
     token = pan_token(pan)
 
-    case Repo.one(from a in Account, where: a.pan_token == ^token, select: a.account_id) do
+    case Cards.by_pan_token(token) do
       nil ->
         {:error, :account_not_found}
 
-      account_id ->
+      %Card{account_id: account_id} when not is_nil(account_id) ->
         case SupplementaryCard.lookup_by_account(account_id) do
           {primary_id, sub_limit} ->
             # Supplementary card — auth runs against the primary account; sub_limit enforced in ASC
@@ -353,6 +406,11 @@ defmodule VmuCore.FAS.Authorization do
             # Primary (standalone) card
             {:ok, {account_id, nil, nil}}
         end
+
+      # Debit (Way4 parity plan Phase 1 item 4) — no supplementary-card
+      # concept in v1's confirmed scope, so this is a direct pass-through.
+      %Card{debit_account_id: debit_account_id} ->
+        {:ok, {debit_account_id, nil, nil}}
     end
   end
 

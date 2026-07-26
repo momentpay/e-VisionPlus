@@ -213,6 +213,10 @@ credit accounts, no shared-table nullable-field risk introduced.
 | D1.4 | `ParameterEngine.load_logo_parameters/0` — found `product_type` (CREDIT/DEBIT/PREPAID/...) was pure reference metadata, never cached/read by any business logic anywhere in standalone vmu_core (same finding the original 2026-07-11 requirements doc made, still true today) — fixed so `FAS.Authorization` can route by it without a DB round-trip | ✅ |
 | D1.5 | Real tests | ✅ 15/15 (`debit_account_test.exs`, `debit_funding_test.exs`, `card_account_ref_test.exs`) |
 
+| D2.1 | `CMS.DebitAccountOpening.open/1` | ✅ |
+| D2.2 | `CMS.DebitFundingCommand.fund/1` — posts a real `cms_ledger_entries` DEPOSIT row (new liability-direction GL codes 1006/5001) + increments `available_balance`, same transaction. `LedgerEntry.transaction_code` gained `"DEPOSIT"` | ✅ |
+| D2.3 | Real tests | ✅ 6/6 `debit_funding_command_test.exs` (internal transfer, accumulation across deposits, external-reference required+recorded, suspended-account rejection, duplicate-reference rejection, real balanced dr==cr ledger row with the right GL codes) |
+
 **Reused, not reinvented**: `FAS.PendingHold` (the existing generic
 credit-authorization hold table) has **no DB-level FK on `account_id`**
 — confirmed before assuming it — so Debit's holds (D3) can reuse it

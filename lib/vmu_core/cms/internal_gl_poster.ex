@@ -12,6 +12,13 @@ defmodule VmuCore.CMS.InternalGlPoster do
     2002 — Fee income
     3001 — Cardholder payment liability
     4001 — Interchange income
+
+  Debit (Way4 parity plan Phase 1 item 4) posts in the OPPOSITE direction
+  from every code above — a debit account's balance is a deposit
+  *liability* (amount the bank owes the depositor), not a receivable
+  asset, so a deposit increases a liability account, not a receivable:
+    1006 — Bank cash/clearing account (asset)
+    5001 — Debit deposit liability
   """
 
   require Logger
@@ -91,6 +98,28 @@ defmodule VmuCore.CMS.InternalGlPoster do
       value_date:       posting_date,
       narrative:        "Cardholder payment",
       source_ref:       source_ref
+    })
+  end
+
+  @doc """
+  Post a deposit/load into a debit account (Way4 parity plan Phase 1
+  item 4, D2). `debit_account_id` here is a `CMS.DebitAccount.
+  debit_account_id`, not a `CMS.Account.account_id` — `LedgerEntry.
+  account_id` is a bare `:binary_id` with no DB-level FK, so this is
+  safe (same cross-schema reuse `FAS.PendingHold` already relies on).
+  """
+  def post_debit_deposit(debit_account_id, amount, posting_date, channel, idempotency_key) do
+    post(%{
+      account_id:       debit_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "DEPOSIT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "1006",
+      gl_account_cr:    "5001",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        "Debit account funding: #{channel}"
     })
   end
 end

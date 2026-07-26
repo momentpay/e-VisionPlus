@@ -182,21 +182,49 @@ WriteOffRecoveryTest`), zero regressions.
 
 ## 4. Debit Card Issuing (native build, not ported)
 
-**Status: ⬜ Pending — not started, design not yet written**
+**Status: 🔄 In Progress — D1 (schema) done 2026-07-26, D2-D5 next**
 
-Avenza's `WalletDebitAdapter`/`run_debit_authorization/1` is explicitly
-not being ported (self-flagged dead code with known bugs in its own
-comments). Per the parent Way4 plan's own framing: new `account_class:
-DEBIT` on `cms_accounts` (balance-funded, no OTB/credit_limit), FAS
-available-funds check reused with a debit-specific "available"
-computation, same SYS→BANK→LOGO→BLOCK/FAS/TRAMS pipeline every other
-product in this repo uses — no wallet dependency.
+Confirmed directly against Avenza's current code (not just the memory
+of the earlier research pass) that `run_debit_authorization/1` really is
+dead/unexercised — its own comments (CU-2, 2026-07-22) state zero
+`logo_parameters` rows are tagged `"DEBIT"` anywhere, and it carries two
+documented, never-fixed bugs (a Decimal-major/integer-minor unit
+mismatch, a stale pre-CU-1 `wallet_product_id` assumption) plus a hard
+dependency on `WalletLedger`/`WalletAccounts`, neither of which exist in
+standalone vmu_core. "Build native" stands, confirmed not assumed.
 
-Needs its own design pass before implementation starts (matching the
-"write the module's own Requirements.md gap analysis before code"
-discipline used everywhere else in this repo) — `docs/debit/
-DEBIT_Module_Requirements.md` already exists as a planning stub; review
-it for currency before treating it as ready-to-build-against.
+Full design + 4 confirmed product/architecture decisions in
+`docs/debit/DEBIT_Module_Requirements.md` §7-9: no overdraft in v1;
+funding supports internal transfer **and** external bank transfer/cash
+deposit, modeled as real records with a channel tag + reference but no
+live rail call (no bank-rail integration exists in either repo); market
+config reads the existing `BankParameter.regulatory_regime`/
+`credit_reporting_format` cascade instead of hardcoding UAE, so an
+RBI-regulated bank_id can coexist with a CBUAE one without code changes;
+account model is a fully **separate schema** (`cms_debit_accounts`), not
+a `cms_accounts` discriminator — `credit_limit` stays `NOT NULL` for
+credit accounts, no shared-table nullable-field risk introduced.
+
+| # | Task | Status |
+|---|---|---|
+| D1.1 | `CMS.DebitAccount` schema (own identity fields for the parameter cascade, `available_balance`, no credit_limit/OTB) | ✅ |
+| D1.2 | `CMS.DebitFunding` schema (INTERNAL_TRANSFER/ADMIN_MANUAL/EXTERNAL_BANK_TRANSFER/CASH_DEPOSIT channels, external channels require a reference) | ✅ |
+| D1.3 | `cta_cards.debit_account_id` — new nullable FK; `account_id` relaxed from NOT NULL. Found live: `cta_cards.account_id` has a real DB-level FK to `cms_accounts`, so a debit card can't reuse it — needed a parallel nullable FK, same pattern as `hcs_spending_controls.fleet_card_id`/`employee_card_id` (item 3). `CTA.Card.changeset/2` enforces "exactly one of account_id/debit_account_id" at the application layer | ✅ |
+| D1.4 | `ParameterEngine.load_logo_parameters/0` — found `product_type` (CREDIT/DEBIT/PREPAID/...) was pure reference metadata, never cached/read by any business logic anywhere in standalone vmu_core (same finding the original 2026-07-11 requirements doc made, still true today) — fixed so `FAS.Authorization` can route by it without a DB round-trip | ✅ |
+| D1.5 | Real tests | ✅ 15/15 (`debit_account_test.exs`, `debit_funding_test.exs`, `card_account_ref_test.exs`) |
+
+**Reused, not reinvented**: `FAS.PendingHold` (the existing generic
+credit-authorization hold table) has **no DB-level FK on `account_id`**
+— confirmed before assuming it — so Debit's holds (D3) can reuse it
+directly rather than a new `DebitHold` schema. One real touchpoint
+flagged for D3: `TRAMS.Oban.AuthExpirySweepJob.do_reverse/3`
+unconditionally calls `AccountStateCoordinator.credit_open_to_buy/2` on
+every expired hold it releases — needs an account-kind branch before
+Debit holds can safely expire through the same sweep, or expired Debit
+holds will crash that job.
+
+Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after D1: same
+10 pre-existing failures, zero regressions.
 
 ---
 

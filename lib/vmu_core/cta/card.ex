@@ -26,6 +26,12 @@ defmodule VmuCore.CTA.Card do
 
   schema "cta_cards" do
     field :account_id,        :binary_id
+    # Way4 parity plan Phase 1 item 4 (Debit, 2026-07-26) — a debit card
+    # points here instead of :account_id, since CMS.Account requires a
+    # credit_limit a debit account doesn't have. Exactly one of the two
+    # must be set (enforced in changeset/2, not a DB CHECK — same
+    # convention as hcs_spending_controls.fleet_card_id/employee_card_id).
+    field :debit_account_id,  :binary_id
     field :pan_token,         :string
     field :last_four,         :string
     field :expiry,            :string
@@ -49,8 +55,8 @@ defmodule VmuCore.CTA.Card do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @required ~w[account_id pan_token card_type status generation]a
-  @optional ~w[last_four expiry emboss_name block_reason replaces_card_id
+  @required ~w[pan_token card_type status generation]a
+  @optional ~w[account_id debit_account_id last_four expiry emboss_name block_reason replaces_card_id
                activation_method dispatch_ref ecom_enabled atm_enabled
                contactless_enabled intl_enabled issued_at activated_at
                blocked_at expired_at]a
@@ -65,9 +71,26 @@ defmodule VmuCore.CTA.Card do
     |> validate_length(:pan_token, is: 64)
     |> validate_length(:last_four, is: 4)
     |> validate_number(:generation, greater_than: 0)
+    |> validate_exactly_one_account_ref()
     |> unique_constraint(:pan_token,
          name: :cta_cards_active_pan_token_index,
          message: "another live card already holds this PAN")
+  end
+
+  defp validate_exactly_one_account_ref(changeset) do
+    account_id = get_field(changeset, :account_id)
+    debit_account_id = get_field(changeset, :debit_account_id)
+
+    case {account_id, debit_account_id} do
+      {nil, nil} ->
+        add_error(changeset, :account_id, "either account_id or debit_account_id is required")
+
+      {a, d} when not is_nil(a) and not is_nil(d) ->
+        add_error(changeset, :account_id, "exactly one of account_id/debit_account_id must be set")
+
+      _ ->
+        changeset
+    end
   end
 
   def card_types,    do: @card_types

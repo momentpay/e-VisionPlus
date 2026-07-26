@@ -132,25 +132,51 @@ pre-existing, already-documented failures, zero regressions.
 
 ## 3. Fleet Cards
 
-**Status: ⬜ Pending — not started**
+**Status: ✅ Done (2026-07-26)**
 
-vmu_core has the migration (`20260712000006_create_hcs_fleet_tables.exs`
-— `hcs_vehicles`, `hcs_driver_assignments`, `hcs_fleet_cards`, plus an
-alter on `hcs_spending_controls`) but zero Elixir code against it.
-**Verify the migration's column set still matches Avenza's schemas
-exactly before wiring anything in** — Avenza's own repo has no migration
-for these tables at all (relies on a shared dev DB already having them),
-so this is unverified until checked directly.
+Confirmed all three fleet tables (`hcs_vehicles`, `hcs_driver_assignments`,
+`hcs_fleet_cards`) plus the `hcs_spending_controls.fleet_card_id` FK were
+already fully migrated and applied to both dev and test DBs — leftover
+from the same earlier, never-finished re-port attempt that also left
+item 2's migrations sitting untracked. Zero new migrations needed for
+this item.
 
 | # | Task | Avenza source | Status |
 |---|---|---|---|
-| F1.1 | Confirm `hcs_vehicles`/`hcs_driver_assignments`/`hcs_fleet_cards` migration columns match Avenza's schema field-for-field | n/a — direct comparison | ⬜ |
-| F1.2 | `HCS.Vehicle`, `HCS.FleetCard` schemas | `vmu_hcs/lib/vmu_core/hcs/vehicle.ex`, `fleet_card.ex` | ⬜ |
-| F1.3 | `HCS.DriverAssignment` + `HCS.DriverAssignmentCommand` — current/history tracking, transactional close-then-open | `vmu_hcs/lib/vmu_core/hcs/driver_assignment.ex`, `driver_assignment_command.ex` | ⬜ |
-| F1.4 | `HCS.FleetOnboarding` — `add_vehicle/2`, `add_fleet_card/3` (validates against shared company credit pool across employee+fleet allocations, creates synthetic `CMS.Account` per vehicle) | `vmu_hcs/lib/vmu_core/hcs/fleet_onboarding.ex` | ⬜ |
-| F1.5 | `HCS.FleetReport` — spend-by-driver, off the same ledger `ConsolidatedStatementGenerator` uses. v1 scope explicitly: no fuel-line-item detail, doesn't split spend across mid-period driver reassignment (carry the same explicit flag forward, don't silently drop it) | `vmu_hcs/lib/vmu_core/hcs/fleet_report.ex` | ⬜ |
-| F1.6 | `LimitController` generalization to enforce `FleetCard` alongside `EmployeeCard` (shares C1.3's diff) | — | ⬜ |
-| F1.7 | Real tests | new | ⬜ |
+| F1.1 | Confirmed `hcs_vehicles`/`hcs_driver_assignments`/`hcs_fleet_cards` migration columns match Avenza's schema field-for-field (direct `\d` comparison against dev DB) | n/a — direct comparison | ✅ |
+| F1.2 | `HCS.Vehicle`, `HCS.FleetCard` schemas | `vmu_hcs/lib/vmu_core/hcs/vehicle.ex`, `fleet_card.ex` | ✅ |
+| F1.3 | `HCS.DriverAssignment` + `HCS.DriverAssignmentCommand` — current/history tracking, transactional close-then-open; `@repo Application.compile_env(...)` adapted to a plain alias, `DateTime.utc_now()` truncated to `:second` at both write sites (this app's non-usec `:utc_datetime` convention) | `vmu_hcs/lib/vmu_core/hcs/driver_assignment.ex`, `driver_assignment_command.ex` | ✅ |
+| F1.4 | `HCS.FleetOnboarding` — `add_vehicle/2`, `add_fleet_card/3` (validates against shared company credit pool across employee+fleet allocations via `allocated_pool/1`, creates a synthetic `CMS.Account` per vehicle reusing the company's own parent customer_id) | `vmu_hcs/lib/vmu_core/hcs/fleet_onboarding.ex` | ✅ |
+| F1.5 | `HCS.FleetReport` — `spend_by_vehicle/3`, `spend_by_driver/3`, `total_spend/3`, off the same `cms_ledger_entries` ledger `ConsolidatedStatementGenerator` already uses (same `inserted_at`-range convention). v1 scope explicitly: no fuel-line-item detail, doesn't split spend across mid-period driver reassignment — 100% attributed to the vehicle's *current* assignment (documented in the moduledoc, not silently dropped) | `vmu_hcs/lib/vmu_core/hcs/fleet_report.ex` | ✅ |
+| F1.6 | `LimitController` generalized: `get_employee_card/1` → `get_active_card/1` returning `{:employee, card} \| {:fleet, card} \| nil`; `debit_limits/2`/`credit_limits/2`/`check_spending_controls/6` branch on a `card_schema/1`/`card_match` dynamic per kind. `SpendingControl` gained a `fleet_card_id` field + `"FLEET"` scope (DB column already existed via the same untracked migration) | shares item 2's `limit_controller.ex` diff | ✅ |
+| F1.7 | Admin UI — `HcsComponent` second pass: Fleet Vehicles roster + "+ Add Vehicle" in company detail, new `:vehicle_detail` mode (fleet card issuance, driver assignment/history), Fleet Spend Report generator | `vmu_core_web/live/admin/hcs_component.ex` | ✅ |
+| F1.8 | Real tests | new | ✅ 22/22 (7 `fleet_onboarding_test.exs`, 5 `driver_assignment_command_test.exs`, 4 `fleet_report_test.exs`, 4 fleet cases added to `limit_controller_test.exs`, 2 fleet cases added to `hcs_component_test.exs`) |
+
+**Real bugs found and fixed while building this item**:
+- `Ecto.Query`'s `dynamic/2` cannot be interpolated with `^` alongside
+  plain `and`-joined conditions inside the same `where:` — the fix was to
+  fold everything (including the kind-specific card-match clause) into a
+  single combined `dynamic/2` before interpolating it once.
+- `SpendingControl.changeset/2`'s `unique_constraint`-style test
+  expectation was written against the wrong field: Ecto's
+  `unique_constraint/2` attaches a composite constraint's error to the
+  **first** field in the list (`:company_id` for `[:company_id, :vin]`
+  on `Vehicle`), not the semantically "interesting" one — a test-authoring
+  gotcha, not a code bug.
+- A `FleetReport` test initially tried to "backdate" a ledger entry by
+  setting `posting_date` alone; `inserted_at` (what period-range queries
+  actually filter on, matching `ConsolidatedStatementGenerator`'s own
+  convention) is set to real wall-clock time by `timestamps()` regardless
+  — fixed by directly `Repo.update_all`-ing `inserted_at` for the
+  out-of-window fixture row, the same technique `limit_controller_test.exs`
+  already uses to backdate `daily_spend_date`.
+
+Full-suite regression (230 tests, one pre-existing broken compile file
+in `test/vmu_core/lms/points_lifecycle_test.exs` excluded — unrelated to
+HCS, a stale `:entry_type` field reference predating this session):
+same 10 pre-existing, already-documented failures (2 `FAS.
+AuthorizationIntegrationTest`, 4 `CMS.InterestIntegrationTest`, 4 `COL.
+WriteOffRecoveryTest`), zero regressions.
 
 ---
 

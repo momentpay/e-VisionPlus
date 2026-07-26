@@ -1,19 +1,27 @@
 defmodule VmuCore.HCS.LimitController do
   @moduledoc """
-  Dual-layer HCS limit enforcement: employee sub-limit + company credit pool.
+  Dual-layer HCS limit enforcement: card sub-limit + company credit pool.
 
   Called from AccountStateCoordinator.do_authorize/4 for every authorization.
-  For non-HCS cards (no employee_card record), all checks return :ok immediately.
+  For non-HCS cards (no employee_card/fleet_card record), all checks return
+  :ok immediately.
 
   Spending controls: MCC_BLOCK, MCC_ALLOW, CHANNEL_BLOCK, TXN_CAP, DAILY_CAP.
-  Company-level controls apply to all employee cards; card-level are additive.
+  Company-level controls apply to all cards of the company; card-level are
+  additive.
 
-  Fleet-card generalization (Way4 parity plan Phase 1 item 3) is not yet
-  built — `get_employee_card/1` only checks `EmployeeCard`, not a future
-  `FleetCard`. This module gets a second pass when that item lands.
+  Generalized for fleet cards (Way4 parity plan Phase 1 item 3, 2026-07-25):
+  `get_active_card/1` checks `EmployeeCard` first (by `employee_account_id`),
+  then falls back to `FleetCard` (by `account_id`), returning a
+  `{:employee, card} | {:fleet, card} | nil` tagged tuple. `EmployeeCard`
+  and `FleetCard` deliberately share identical limit/control field names
+  (`available_individual`, `can_withdraw_cash`, `daily_spend`,
+  `daily_spend_date`, `company_id`, `id`) specifically so every check
+  function below can pattern-match generically on either struct via a bare
+  `%{field: ...}` pattern, without a struct-type check.
   """
 
-  alias VmuCore.HCS.{Company, EmployeeCard, SpendingControl}
+  alias VmuCore.HCS.{Company, EmployeeCard, FleetCard, SpendingControl}
   alias VmuCore.Repo
   import Ecto.Query
   alias Decimal, as: D
@@ -29,27 +37,27 @@ defmodule VmuCore.HCS.LimitController do
   HCS's cash gate can never drift from the account-level definition of
   "this is a cash transaction."
   """
-  def check_hcs_limits(employee_account_id, amount, channel, mcc, cash_txn \\ false) do
-    case get_employee_card(employee_account_id) do
+  def check_hcs_limits(account_id, amount, channel, mcc, cash_txn \\ false) do
+    case get_active_card(account_id) do
       nil ->
         :ok
 
-      employee_card ->
-        company = Repo.get!(Company, employee_card.company_id)
+      {kind, card} ->
+        company = Repo.get!(Company, card.company_id)
         amount_d = D.new(amount)
 
         with :ok <- check_company_active(company),
-             :ok <- check_cash_access(employee_card, cash_txn),
-             :ok <- check_individual_limit(employee_card, amount_d),
+             :ok <- check_cash_access(card, cash_txn),
+             :ok <- check_individual_limit(card, amount_d),
              :ok <- check_company_pool(company, amount_d),
-             :ok <- check_spending_controls(company.id, employee_card, amount_d, channel, mcc) do
+             :ok <- check_spending_controls(company.id, kind, card, amount_d, channel, mcc) do
           :ok
         end
     end
   end
 
   @doc """
-  Debits both employee individual_limit and company pool after successful
+  Debits both card individual_limit and company pool after successful
   authorization. Called from AccountStateCoordinator after {:approved, ...}.
   No-op for non-HCS cards.
 
@@ -60,26 +68,28 @@ defmodule VmuCore.HCS.LimitController do
   `daily_spend + amount`) when `daily_spend_date` isn't today, since a
   stale counter from a prior day means zero spent so far.
   """
-  def debit_limits(employee_account_id, amount) do
+  def debit_limits(account_id, amount) do
     dec = D.new(amount)
 
-    case get_employee_card(employee_account_id) do
+    case get_active_card(account_id) do
       nil -> :ok
-      employee_card ->
+      {kind, card} ->
         today = Date.utc_today()
         new_daily_spend =
-          if employee_card.daily_spend_date == today,
-            do: D.add(employee_card.daily_spend || D.new(0), dec),
+          if card.daily_spend_date == today,
+            do: D.add(card.daily_spend || D.new(0), dec),
             else: dec
+
+        schema = card_schema(kind)
 
         Repo.transaction(fn ->
           Repo.update_all(
-            from(ec in EmployeeCard, where: ec.id == ^employee_card.id),
+            from(c in schema, where: c.id == ^card.id),
             inc: [available_individual: D.negate(dec)],
             set: [daily_spend: new_daily_spend, daily_spend_date: today]
           )
           Repo.update_all(
-            from(c in Company, where: c.id == ^employee_card.company_id),
+            from(c in Company, where: c.id == ^card.company_id),
             inc: [available_limit: D.negate(dec)]
           )
         end)
@@ -92,18 +102,20 @@ defmodule VmuCore.HCS.LimitController do
   Called from RepaymentDistributor.distribute/2 after posting payment.
   No-op for non-HCS cards.
   """
-  def credit_limits(employee_account_id, amount) do
+  def credit_limits(account_id, amount) do
     inc = D.new(amount)
 
-    case get_employee_card(employee_account_id) do
+    case get_active_card(account_id) do
       nil -> :ok
-      employee_card ->
+      {kind, card} ->
+        schema = card_schema(kind)
+
         Repo.update_all(
-          from(ec in EmployeeCard, where: ec.id == ^employee_card.id),
+          from(c in schema, where: c.id == ^card.id),
           inc: [available_individual: inc]
         )
         Repo.update_all(
-          from(c in Company, where: c.id == ^employee_card.company_id),
+          from(c in Company, where: c.id == ^card.company_id),
           inc: [available_limit: inc]
         )
         :ok
@@ -114,13 +126,29 @@ defmodule VmuCore.HCS.LimitController do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp get_employee_card(employee_account_id) do
-    Repo.one(
-      from ec in EmployeeCard,
-        where: ec.employee_account_id == ^employee_account_id and ec.status == "ACTIVE",
-        limit: 1
-    )
+  defp get_active_card(account_id) do
+    case Repo.one(
+           from ec in EmployeeCard,
+             where: ec.employee_account_id == ^account_id and ec.status == "ACTIVE",
+             limit: 1
+         ) do
+      %EmployeeCard{} = card ->
+        {:employee, card}
+
+      nil ->
+        case Repo.one(
+               from fc in FleetCard,
+                 where: fc.account_id == ^account_id and fc.status == "ACTIVE",
+                 limit: 1
+             ) do
+          %FleetCard{} = card -> {:fleet, card}
+          nil -> nil
+        end
+    end
   end
+
+  defp card_schema(:employee), do: EmployeeCard
+  defp card_schema(:fleet), do: FleetCard
 
   defp check_company_active(%{status: "ACTIVE"}), do: :ok
   defp check_company_active(_), do: {:error, :company_suspended}
@@ -128,7 +156,7 @@ defmodule VmuCore.HCS.LimitController do
   # Found live 2026-07-25: can_withdraw_cash existed on the schema but was
   # never read anywhere — every employee card could take cash regardless
   # of the field.
-  defp check_cash_access(_employee_card, false), do: :ok
+  defp check_cash_access(_card, false), do: :ok
   defp check_cash_access(%{can_withdraw_cash: true}, true), do: :ok
   defp check_cash_access(%{can_withdraw_cash: _}, true), do: {:error, :cash_access_blocked}
 
@@ -144,24 +172,31 @@ defmodule VmuCore.HCS.LimitController do
       else: :ok
   end
 
-  defp check_spending_controls(company_id, employee_card, amount, channel, mcc) do
+  defp check_spending_controls(company_id, kind, card, amount, channel, mcc) do
     today = Date.utc_today()
 
-    controls =
-      Repo.all(
-        from c in SpendingControl,
-          where: c.company_id == ^company_id
-            and c.status == "ACTIVE"
-            and (is_nil(c.employee_card_id) or c.employee_card_id == ^employee_card.id)
-            and c.effective_from <= ^today
-            and (is_nil(c.effective_to) or c.effective_to >= ^today)
+    card_match =
+      case kind do
+        :employee -> dynamic([c], is_nil(c.employee_card_id) or c.employee_card_id == ^card.id)
+        :fleet     -> dynamic([c], is_nil(c.fleet_card_id) or c.fleet_card_id == ^card.id)
+      end
+
+    base_match =
+      dynamic(
+        [c],
+        c.company_id == ^company_id and c.status == "ACTIVE" and
+          c.effective_from <= ^today and
+          (is_nil(c.effective_to) or c.effective_to >= ^today)
       )
+
+    controls =
+      Repo.all(from c in SpendingControl, where: ^dynamic([c], ^base_match and ^card_match))
 
     # Today's spend-so-far is 0 if the card's counter is stale (last
     # touched on an earlier day) — computed once here, not per-control.
     spent_today =
-      if employee_card.daily_spend_date == today,
-        do: employee_card.daily_spend || D.new(0),
+      if card.daily_spend_date == today,
+        do: card.daily_spend || D.new(0),
         else: D.new(0)
 
     Enum.reduce_while(controls, :ok, fn control, :ok ->

@@ -15,10 +15,11 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
     unified Approval Inbox, the same "one action surface" split COL uses
     for write-offs/workout plans/settlement offers.
 
-  Fleet vehicles/driver assignment/reports (Way4 parity plan Phase 1 item
-  3) are not in this pass — Avenza's version bundles them into this same
-  component; they'll be added here when that item lands, not as a
-  separate file.
+  Fleet vehicles/driver assignment/spend reports (Way4 parity plan Phase 1
+  item 3, 2026-07-25) — vehicle roster + "+ Add Vehicle" live in the
+  company detail view; a vehicle detail view (fleet card issuance, driver
+  assignment history) is its own `:vehicle_detail` mode, same split
+  Avenza's original uses.
 
   Visibility requires `hcs:view`; create/edit/request-limit-change require
   `hcs:edit`.
@@ -29,7 +30,9 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   import VmuCoreWeb.AdminUI
 
   alias VmuCore.{Repo, HCS.Company, HCS.EmployeeCard, HCS.SpendingControl,
-                 HCS.CompanyOnboarding, HCS.FacilityLimitCommand, HCS.FacilityLimitChange}
+                 HCS.CompanyOnboarding, HCS.FacilityLimitCommand, HCS.FacilityLimitChange,
+                 HCS.Vehicle, HCS.FleetCard, HCS.FleetOnboarding, HCS.DriverAssignmentCommand,
+                 HCS.FleetReport}
   alias VmuCore.ASM.Authz
   alias Decimal, as: D
 
@@ -48,6 +51,14 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
        employee_cards: [],
        spending_controls: [],
        pending_limit_changes: [],
+       vehicles: [],
+       report_kind: :vehicle,
+       report_rows: [],
+       report_period_from: nil,
+       report_period_to: nil,
+       selected_vehicle: nil,
+       selected_vehicle_card: nil,
+       selected_vehicle_history: [],
        can_edit: false
      )
      |> load_companies()}
@@ -217,6 +228,135 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   end
 
   # ---------------------------------------------------------------------------
+  # Vehicles / fleet cards / driver assignment (Way4 parity plan Phase 1
+  # item 3, 2026-07-25)
+  # ---------------------------------------------------------------------------
+
+  def handle_event("add_vehicle_save", %{"vehicle" => params}, socket) do
+    if socket.assigns.can_edit do
+      attrs = %{
+        vin: blank_to_nil(params["vin"]), plate_number: params["plate_number"],
+        make: params["make"], model: params["model"], year: parse_int(params["year"])
+      }
+
+      case FleetOnboarding.add_vehicle(socket.assigns.company.id, attrs) do
+        {:ok, vehicle} ->
+          {:noreply, socket
+                      |> assign(active_action: :none, notice: "Vehicle #{vehicle.plate_number} added.", notice_kind: :success)
+                      |> load_vehicles()}
+
+        {:error, changeset} ->
+          {:noreply, assign(socket, notice: "Add vehicle failed — #{inspect(changeset.errors)}", notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot add vehicles.", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("view_vehicle", %{"id" => id}, socket) do
+    {:noreply, load_vehicle_detail(socket, id)}
+  end
+
+  def handle_event("back_to_company", _, socket) do
+    {:noreply, socket
+                |> assign(mode: :detail, active_action: :none, notice: nil, selected_vehicle: nil)
+                |> load_vehicles()}
+  end
+
+  def handle_event("issue_fleet_card_save", %{"card" => params}, socket) do
+    if socket.assigns.can_edit do
+      limit = parse_decimal(params["individual_limit"])
+      vehicle = socket.assigns.selected_vehicle
+
+      cond do
+        is_nil(limit) or D.compare(limit, D.new(0)) != :gt ->
+          {:noreply, assign(socket, notice: "Individual limit must be a positive number.", notice_kind: :error)}
+
+        true ->
+          card_attrs = %{
+            individual_limit: limit,
+            can_withdraw_cash: params["can_withdraw_cash"] == "true",
+            monthly_spend_cap: parse_decimal(params["monthly_spend_cap"])
+          }
+
+          case FleetOnboarding.add_fleet_card(socket.assigns.company.id, vehicle.id, card_attrs) do
+            {:ok, _result} ->
+              {:noreply, socket
+                          |> load_vehicle_detail(vehicle.id)
+                          |> assign(active_action: :none, notice: "Fleet card issued for #{vehicle.plate_number}.", notice_kind: :success)}
+
+            {:error, reason} ->
+              {:noreply, assign(socket, notice: "Card issuance failed — #{inspect(reason)}", notice_kind: :error)}
+          end
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot issue fleet cards.", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("assign_driver_save", %{"driver" => params}, socket) do
+    if socket.assigns.can_edit do
+      vehicle = socket.assigns.selected_vehicle
+
+      if params["driver_name"] in [nil, ""] do
+        {:noreply, assign(socket, notice: "Driver name is required.", notice_kind: :error)}
+      else
+        {:ok, _assignment} =
+          DriverAssignmentCommand.assign_driver(vehicle.id, params["driver_name"], blank_to_nil(params["driver_license_no"]))
+
+        {:noreply, socket
+                    |> load_vehicle_detail(vehicle.id)
+                    |> assign(active_action: :none, notice: "Driver assigned to #{vehicle.plate_number}.", notice_kind: :success)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot assign drivers.", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("unassign_driver", _, socket) do
+    if socket.assigns.can_edit do
+      vehicle = socket.assigns.selected_vehicle
+
+      case DriverAssignmentCommand.unassign_driver(vehicle.id) do
+        :ok ->
+          {:noreply, socket
+                      |> load_vehicle_detail(vehicle.id)
+                      |> assign(notice: "Driver unassigned.", notice_kind: :success)}
+
+        {:error, :no_active_assignment} ->
+          {:noreply, assign(socket, notice: "No driver currently assigned.", notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot unassign drivers.", notice_kind: :error)}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Fleet spend report
+  # ---------------------------------------------------------------------------
+
+  def handle_event("generate_report_save", %{"report" => params}, socket) do
+    with {:ok, from_date} <- Date.from_iso8601(params["period_from"] || ""),
+         {:ok, to_date}   <- Date.from_iso8601(params["period_to"] || "") do
+      kind = if params["kind"] == "driver", do: :driver, else: :vehicle
+      company_id = socket.assigns.company.id
+
+      rows =
+        case kind do
+          :vehicle -> FleetReport.spend_by_vehicle(company_id, from_date, to_date)
+          :driver  -> FleetReport.spend_by_driver(company_id, from_date, to_date)
+        end
+
+      {:noreply, assign(socket,
+        report_kind: kind, report_rows: rows,
+        report_period_from: from_date, report_period_to: to_date,
+        notice: nil)}
+    else
+      _ -> {:noreply, assign(socket, notice: "Enter a valid date range.", notice_kind: :error)}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Private — data loading
   # ---------------------------------------------------------------------------
 
@@ -249,6 +389,47 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       spending_controls: Repo.all(from s in SpendingControl, where: s.company_id == ^company.id)
     )
     |> reload_pending_changes()
+    |> load_vehicles()
+  end
+
+  # Augments each Vehicle with its current driver name and whether a fleet
+  # card has been issued, so the roster table doesn't need N+1 lookups
+  # from the template.
+  defp load_vehicles(socket) do
+    company = socket.assigns.company
+
+    vehicles =
+      Repo.all(from v in Vehicle, where: v.company_id == ^company.id, order_by: [asc: v.plate_number])
+      |> Enum.map(fn v ->
+        assignment = DriverAssignmentCommand.current_assignment(v.id)
+        has_card = Repo.exists?(from fc in FleetCard, where: fc.vehicle_id == ^v.id and fc.status == "ACTIVE")
+
+        v
+        |> Map.put(:current_driver, assignment && assignment.driver_name)
+        |> Map.put(:has_card, has_card)
+      end)
+
+    assign(socket, vehicles: vehicles)
+  end
+
+  defp load_vehicle_detail(socket, vehicle_id) do
+    vehicle = Repo.get!(Vehicle, vehicle_id)
+
+    fleet_card =
+      Repo.one(
+        from fc in FleetCard,
+          where: fc.vehicle_id == ^vehicle.id and fc.status == "ACTIVE",
+          limit: 1
+      )
+
+    assign(socket,
+      mode: :vehicle_detail,
+      active_action: :none,
+      notice: nil,
+      selected_vehicle: vehicle,
+      selected_vehicle_card: fleet_card,
+      selected_vehicle_history: DriverAssignmentCommand.history(vehicle.id)
+    )
   end
 
   defp reload_pending_changes(socket) do
@@ -545,6 +726,241 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
                   <% end %>
                 </td>
                 <td><span class={"badge #{status_cls(s.status)}"}><%= s.status %></span></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+        <span>Fleet Vehicles (<%= length(@vehicles) %>)</span>
+        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="add_vehicle" phx-target={@myself}>+ Add Vehicle</button>
+      </div>
+
+      <%= if @active_action == :add_vehicle do %>
+        <div class="action-panel" style="margin-bottom:16px;">
+          <div class="action-panel-title">
+            <span>🚚 New Vehicle</span>
+            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+          </div>
+          <form phx-submit="add_vehicle_save" phx-target={@myself}>
+            <div class="form-grid-2">
+              <div class="form-group"><label class="form-label">Plate Number *</label>
+                <input class="input" type="text" name="vehicle[plate_number]" required/></div>
+              <div class="form-group"><label class="form-label">VIN</label>
+                <input class="input" type="text" name="vehicle[vin]" maxlength="17"/></div>
+              <div class="form-group"><label class="form-label">Make</label>
+                <input class="input" type="text" name="vehicle[make]"/></div>
+              <div class="form-group"><label class="form-label">Model</label>
+                <input class="input" type="text" name="vehicle[model]"/></div>
+              <div class="form-group"><label class="form-label">Year</label>
+                <input class="input" type="text" name="vehicle[year]"/></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button type="submit" class="btn btn-primary">Add Vehicle</button>
+              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      <% end %>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Plate</th><th>VIN</th><th>Make/Model</th><th>Current Driver</th><th>Fleet Card</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <%= if @vehicles == [] do %>
+              <tr><td colspan="7" class="empty-row" style="text-align:center;">No vehicles registered.</td></tr>
+            <% end %>
+            <%= for v <- @vehicles do %>
+              <tr>
+                <td class="mono"><%= v.plate_number %></td>
+                <td class="mono"><%= v.vin || "—" %></td>
+                <td><%= [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" ") %></td>
+                <td><%= v.current_driver || "—" %></td>
+                <td><%= if v.has_card, do: "Issued", else: "None" %></td>
+                <td><span class={"badge #{status_cls(v.status)}"}><%= v.status %></span></td>
+                <td><button class="btn btn-xs" phx-click="view_vehicle" phx-value-id={v.id} phx-target={@myself}>View</button></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+        <span>Fleet Spend Report</span>
+        <button class="btn btn-sm" phx-click="open_action" phx-value-a="fleet_report" phx-target={@myself}>Run Report</button>
+      </div>
+
+      <%= if @active_action == :fleet_report do %>
+        <div class="action-panel" style="margin-bottom:16px;">
+          <div class="action-panel-title">
+            <span>📊 Fleet Spend Report</span>
+            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+          </div>
+          <form phx-submit="generate_report_save" phx-target={@myself}>
+            <div class="form-grid-2">
+              <div class="form-group"><label class="form-label">Period From *</label>
+                <input class="input" type="date" name="report[period_from]" required/></div>
+              <div class="form-group"><label class="form-label">Period To *</label>
+                <input class="input" type="date" name="report[period_to]" required/></div>
+              <div class="form-group"><label class="form-label">Group By</label>
+                <select class="input" name="report[kind]">
+                  <option value="vehicle">Vehicle</option>
+                  <option value="driver">Driver (current assignment only)</option>
+                </select></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button type="submit" class="btn btn-primary">Generate</button>
+            </div>
+          </form>
+        </div>
+      <% end %>
+
+      <div :if={@report_rows != []} class="table-wrap">
+        <p class="text-muted" style="font-size:0.8em;">
+          <%= @report_period_from %> → <%= @report_period_to %> · grouped by <%= @report_kind %>
+          <%= if @report_kind == :driver do %>(spend by driver uses each vehicle's <em>current</em> assignment only — not split across mid-period reassignment)<% end %>
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th :if={@report_kind == :vehicle}>Vehicle</th>
+              <th :if={@report_kind == :driver}>Driver</th>
+              <th :if={@report_kind == :driver}>Vehicles</th>
+              <th>Spend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for row <- @report_rows do %>
+              <tr>
+                <td :if={@report_kind == :vehicle} class="mono"><%= row.plate_number %></td>
+                <td :if={@report_kind == :driver}><%= row.driver_name %></td>
+                <td :if={@report_kind == :driver}><%= row.vehicles %></td>
+                <td class="mono"><%= money(row.spend) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  def render(%{mode: :vehicle_detail} = assigns) do
+    ~H"""
+    <div class="component-panel">
+      <.page_header title={"#{@selected_vehicle.plate_number} — #{@company.company_name}"} subtitle="Vehicle detail">
+        <:actions>
+          <button class="btn-sm" phx-click="back_to_company" phx-target={@myself}>← Back to company</button>
+        </:actions>
+      </.page_header>
+
+      <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <tbody>
+            <tr><td>Plate Number</td><td class="mono"><%= @selected_vehicle.plate_number %></td></tr>
+            <tr><td>VIN</td><td class="mono"><%= @selected_vehicle.vin || "—" %></td></tr>
+            <tr><td>Make / Model / Year</td><td><%= [@selected_vehicle.make, @selected_vehicle.model, @selected_vehicle.year] |> Enum.reject(&is_nil/1) |> Enum.join(" ") %></td></tr>
+            <tr><td>Status</td><td><span class={"badge #{status_cls(@selected_vehicle.status)}"}><%= @selected_vehicle.status %></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+        <span>Fleet Card</span>
+        <button :if={@can_edit and is_nil(@selected_vehicle_card)} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="issue_fleet_card" phx-target={@myself}>+ Issue Fleet Card</button>
+      </div>
+
+      <%= if @active_action == :issue_fleet_card do %>
+        <div class="action-panel" style="margin-bottom:16px;">
+          <div class="action-panel-title">
+            <span>💳 Issue Fleet Card</span>
+            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+          </div>
+          <form phx-submit="issue_fleet_card_save" phx-target={@myself}>
+            <div class="form-grid-2">
+              <div class="form-group"><label class="form-label">Individual Limit *</label>
+                <input class="input" type="text" name="card[individual_limit]" placeholder="5000.00" required/></div>
+              <div class="form-group"><label class="form-label">Monthly Spend Cap</label>
+                <input class="input" type="text" name="card[monthly_spend_cap]"/></div>
+              <div class="form-group"><label class="form-label">Cash Withdrawal</label>
+                <select class="input" name="card[can_withdraw_cash]">
+                  <option value="false" selected>No (recommended for fuel cards)</option>
+                  <option value="true">Yes</option>
+                </select></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button type="submit" class="btn btn-primary">Issue Card</button>
+              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      <% end %>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <tbody>
+            <%= if @selected_vehicle_card do %>
+              <tr><td>Individual Limit</td><td class="mono"><%= money(@selected_vehicle_card.individual_limit) %></td></tr>
+              <tr><td>Available</td><td class="mono"><%= money(@selected_vehicle_card.available_individual) %></td></tr>
+              <tr><td>Daily Spend</td><td class="mono"><%= money(@selected_vehicle_card.daily_spend || Decimal.new(0)) %></td></tr>
+              <tr><td>Cash Withdrawal</td><td><%= if @selected_vehicle_card.can_withdraw_cash, do: "Yes", else: "No" %></td></tr>
+              <tr><td>Status</td><td><span class={"badge #{status_cls(@selected_vehicle_card.status)}"}><%= @selected_vehicle_card.status %></span></td></tr>
+            <% else %>
+              <tr><td colspan="2" class="empty-row" style="text-align:center;">No fleet card issued for this vehicle yet.</td></tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+        <span>Driver Assignment</span>
+        <div :if={@can_edit} style="display:flex;gap:8px;">
+          <button class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="assign_driver" phx-target={@myself}>Assign Driver</button>
+          <button :if={@selected_vehicle_history != [] and Enum.at(@selected_vehicle_history, 0) && is_nil(Enum.at(@selected_vehicle_history, 0).unassigned_at)}
+                  class="btn btn-sm" phx-click="unassign_driver" phx-target={@myself}>Unassign Current</button>
+        </div>
+      </div>
+
+      <%= if @active_action == :assign_driver do %>
+        <div class="action-panel" style="margin-bottom:16px;">
+          <div class="action-panel-title">
+            <span>🧑 Assign Driver</span>
+            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+            Assigning a new driver automatically closes out the currently active assignment, if any.
+          </div>
+          <form phx-submit="assign_driver_save" phx-target={@myself}>
+            <div class="form-grid-2">
+              <div class="form-group"><label class="form-label">Driver Name *</label>
+                <input class="input" type="text" name="driver[driver_name]" required/></div>
+              <div class="form-group"><label class="form-label">License No.</label>
+                <input class="input" type="text" name="driver[driver_license_no]"/></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button type="submit" class="btn btn-primary">Assign</button>
+              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      <% end %>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Driver</th><th>License</th><th>Assigned</th><th>Unassigned</th></tr></thead>
+          <tbody>
+            <%= if @selected_vehicle_history == [] do %>
+              <tr><td colspan="4" class="empty-row" style="text-align:center;">No assignment history.</td></tr>
+            <% end %>
+            <%= for a <- @selected_vehicle_history do %>
+              <tr>
+                <td><%= a.driver_name %></td>
+                <td><%= a.driver_license_no || "—" %></td>
+                <td><%= Calendar.strftime(a.assigned_at, "%Y-%m-%d %H:%M") %></td>
+                <td><%= if a.unassigned_at, do: Calendar.strftime(a.unassigned_at, "%Y-%m-%d %H:%M"), else: "— (current)" %></td>
               </tr>
             <% end %>
           </tbody>

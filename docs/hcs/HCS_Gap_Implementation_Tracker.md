@@ -61,3 +61,58 @@ pre-existing, already-documented failures, zero regressions.
 of both `LimitController` and `HcsComponent` (Way4 parity plan Phase 1
 item 3, next); full employee-card CRUD (Avenza's own comment calls this
 "F-UI2 scope," i.e. its own next increment, not built there either).
+
+---
+
+## HCS-P2 — Fleet Cards (Way4 parity plan Phase 1 item 3) ✅ (2026-07-26)
+
+Ported from the same `Avenza/apps/vmu_core_web`/`hcs_component.ex`
+source as P1, this time the vehicle/driver/report sections that were
+deliberately deferred out of that pass. All three fleet DB tables
+(`hcs_vehicles`, `hcs_driver_assignments`, `hcs_fleet_cards`) plus the
+`hcs_spending_controls.fleet_card_id` FK were already fully migrated and
+applied to both dev and test DBs — leftover from the same earlier,
+never-finished re-port attempt that also left P1's migrations sitting
+untracked. Zero new migrations needed.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P2.1 | `HCS.Vehicle`, `HCS.FleetCard` schemas — verbatim field match against the already-applied migration | `hcs/vehicle.ex`, `hcs/fleet_card.ex` | ✅ |
+| P2.2 | `HCS.DriverAssignment` + `HCS.DriverAssignmentCommand` — current/history tracking; "current" assignment = the single row with `unassigned_at == nil`, enforced by a transactional close-then-open, same invariant style as `FacilityLimitChange`'s status transitions. `@repo Application.compile_env(...)` adapted to a plain alias; `DateTime.utc_now()` truncated to `:second` at both write sites | `hcs/driver_assignment.ex`, `hcs/driver_assignment_command.ex` | ✅ |
+| P2.3 | `HCS.FleetOnboarding` — `add_vehicle/2`; `add_fleet_card/3` validates the proposed limit against the remaining company pool via `allocated_pool/1`, which sums **both** `EmployeeCard` and `FleetCard` allocations (unlike `CompanyOnboarding.add_employee_card/3`'s employee-only equivalent), since both draw from the same `Company.credit_limit` pool. Fleet card accounts reuse the company's own parent `CMS.Account`'s `customer_id` — a vehicle isn't a separate KYC/legal entity | `hcs/fleet_onboarding.ex` | ✅ |
+| P2.4 | `HCS.FleetReport` — `spend_by_vehicle/3`, `spend_by_driver/3`, `total_spend/3` off `cms_ledger_entries`, same `inserted_at`-range convention `ConsolidatedStatementGenerator` already uses. v1-scoped deliberately: no fuel-line-item detail, and `spend_by_driver/3` attributes 100% of a vehicle's period spend to whichever driver is *currently* assigned — not split across a mid-period reassignment (documented in the moduledoc, not silently dropped) | `hcs/fleet_report.ex` | ✅ |
+| P2.5 | `LimitController` generalized: `get_employee_card/1` → `get_active_card/1` returning `{:employee, card} \| {:fleet, card} \| nil` (checks `EmployeeCard` by `employee_account_id` first, falls back to `FleetCard` by `account_id`); `debit_limits/2`/`credit_limits/2`/`check_spending_controls/6` branch on the returned kind via a `card_schema/1` helper and a per-kind `dynamic/2` card-match clause. Works because `EmployeeCard`/`FleetCard` deliberately share identical field names (`available_individual`, `can_withdraw_cash`, `daily_spend`, `daily_spend_date`, `company_id`, `id`), so every check function pattern-matches generically via a bare `%{field: ...}` pattern | `hcs/limit_controller.ex` | ✅ |
+| P2.6 | `SpendingControl` — added `fleet_card_id` field + `"FLEET"` scope value (DB column already existed via the same untracked migration; Ecto schema just hadn't caught up) | `hcs/spending_control.ex` | ✅ |
+| P2.7 | `HcsComponent` second pass — Fleet Vehicles roster + "+ Add Vehicle" in company detail; new `:vehicle_detail` mode (fleet card issuance, driver assignment/unassignment + history); Fleet Spend Report generator (group by vehicle or by current driver) | `vmu_core_web/live/admin/hcs_component.ex` | ✅ |
+
+**Real bugs found and fixed while building this item**:
+- `Ecto.Query`'s `dynamic/2` cannot be interpolated with `^` alongside
+  plain `and`-joined literal conditions inside the same `where:` —
+  raises "dynamic expressions can only be interpolated at the top level."
+  Fixed by folding the kind-specific card-match clause into one combined
+  `dynamic/2` and interpolating that once, rather than mixing `^dynamic`
+  with `and` at the call site.
+- A `FleetReport` test initially tried to "backdate" a ledger entry by
+  setting only `posting_date`; `inserted_at` (what period-range queries
+  actually filter on, matching `ConsolidatedStatementGenerator`'s own
+  convention) is set to real wall-clock time by `timestamps()` regardless
+  of what `posting_date` is passed — fixed by directly
+  `Repo.update_all`-ing `inserted_at` for the out-of-window fixture row,
+  the same technique `limit_controller_test.exs` already uses to backdate
+  `daily_spend_date`.
+
+**Verification (2026-07-26)**: 22/22 new tests — `fleet_onboarding_test.exs`
+(7 — add vehicle, duplicate-VIN rejection, fleet card issuance, inactive-
+vehicle rejection, pool-exceeded rejection, employee+fleet pool summed
+together), `driver_assignment_command_test.exs` (5 — open/close/history/
+no-active-assignment-error/never-two-concurrently-open), `fleet_report_test.exs`
+(4 — per-vehicle sum with out-of-window exclusion, cross-card total,
+spend-by-driver current-assignment attribution, UNASSIGNED grouping), plus
+4 fleet cases added to `limit_controller_test.exs` and 2 added to
+`hcs_component_test.exs` (full add-vehicle→issue-card→assign-driver→
+unassign UI flow, and a report-generation flow). Full-suite regression
+(230 tests, one pre-existing broken compile file in `test/vmu_core/lms/
+points_lifecycle_test.exs` excluded — unrelated, predates this session):
+same 10 pre-existing, already-documented failures (2 `FAS.
+AuthorizationIntegrationTest`, 4 `CMS.InterestIntegrationTest`, 4 `COL.
+WriteOffRecoveryTest`), zero regressions.

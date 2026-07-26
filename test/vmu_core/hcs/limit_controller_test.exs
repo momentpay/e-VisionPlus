@@ -11,7 +11,7 @@ defmodule VmuCore.HCS.LimitControllerTest do
   import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.HCS.{CompanyOnboarding, EmployeeCard, LimitController, SpendingControl}
+  alias VmuCore.HCS.{CompanyOnboarding, EmployeeCard, FleetCard, FleetOnboarding, LimitController, SpendingControl}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
   alias Decimal, as: D
 
@@ -88,6 +88,42 @@ defmodule VmuCore.HCS.LimitControllerTest do
   end
 
   defp employee_account_id(card), do: card.employee_account_id
+
+  defp fleet_card_fixture(opts \\ []) do
+    {sys_id, bank_id, logo_id, block_id} = parameter_hierarchy_fixture()
+    n = System.unique_integer([:positive])
+
+    company_customer =
+      %Customer{}
+      |> Customer.changeset(%{
+        sys_id: sys_id, bank_id: bank_id, first_name: "Corporate", last_name: "FcTest#{n}",
+        customer_tier: "CORPORATE", company_name: "FC Test Co #{n}", registration_number: "REG-FC-#{n}"
+      })
+      |> Repo.insert!()
+
+    {:ok, %{company: company}} =
+      CompanyOnboarding.onboard_company(%{
+        account_attrs: %{
+          customer_id: company_customer.customer_id, sys_id: sys_id, bank_id: bank_id,
+          logo_id: logo_id, block_id: block_id, pan_token: "fc-test-facility-#{n}",
+          last_four: "0000", expiry_date: "0000", credit_limit: D.new("50000.00")
+        },
+        company_attrs: %{
+          company_code: "FC#{n}", company_name: "FC Test Co #{n}", registration_no: "REG-FC-#{n}",
+          liability_model: "CENTRAL", credit_limit: D.new("50000.00")
+        }
+      })
+
+    {:ok, vehicle} = FleetOnboarding.add_vehicle(company.id, %{plate_number: "DXB-LC-#{n}"})
+
+    {:ok, %{fleet_card: card}} =
+      FleetOnboarding.add_fleet_card(company.id, vehicle.id, %{
+        individual_limit: D.new("5000.00"),
+        can_withdraw_cash: Keyword.get(opts, :can_withdraw_cash, false)
+      })
+
+    {company, card}
+  end
 
   describe "check_hcs_limits/5 — cash access" do
     test "a cash transaction is blocked when can_withdraw_cash is false" do
@@ -189,6 +225,64 @@ defmodule VmuCore.HCS.LimitControllerTest do
       reloaded = Repo.get!(EmployeeCard, card.id)
       assert D.equal?(reloaded.daily_spend, D.new("150.00"))
       assert reloaded.daily_spend_date == Date.utc_today()
+    end
+  end
+
+  describe "fleet cards go through the same generic checks (Way4 Phase 1 item 3)" do
+    test "check_hcs_limits/5 resolves a fleet card by account_id when no employee card matches" do
+      {_company, card} = fleet_card_fixture()
+
+      assert :ok = LimitController.check_hcs_limits(card.account_id, D.new("100.00"), :pos, "5411")
+    end
+
+    test "cash access is enforced for fleet cards exactly like employee cards" do
+      {_company, card} = fleet_card_fixture(can_withdraw_cash: false)
+
+      assert {:error, :cash_access_blocked} =
+               LimitController.check_hcs_limits(card.account_id, D.new("50.00"), :atm, "6011", true)
+    end
+
+    test "debit_limits/2 updates the fleet card's own available_individual and daily_spend" do
+      {_company, card} = fleet_card_fixture()
+
+      :ok = LimitController.debit_limits(card.account_id, D.new("100.00"))
+      :ok = LimitController.debit_limits(card.account_id, D.new("50.00"))
+
+      reloaded = Repo.get!(FleetCard, card.id)
+      assert D.equal?(reloaded.daily_spend, D.new("150.00"))
+      assert D.equal?(reloaded.available_individual, D.new("4850.00"))
+      assert reloaded.daily_spend_date == Date.utc_today()
+    end
+
+    test "credit_limits/2 restores the fleet card's available_individual" do
+      {_company, card} = fleet_card_fixture()
+
+      :ok = LimitController.debit_limits(card.account_id, D.new("200.00"))
+      :ok = LimitController.credit_limits(card.account_id, D.new("80.00"))
+
+      reloaded = Repo.get!(FleetCard, card.id)
+      assert D.equal?(reloaded.available_individual, D.new("4880.00"))
+    end
+
+    test "a FLEET-scoped DAILY_CAP control on one fleet card doesn't affect another" do
+      {company, card1} = fleet_card_fixture()
+      {_company2, card2} = fleet_card_fixture()
+
+      %SpendingControl{}
+      |> SpendingControl.changeset(%{
+        scope: "FLEET", company_id: company.id, fleet_card_id: card1.id,
+        control_type: "DAILY_CAP", daily_cap: D.new("100.00"),
+        effective_from: Date.utc_today(), status: "ACTIVE",
+        inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+      |> Repo.insert!()
+
+      assert {:error, :daily_cap_exceeded} =
+               LimitController.check_hcs_limits(card1.account_id, D.new("150.00"), :pos, "5411")
+
+      # card2 belongs to a different company, so the card1-scoped control
+      # never applies to it regardless.
+      assert :ok = LimitController.check_hcs_limits(card2.account_id, D.new("150.00"), :pos, "5411")
     end
   end
 end

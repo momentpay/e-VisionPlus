@@ -448,9 +448,44 @@ regressions.
 Full-suite regression: 303 tests, same 10 pre-existing failures, zero
 regressions.
 
-**A prepaid card can now load, authorize, clear-match, and settle
-end-to-end against real Postgres** — P1→P2→P3→P4 all done. Only P5
-(expiry/dormancy sweep + ops UI) remains for item 5.
+## 5d. P5 — Expiry/dormancy sweep + ops UI
+
+**Status: ✅ Done (2026-07-27) — item 5 (Prepaid Cards) now fully complete, P1-P5**
+
+| # | Task | Status |
+|---|---|---|
+| P5.1 | `CMS.Oban.PrepaidExpiryJob` — daily sweep (cron `30 4 * * *`, after `CardExpirySweepJob` at 04:00) flips an expired `LOAD`/`REFUND` row's `status` to `EXPIRED` and posts an `EXPIRE` ledger entry recording exactly how much unspent value was lost | ✅ |
+| P5.2 | Admin UI — new `PrepaidComponent` (account list/search/create, detail view with derived balance, full ledger history table incl. EXPIRE rows, card roster, load action, issue-card action, activate/block/unblock reusing `CardLifecycle` directly). Wired into `RolePermission` (`prepaid` module) and `AdminLive` | ✅ |
+| P5.3 | Real tests | ✅ 9/9 (5 `prepaid_expiry_job_test.exs`, 4 `prepaid_component_test.exs`) |
+
+**Real bug found and fixed, twice**: `Repo.insert(..., on_conflict: :nothing, conflict_target: :idempotency_key)` in the expiry job failed with Postgres error `42P10` — `idempotency_key` has a **partial** unique index (`WHERE idempotency_key IS NOT NULL`, since most ledger rows legitimately have no key), and Postgres requires `ON CONFLICT`'s target to match that exact partial predicate, not a bare column list. Fixed via `conflict_target: {:unsafe_fragment, "(idempotency_key) WHERE idempotency_key IS NOT NULL"}`.
+
+**Second real bug found and fixed — in already-shipped Debit code too**: writing the admin UI's activate/block/unblock buttons surfaced that `CardLifecycle.activate/2`/`block/3`/`unblock/2`'s `operator:` opt is forwarded straight into `ASM.AuditLog.record/4`, which expects the **full operator struct** (reads `.username`/`.role` off it) — but both `PrepaidComponent` and the already-shipped `DebitComponent` (D5) passed `socket.assigns.current_operator.username`, a bare string. `AuditLog.record/4`'s own fail-safe wrapper caught the resulting error and logged it rather than crashing the request, so it was silently swallowing every audit entry for these three actions from either admin screen. Fixed both components to pass the operator struct itself.
+
+Full-suite regression: 312 tests, same 10 pre-existing failures, zero
+regressions.
+
+## 5e. Item 5 (Prepaid Cards) — summary
+
+**All of P1-P5 done, 2026-07-27.** A real closed-loop stored-value card
+can be opened, loaded (internal or external channel, with optional
+per-load expiry), issued a card, activated, authorize a real-time
+ledger-checked transaction (soonest-expiring-load-first FIFO
+consumption), clear-match, settle with correct GL direction, expire
+unused value automatically, and be blocked/unblocked — all verified
+against real Postgres, not stubbed. `balance/1` is always derived from
+the ledger, never a stored counter that could drift.
+
+**Deliberately still open, each flagged with its own reasoning above,
+not silently skipped** (same shape of gaps as item 4/Debit): `FAS.
+HotCardCache` has no prepaid-aware lost/stolen/fraud blocklist; `CTA.
+CardActivation` (IVR/first-use) is not prepaid-aware; `CardLifecycle.
+replace/3`/`renew/2` are not prepaid-aware.
+
+**Way4 parity plan Phase 1 (card portfolio expansion) — items 1-5 ALL
+DONE**: Virtual, Corporate, Fleet, Debit, and Prepaid Cards. Items 6
+(BNPL) and 7 (Tokenization) remain explicitly blocked on external
+decisions (merchant integration contract; token vendor choice).
 
 ---
 

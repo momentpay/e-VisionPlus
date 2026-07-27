@@ -137,7 +137,10 @@ config :vmu_core, Oban,
        # LMS points expiry sweep — found unscheduled anywhere despite its own
        # moduledoc claiming "runs on the 1st of each month"; fixed alongside
        # the warehouse-release job (same class of gap)
-       {"0 1 1 * *", VmuCore.LMS.Oban.PointsExpiryJob}
+       {"0 1 1 * *", VmuCore.LMS.Oban.PointsExpiryJob},
+       # Prepaid stored-value expiry sweep (Way4 parity plan Phase 1 item
+       # 5, P5) — daily, 04:30 (after CardExpirySweepJob at 04:00)
+       {"30 4 * * *", VmuCore.CMS.Oban.PrepaidExpiryJob}
      ]}
   ],
   queues: [

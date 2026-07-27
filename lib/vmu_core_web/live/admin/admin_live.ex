@@ -34,7 +34,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     ColComponent,
     CollectionsMiComponent,
     HcsComponent,
-    DebitComponent
+    DebitComponent,
+    PrepaidComponent
   }
 
   @modules %{
@@ -55,6 +56,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "collections_mi" => %{label: "Collections MI",        icon: "📊",  section: :account},
     "hcs"          => %{label: "Corporate Cards (HCS)",   icon: "🏢",  section: :account},
     "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
+    "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
@@ -147,6 +149,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"collections_mi" in @visible_modules} mod="collections_mi" label="Collections MI" icon="📊" active={@active_module} />
           <.sidebar_nav_item :if={"hcs" in @visible_modules} mod="hcs" label="Corporate Cards (HCS)" icon="🏢" active={@active_module} />
           <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
+          <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -256,6 +259,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} />
               <% "debit" -> %>
                 <.live_component module={DebitComponent} id="debit-component"
+                                 current_operator={@current_operator} />
+              <% "prepaid" -> %>
+                <.live_component module={PrepaidComponent} id="prepaid-component"
                                  current_operator={@current_operator} />
               <% "exceptions" -> %>
                 <.live_component module={ExceptionQueueComponent} id="exceptions-component"

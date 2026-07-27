@@ -1,33 +1,33 @@
-defmodule VmuCoreWeb.Live.Admin.DebitComponent do
+defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   @moduledoc """
-  Admin LiveComponent: Debit account list/detail (Way4 parity plan Phase
-  1 item 4, D5, 2026-07-26) — the first ops UI for real network-issued
-  Debit accounts, distinct from Prepaid (closed-loop wallet, not built in
-  this repo) and from Credit (`AccountComponent`).
+  Admin LiveComponent: Prepaid account list/detail (Way4 parity plan
+  Phase 1 item 5, P5, 2026-07-27) — the first ops UI for closed-loop
+  stored-value accounts, distinct from Debit (real network-issued card,
+  `DebitComponent`) and Credit (`AccountComponent`).
 
   - Account list with search, and a "+ New Account" form (opens a new
-    CIF customer + `CMS.DebitAccount` together — same inline-customer
-    convention `HcsComponent`'s company creation already uses)
-  - Account detail: balance, funding history, card roster, fund/issue
-    actions. Card activate/block/unblock reuse `CTA.CardLifecycle`
-    directly (confirmed to already work unchanged for a debit-issued
-    card — see D5's own tracker notes for the two real bugs found and
-    fixed making that true)
+    CIF customer + `CMS.PrepaidAccount` together — same inline-customer
+    convention `DebitComponent`/`HcsComponent` already use)
+  - Account detail: derived balance (`PrepaidLedger.balance/1`, never a
+    stored field), full ledger history (LOAD/SPEND/EXPIRE/REFUND rows —
+    not just loads, so an expiry sweep's effect is visible here too),
+    card roster, load/issue actions. Card activate/block/unblock reuse
+    `CTA.CardLifecycle` directly (same nil-guarded denormal sync D5
+    already proved works for Debit).
 
-  Deliberately NOT in this pass: card replace/renew (`CardLifecycle.
-  replace/3`/`renew/2` are not yet debit-aware — flagged, not fixed);
-  the hot-card/lost-stolen-fraud blocklist (`FAS.HotCardCache` has no
-  debit equivalent yet — its own design question).
+  Deliberately NOT in this pass: card replace/renew, the hot-card
+  blocklist — same flagged gaps as `DebitComponent`.
 
-  Visibility requires `debit:view`; create/fund/issue require `debit:edit`.
+  Visibility requires `prepaid:view`; create/load/issue require
+  `prepaid:edit`.
   """
 
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
 
-  alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
-                 CMS.DebitFundingCommand, CTA.CardLifecycle, CTA.Cards}
+  alias VmuCore.{Repo, CMS.PrepaidAccount, CMS.PrepaidAccountOpening, CMS.PrepaidLedgerEntry,
+                 CMS.PrepaidLedger, CTA.CardLifecycle, CTA.Cards}
   alias VmuCore.Shared.Customer
   alias VmuCore.ASM.Authz
   alias Decimal, as: D
@@ -44,7 +44,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        notice_kind: :info,
        active_action: :none,
        account: nil,
-       fundings: [],
+       balance: nil,
+       ledger_entries: [],
        cards: [],
        can_edit: false
      )
@@ -56,7 +57,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     socket = assign(socket, assigns)
     operator = socket.assigns[:current_operator]
 
-    {:ok, assign(socket, can_edit: operator && Authz.can?(operator, "debit", "edit"))}
+    {:ok, assign(socket, can_edit: operator && Authz.can?(operator, "prepaid", "edit"))}
   end
 
   # ---------------------------------------------------------------------------
@@ -105,30 +106,30 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
           with {:ok, customer} <- customer_result,
                {:ok, account} <-
-                 DebitAccountOpening.open(%{
+                 PrepaidAccountOpening.open(%{
                    customer_id: customer.customer_id, sys_id: params["sys_id"],
                    bank_id: params["bank_id"], logo_id: params["logo_id"],
                    block_id: params["block_id"]
                  }) do
             {:noreply, socket
-                        |> assign(mode: :list, notice: "Debit account opened for #{params["first_name"]} #{params["last_name"]}.", notice_kind: :success)
+                        |> assign(mode: :list, notice: "Prepaid account opened for #{params["first_name"]} #{params["last_name"]}.", notice_kind: :success)
                         |> load_accounts()
-                        |> then(&load_detail(&1, account.debit_account_id))}
+                        |> then(&load_detail(&1, account.prepaid_account_id))}
           else
             {:error, changeset} ->
               {:noreply, assign(socket, notice: "Create failed — #{inspect(changeset.errors)}", notice_kind: :error)}
           end
       end
     else
-      {:noreply, assign(socket, notice: "Your role cannot create debit accounts.", notice_kind: :error)}
+      {:noreply, assign(socket, notice: "Your role cannot create prepaid accounts.", notice_kind: :error)}
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Fund account
+  # Load account
   # ---------------------------------------------------------------------------
 
-  def handle_event("fund_account_save", %{"funding" => params}, socket) do
+  def handle_event("load_account_save", %{"load" => params}, socket) do
     if socket.assigns.can_edit do
       amount = parse_decimal(params["amount"])
       channel = params["channel"]
@@ -143,22 +144,23 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
         true ->
           operator = socket.assigns.current_operator
 
-          case DebitFundingCommand.fund(%{
-                 debit_account_id: socket.assigns.account.debit_account_id, amount: amount,
+          case PrepaidLedger.load(%{
+                 prepaid_account_id: socket.assigns.account.prepaid_account_id, amount: amount,
                  channel: channel, posted_by: operator.username,
-                 external_reference: blank_to_nil(params["external_reference"])
+                 external_reference: blank_to_nil(params["external_reference"]),
+                 expiry_date: parse_date(params["expiry_date"])
                }) do
             {:ok, _result} ->
               {:noreply, socket
-                          |> load_detail(socket.assigns.account.debit_account_id)
-                          |> assign(active_action: :none, notice: "Account funded: #{money(amount)}.", notice_kind: :success)}
+                          |> load_detail(socket.assigns.account.prepaid_account_id)
+                          |> assign(active_action: :none, notice: "Account loaded: #{money(amount)}.", notice_kind: :success)}
 
             {:error, reason} ->
-              {:noreply, assign(socket, notice: "Funding failed — #{inspect(reason)}", notice_kind: :error)}
+              {:noreply, assign(socket, notice: "Load failed — #{inspect(reason)}", notice_kind: :error)}
           end
       end
     else
-      {:noreply, assign(socket, notice: "Your role cannot fund debit accounts.", notice_kind: :error)}
+      {:noreply, assign(socket, notice: "Your role cannot load prepaid accounts.", notice_kind: :error)}
     end
   end
 
@@ -170,10 +172,10 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     if socket.assigns.can_edit do
       card_type = params["card_type"] || "PRIMARY"
 
-      case CardLifecycle.issue_new_debit(socket.assigns.account, card_type: card_type) do
+      case CardLifecycle.issue_new_prepaid(socket.assigns.account, card_type: card_type) do
         {:ok, _card} ->
           {:noreply, socket
-                      |> load_detail(socket.assigns.account.debit_account_id)
+                      |> load_detail(socket.assigns.account.prepaid_account_id)
                       |> assign(active_action: :none, notice: "#{card_type} card issued (INACTIVE).", notice_kind: :success)}
 
         {:error, reason} ->
@@ -188,7 +190,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     if socket.assigns.can_edit do
       case CardLifecycle.activate(card_id, operator: socket.assigns.current_operator) do
         {:ok, _card} ->
-          {:noreply, socket |> load_detail(socket.assigns.account.debit_account_id) |> assign(notice: "Card activated.", notice_kind: :success)}
+          {:noreply, socket |> load_detail(socket.assigns.account.prepaid_account_id) |> assign(notice: "Card activated.", notice_kind: :success)}
 
         {:error, reason} ->
           {:noreply, assign(socket, notice: "Activation failed — #{inspect(reason)}", notice_kind: :error)}
@@ -202,7 +204,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     if socket.assigns.can_edit do
       case CardLifecycle.block(card_id, "ADMIN", operator: socket.assigns.current_operator) do
         {:ok, _card} ->
-          {:noreply, socket |> load_detail(socket.assigns.account.debit_account_id) |> assign(notice: "Card blocked.", notice_kind: :success)}
+          {:noreply, socket |> load_detail(socket.assigns.account.prepaid_account_id) |> assign(notice: "Card blocked.", notice_kind: :success)}
 
         {:error, reason} ->
           {:noreply, assign(socket, notice: "Block failed — #{inspect(reason)}", notice_kind: :error)}
@@ -216,7 +218,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     if socket.assigns.can_edit do
       case CardLifecycle.unblock(card_id, operator: socket.assigns.current_operator) do
         {:ok, _card} ->
-          {:noreply, socket |> load_detail(socket.assigns.account.debit_account_id) |> assign(notice: "Card unblocked.", notice_kind: :success)}
+          {:noreply, socket |> load_detail(socket.assigns.account.prepaid_account_id) |> assign(notice: "Card unblocked.", notice_kind: :success)}
 
         {:error, reason} ->
           {:noreply, assign(socket, notice: "Unblock failed — #{inspect(reason)}", notice_kind: :error)}
@@ -235,25 +237,27 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
     query =
       if search == "" do
-        from(d in DebitAccount, order_by: [desc: d.inserted_at])
+        from(p in PrepaidAccount, order_by: [desc: p.inserted_at])
       else
-        from(d in DebitAccount, join: c in Customer, on: c.customer_id == d.customer_id,
+        from(p in PrepaidAccount, join: c in Customer, on: c.customer_id == p.customer_id,
           where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%"),
-          order_by: [desc: d.inserted_at])
+          order_by: [desc: p.inserted_at])
       end
 
     accounts =
       Repo.all(query)
       |> Enum.map(fn account ->
         customer = Repo.get(Customer, account.customer_id)
-        Map.put(account, :customer_name, customer && "#{customer.first_name} #{customer.last_name}")
+        account
+        |> Map.put(:customer_name, customer && "#{customer.first_name} #{customer.last_name}")
+        |> Map.put(:balance, PrepaidLedger.balance(account.prepaid_account_id))
       end)
 
     assign(socket, accounts: accounts, mode: :list)
   end
 
-  defp load_detail(socket, debit_account_id) do
-    account = Repo.get!(DebitAccount, debit_account_id)
+  defp load_detail(socket, prepaid_account_id) do
+    account = Repo.get!(PrepaidAccount, prepaid_account_id)
     customer = Repo.get(Customer, account.customer_id)
     account = Map.put(account, :customer_name, customer && "#{customer.first_name} #{customer.last_name}")
 
@@ -262,8 +266,14 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       account: account,
       active_action: :none,
       notice: nil,
-      fundings: Repo.all(from f in DebitFunding, where: f.debit_account_id == ^debit_account_id, order_by: [desc: f.inserted_at]),
-      cards: Cards.by_debit_account(debit_account_id)
+      balance: PrepaidLedger.balance(prepaid_account_id),
+      ledger_entries:
+        Repo.all(
+          from l in PrepaidLedgerEntry,
+            where: l.prepaid_account_id == ^prepaid_account_id,
+            order_by: [desc: l.inserted_at]
+        ),
+      cards: Cards.by_prepaid_account(prepaid_account_id)
     )
   end
 
@@ -284,6 +294,15 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     end
   end
 
+  defp parse_date(nil), do: nil
+  defp parse_date(""), do: nil
+  defp parse_date(str) do
+    case Date.from_iso8601(str) do
+      {:ok, date} -> date
+      _ -> nil
+    end
+  end
+
   defp money(nil), do: "—"
   defp money(%D{} = d), do: d |> D.round(2) |> D.to_string()
   defp money(v), do: to_string(v)
@@ -294,7 +313,16 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   defp status_cls("DORMANT"),   do: "badge-gray"
   defp status_cls("INACTIVE"),  do: "badge-blue"
   defp status_cls("BLOCKED"),   do: "badge-red"
+  defp status_cls("EXPIRED"),   do: "badge-red"
   defp status_cls(_),           do: "badge-gray"
+
+  defp entry_type_cls("LOAD"),       do: "badge-green"
+  defp entry_type_cls("REFUND"),     do: "badge-green"
+  defp entry_type_cls("SPEND"),      do: "badge-blue"
+  defp entry_type_cls("FEE"),        do: "badge-yellow"
+  defp entry_type_cls("EXPIRE"),     do: "badge-red"
+  defp entry_type_cls("ADJUSTMENT"), do: "badge-gray"
+  defp entry_type_cls(_),            do: "badge-gray"
 
   # ---------------------------------------------------------------------------
   # Render
@@ -304,7 +332,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   def render(%{mode: :list} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
+      <.page_header title="Prepaid Cards" subtitle="Closed-loop stored-value accounts (not Debit)">
         <:actions>
           <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_account" phx-target={@myself}>+ New Account</button>
         </:actions>
@@ -315,7 +343,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       <%= if @active_action == :create_account do %>
         <div class="action-panel" style="margin-bottom:16px;">
           <div class="action-panel-title">
-            <span>🏦 New Debit Account</span>
+            <span>💳 New Prepaid Account</span>
             <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
           </div>
           <form phx-submit="create_account_save" phx-target={@myself}>
@@ -328,7 +356,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
                 <input class="input" type="text" name="account[sys_id]" maxlength="4" required/></div>
               <div class="form-group"><label class="form-label">Bank ID *</label>
                 <input class="input" type="text" name="account[bank_id]" maxlength="4" required/></div>
-              <div class="form-group"><label class="form-label">Logo ID (DEBIT product) *</label>
+              <div class="form-group"><label class="form-label">Logo ID (PREPAID product) *</label>
                 <input class="input" type="text" name="account[logo_id]" maxlength="4" required/></div>
               <div class="form-group"><label class="form-label">Block ID *</label>
                 <input class="input" type="text" name="account[block_id]" maxlength="4" required/></div>
@@ -348,19 +376,19 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       <div class="table-wrap">
         <table class="data-table">
           <thead>
-            <tr><th>Customer</th><th>Available Balance</th><th>Currency</th><th>Status</th><th></th></tr>
+            <tr><th>Customer</th><th>Stored-Value Balance</th><th>Currency</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             <%= if @accounts == [] do %>
-              <tr><td colspan="5" class="empty-row" style="text-align:center;">No debit accounts found.</td></tr>
+              <tr><td colspan="5" class="empty-row" style="text-align:center;">No prepaid accounts found.</td></tr>
             <% end %>
             <%= for a <- @accounts do %>
               <tr>
                 <td><%= a.customer_name || "—" %></td>
-                <td class="mono"><%= money(a.available_balance) %></td>
+                <td class="mono"><%= money(a.balance) %></td>
                 <td><%= a.currency %></td>
                 <td><span class={"badge #{status_cls(a.status)}"}><%= a.status %></span></td>
-                <td><button class="btn btn-xs" phx-click="view_account" phx-value-id={a.debit_account_id} phx-target={@myself}>View</button></td>
+                <td><button class="btn btn-xs" phx-click="view_account" phx-value-id={a.prepaid_account_id} phx-target={@myself}>View</button></td>
               </tr>
             <% end %>
           </tbody>
@@ -373,7 +401,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   def render(%{mode: :detail} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title={"#{@account.customer_name} — Debit Account"} subtitle="Account detail">
+      <.page_header title={"#{@account.customer_name} — Prepaid Account"} subtitle="Account detail">
         <:actions>
           <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
         </:actions>
@@ -382,32 +410,34 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
       <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Balance</span>
-        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="fund_account" phx-target={@myself}>+ Fund Account</button>
+        <span>Stored-Value Balance</span>
+        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="load_account" phx-target={@myself}>+ Load Account</button>
       </div>
 
-      <%= if @active_action == :fund_account do %>
+      <%= if @active_action == :load_account do %>
         <div class="action-panel" style="margin-bottom:16px;">
           <div class="action-panel-title">
-            <span>💰 Fund Debit Account</span>
+            <span>💰 Load Prepaid Account</span>
             <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
           </div>
-          <form phx-submit="fund_account_save" phx-target={@myself}>
+          <form phx-submit="load_account_save" phx-target={@myself}>
             <div class="form-grid-2">
               <div class="form-group"><label class="form-label">Amount *</label>
-                <input class="input" type="text" name="funding[amount]" placeholder="100.00" required/></div>
+                <input class="input" type="text" name="load[amount]" placeholder="100.00" required/></div>
               <div class="form-group"><label class="form-label">Channel</label>
-                <select class="input" name="funding[channel]">
+                <select class="input" name="load[channel]">
                   <option value="INTERNAL_TRANSFER">Internal Transfer</option>
                   <option value="ADMIN_MANUAL">Admin Manual</option>
                   <option value="EXTERNAL_BANK_TRANSFER">External Bank Transfer</option>
                   <option value="CASH_DEPOSIT">Cash Deposit</option>
                 </select></div>
               <div class="form-group"><label class="form-label">Reference (required for external channels)</label>
-                <input class="input" type="text" name="funding[external_reference]"/></div>
+                <input class="input" type="text" name="load[external_reference]"/></div>
+              <div class="form-group"><label class="form-label">Expiry Date (optional — blank means this load never expires)</label>
+                <input class="input" type="date" name="load[expiry_date]"/></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Fund</button>
+              <button type="submit" class="btn btn-primary">Load</button>
               <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
             </div>
           </form>
@@ -417,7 +447,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       <div class="table-wrap">
         <table class="data-table">
           <tbody>
-            <tr><td>Available Balance</td><td class="mono"><%= money(@account.available_balance) %> <%= @account.currency %></td></tr>
+            <tr><td>Stored-Value Balance</td><td class="mono"><%= money(@balance) %> <%= @account.currency %></td></tr>
             <tr><td>Status</td><td><span class={"badge #{status_cls(@account.status)}"}><%= @account.status %></span></td></tr>
             <tr><td>Opened</td><td><%= @account.opened_at %></td></tr>
           </tbody>
@@ -425,22 +455,23 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       </div>
 
       <div class="form-pane-section-title" style="margin-top:20px;">
-        Funding History (<%= length(@fundings) %>)
+        Ledger History (<%= length(@ledger_entries) %>)
       </div>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Date</th><th>Amount</th><th>Channel</th><th>Reference</th><th>By</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Remaining</th><th>Expiry</th><th>Channel / Ref</th></tr></thead>
           <tbody>
-            <%= if @fundings == [] do %>
-              <tr><td colspan="5" class="empty-row" style="text-align:center;">No funding yet.</td></tr>
+            <%= if @ledger_entries == [] do %>
+              <tr><td colspan="6" class="empty-row" style="text-align:center;">No ledger activity yet.</td></tr>
             <% end %>
-            <%= for f <- @fundings do %>
+            <%= for e <- @ledger_entries do %>
               <tr>
-                <td><%= Calendar.strftime(f.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td class="mono"><%= money(f.amount) %></td>
-                <td><%= f.channel %></td>
-                <td><%= f.external_reference || "—" %></td>
-                <td><code><%= f.posted_by %></code></td>
+                <td><%= Calendar.strftime(e.inserted_at, "%Y-%m-%d %H:%M") %></td>
+                <td><span class={"badge #{entry_type_cls(e.entry_type)}"}><%= e.entry_type %></span></td>
+                <td class="mono"><%= money(e.amount) %></td>
+                <td class="mono"><%= if e.remaining_amount, do: money(e.remaining_amount), else: "—" %></td>
+                <td><%= e.expiry_date || "—" %></td>
+                <td><%= e.channel || e.external_reference || "—" %></td>
               </tr>
             <% end %>
           </tbody>

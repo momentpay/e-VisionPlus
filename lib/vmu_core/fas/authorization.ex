@@ -201,6 +201,7 @@ defmodule VmuCore.FAS.Authorization do
   defp run_authorization(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id} = ctx) do
     case ParameterEngine.get(sys_id, bank_id, logo_id, nil, :product_type) do
       {:ok, "DEBIT"} -> run_debit_authorization(ctx)
+      {:ok, "PREPAID"} -> run_prepaid_authorization(ctx)
       _ -> run_credit_authorization(ctx)
     end
   end
@@ -230,6 +231,23 @@ defmodule VmuCore.FAS.Authorization do
         {:error, :insufficient_funds}  -> {:declined, RC.insufficient_funds(), :insufficient_funds}
         {:error, :not_found}           -> {:declined, RC.invalid_card(), :debit_account_not_found}
         {:error, :not_active}          -> {:declined, RC.restricted_card(), :debit_account_not_active}
+      end
+
+    handle_asc_result(auth_result, ctx)
+  end
+
+  # `ctx.account_id` here is a `CMS.PrepaidAccount.prepaid_account_id`.
+  # `PrepaidLedger.spend/3` already does the real value movement
+  # (soonest-expiring-load-first consumption, `FOR UPDATE`-locked) —
+  # this branch only translates its result into the shape
+  # `handle_asc_result/2` expects, same as Debit's branch above.
+  defp run_prepaid_authorization(%{account_id: prepaid_account_id, amount: amount} = ctx) do
+    auth_result =
+      case VmuCore.CMS.PrepaidLedger.spend(prepaid_account_id, amount, posted_by: "fas") do
+        {:ok, _spend_entry}            -> {:approved, RC.approved(), 0}
+        {:error, :insufficient_funds}  -> {:declined, RC.insufficient_funds(), :insufficient_funds}
+        {:error, :not_found}           -> {:declined, RC.invalid_card(), :prepaid_account_not_found}
+        {:error, :not_active}          -> {:declined, RC.restricted_card(), :prepaid_account_not_active}
       end
 
     handle_asc_result(auth_result, ctx)
@@ -409,8 +427,17 @@ defmodule VmuCore.FAS.Authorization do
 
       # Debit (Way4 parity plan Phase 1 item 4) — no supplementary-card
       # concept in v1's confirmed scope, so this is a direct pass-through.
-      %Card{debit_account_id: debit_account_id} ->
+      # Guarded (not a bare catch-all): an unguarded clause here would
+      # also match a prepaid card (whose debit_account_id is nil too),
+      # resolving it to a nil account_id — found while adding the
+      # prepaid clause below, fixed before it could ship.
+      %Card{debit_account_id: debit_account_id} when not is_nil(debit_account_id) ->
         {:ok, {debit_account_id, nil, nil}}
+
+      # Prepaid (Way4 parity plan Phase 1 item 5, P3) — same
+      # no-supplementary-card pass-through as Debit.
+      %Card{prepaid_account_id: prepaid_account_id} when not is_nil(prepaid_account_id) ->
+        {:ok, {prepaid_account_id, nil, nil}}
     end
   end
 

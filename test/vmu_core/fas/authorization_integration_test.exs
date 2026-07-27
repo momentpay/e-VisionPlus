@@ -83,6 +83,41 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
     account
   end
 
+  # Way4 parity plan Phase 1 item 5 (Prepaid, P3) — same raw-ETS-insert
+  # style as Debit's hierarchy above, a distinct BIN/logo.
+  defp seed_prepaid_parameter_hierarchy do
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :bin_prefix}, "606060"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :description}, "Test Prepaid Logo"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :product_type}, "PREPAID"})
+  end
+
+  defp seed_prepaid_account(pan, initial_balance) do
+    {:ok, customer} =
+      Repo.insert(Customer.changeset(%Customer{}, %{
+        sys_id: "0001", bank_id: "0010", first_name: "Test", last_name: "PrepaidCardholder"
+      }))
+
+    {:ok, account} =
+      VmuCore.CMS.PrepaidAccountOpening.open(%{
+        customer_id: customer.customer_id, sys_id: "0001", bank_id: "0010",
+        logo_id: "0300", block_id: "1000"
+      })
+
+    {:ok, _} =
+      VmuCore.CMS.PrepaidLedger.load(%{
+        prepaid_account_id: account.prepaid_account_id, amount: initial_balance,
+        channel: "ADMIN_MANUAL", posted_by: "operator1"
+      })
+
+    {:ok, _card} =
+      Cards.issue(%{
+        prepaid_account_id: account.prepaid_account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
+
+    account
+  end
+
   defp seed_account(pan, credit_limit, status \\ "ACTIVE") do
     {:ok, customer} =
       Repo.insert(Customer.changeset(%Customer{}, %{
@@ -237,6 +272,37 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
 
       reloaded = Repo.get!(VmuCore.CMS.DebitAccount, account.debit_account_id)
       assert Decimal.equal?(reloaded.available_balance, Decimal.new("50.00"))
+    end
+  end
+
+  describe "Authorization.process/1 — Prepaid (Way4 parity plan Phase 1 item 5)" do
+    test "approves a prepaid transaction within the stored-value balance and decrements it" do
+      seed_prepaid_parameter_hierarchy()
+      pan = "6060600000000001"
+      account = seed_prepaid_account(pan, Decimal.new("500.00"))
+
+      request = %{pan: pan, amount: Decimal.new("120.00"), channel: :pos, mcc: "5411"}
+      assert {:ok, "00", approval_code} = Authorization.process(request)
+      assert Regex.match?(~r/^\d{6}$/, approval_code)
+
+      assert Decimal.equal?(
+               VmuCore.CMS.PrepaidLedger.balance(account.prepaid_account_id),
+               Decimal.new("380.00")
+             )
+    end
+
+    test "declines a prepaid transaction that exceeds the stored-value balance (RC 51), balance untouched" do
+      seed_prepaid_parameter_hierarchy()
+      pan = "6060600000000002"
+      account = seed_prepaid_account(pan, Decimal.new("50.00"))
+
+      request = %{pan: pan, amount: Decimal.new("500.00"), channel: :pos, mcc: "5411"}
+      assert {:error, "51"} = Authorization.process(request)
+
+      assert Decimal.equal?(
+               VmuCore.CMS.PrepaidLedger.balance(account.prepaid_account_id),
+               Decimal.new("50.00")
+             )
     end
   end
 

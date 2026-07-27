@@ -129,15 +129,24 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
     # OTB/balance restore outside the DB transaction — ASC is an in-memory
     # GenServer. credit_open_to_buy (not ASC.reverse): the STAN-keyed
     # pending entry in ASC state is long gone after the multi-day hold
-    # period. Way4 parity plan Phase 1 item 4 (Debit, D3): fas_pending_holds
-    # is shared across products (no FK on account_id, confirmed before
-    # reusing it) — a debit hold restores available_balance instead of OTB.
-    if hold.account_id do
-      if VmuCore.CMS.DebitAuthorization.debit_account?(hold.account_id) do
+    # period. Way4 parity plan Phase 1 item 4 (Debit, D3) / item 5
+    # (Prepaid, P3): fas_pending_holds is shared across products (no FK
+    # on account_id, confirmed before reusing it) — branch by kind
+    # before assuming credit. Prepaid uses refund/2 (a generic amount
+    # restore, not credit/1's spend-precise reversal — this touchpoint
+    # only has account_id+amount, not the original spend's breakdown).
+    cond do
+      is_nil(hold.account_id) ->
+        :ok
+
+      VmuCore.CMS.DebitAuthorization.debit_account?(hold.account_id) ->
         VmuCore.CMS.DebitAuthorization.credit(hold.account_id, hold.hold_amount)
-      else
+
+      VmuCore.CMS.PrepaidLedger.prepaid_account?(hold.account_id) ->
+        VmuCore.CMS.PrepaidLedger.refund(hold.account_id, hold.hold_amount)
+
+      true ->
         AccountStateCoordinator.credit_open_to_buy(hold.account_id, hold.hold_amount)
-      end
     end
 
     if txn do

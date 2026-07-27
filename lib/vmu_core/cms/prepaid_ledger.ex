@@ -17,12 +17,18 @@ defmodule VmuCore.CMS.PrepaidLedger do
   alias VmuCore.{Repo, CMS.PrepaidAccount, CMS.PrepaidLedgerEntry, CMS.InternalGlPoster}
   alias Decimal, as: D
 
-  @doc "Sum of remaining_amount across ACTIVE, unexpired LOAD rows."
+  # LOAD and REFUND rows are both "consumable value" — a REFUND (from
+  # `refund/2`, a generic reversal without a precise spend to reverse)
+  # is spendable value the same as an original load, just distinct in
+  # the audit trail for where it came from.
+  @consumable_entry_types ["LOAD", "REFUND"]
+
+  @doc "Sum of remaining_amount across ACTIVE, unexpired LOAD/REFUND rows."
   @spec balance(Ecto.UUID.t()) :: Decimal.t()
   def balance(prepaid_account_id) do
     from(l in PrepaidLedgerEntry,
-      where: l.prepaid_account_id == ^prepaid_account_id and l.entry_type == "LOAD"
-        and l.status == "ACTIVE",
+      where: l.prepaid_account_id == ^prepaid_account_id
+        and l.entry_type in ^@consumable_entry_types and l.status == "ACTIVE",
       select: coalesce(sum(l.remaining_amount), 0))
     |> Repo.one()
   end
@@ -87,7 +93,8 @@ defmodule VmuCore.CMS.PrepaidLedger do
             loads =
               Repo.all(
                 from l in PrepaidLedgerEntry,
-                  where: l.prepaid_account_id == ^prepaid_account_id and l.entry_type == "LOAD"
+                  where: l.prepaid_account_id == ^prepaid_account_id
+                    and l.entry_type in ^@consumable_entry_types
                     and l.status == "ACTIVE" and l.remaining_amount > 0,
                   order_by: [asc_nulls_last: l.expiry_date, asc: l.inserted_at],
                   lock: "FOR UPDATE"
@@ -150,6 +157,38 @@ defmodule VmuCore.CMS.PrepaidLedger do
       %PrepaidLedgerEntry{} ->
         {:error, :not_a_spend_entry}
     end
+  end
+
+  @doc """
+  True if `id` resolves to a `PrepaidAccount` — used by shared
+  touchpoints (`TRAMS.Oban.AuthExpirySweepJob`, `FAS.ReversalHandler`)
+  that need to branch between restoring OTB (credit), `available_balance`
+  (Debit), or the stored-value ledger (Prepaid) for the same generic
+  `fas_pending_holds.account_id`. Mirrors `CMS.DebitAuthorization.
+  debit_account?/1`.
+  """
+  @spec prepaid_account?(Ecto.UUID.t()) :: boolean()
+  def prepaid_account?(id), do: not is_nil(Repo.get(PrepaidAccount, id))
+
+  @doc """
+  Restores `amount` to a prepaid account WITHOUT a specific `SPEND` entry
+  to reverse precisely — for generic reversal/expiry touchpoints (0400
+  reversal, `AuthExpirySweepJob`) that only have an `account_id`+`amount`,
+  not the original spend's `consumed_from` breakdown. Inserts a `REFUND`
+  LOAD row (its own `remaining_amount`, no expiry) rather than guessing
+  which original load to credit back — correct in aggregate (the
+  balance increases by exactly the right amount) and honestly distinct
+  in the audit trail from `credit/1`'s precise, spend-specific reversal.
+  """
+  @spec refund(Ecto.UUID.t(), Decimal.t()) :: {:ok, PrepaidLedgerEntry.t()} | {:error, term()}
+  def refund(prepaid_account_id, amount) do
+    %PrepaidLedgerEntry{}
+    |> PrepaidLedgerEntry.changeset(%{
+      prepaid_account_id: prepaid_account_id, entry_type: "REFUND", amount: amount,
+      remaining_amount: amount, status: "ACTIVE",
+      posted_by: "system", posting_date: Date.utc_today()
+    })
+    |> Repo.insert()
   end
 
   # ---------------------------------------------------------------------------

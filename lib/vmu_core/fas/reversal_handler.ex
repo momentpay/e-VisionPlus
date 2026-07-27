@@ -158,20 +158,26 @@ defmodule VmuCore.FAS.ReversalHandler do
   # participate in Ecto transactions.
   defp restore_otb(%{account_id: nil}), do: :ok
 
-  # Way4 parity plan Phase 1 item 4 (Debit, D3) — `auth.account_id` may be
-  # a `CMS.DebitAccount.debit_account_id`; ASC has never heard of that id
-  # (no Horde registration exists for it), so this branches to a real
-  # balance restore instead of calling ASC at all.
+  # Way4 parity plan Phase 1 item 4 (Debit, D3) / item 5 (Prepaid, P3) —
+  # `auth.account_id` may be a `CMS.DebitAccount.debit_account_id` or a
+  # `CMS.PrepaidAccount.prepaid_account_id`; ASC has never heard of
+  # either (no Horde registration exists for them), so this branches to
+  # a real balance restore instead of calling ASC at all.
   defp restore_otb(%{account_id: account_id} = auth) do
-    if VmuCore.CMS.DebitAuthorization.debit_account?(account_id) do
-      VmuCore.CMS.DebitAuthorization.credit(account_id, auth.amount)
-    else
-      case AccountStateCoordinator.reverse(account_id, auth.stan, auth.amount) do
-        {:ok, _new_otb} -> :ok
-        {:error, reason} ->
-          Logger.warning("[FAS Reversal] ASC.reverse failed account=#{account_id}: " <>
-                         "#{inspect(reason)} — OTB not restored in memory (DB hold is released)")
-      end
+    cond do
+      VmuCore.CMS.DebitAuthorization.debit_account?(account_id) ->
+        VmuCore.CMS.DebitAuthorization.credit(account_id, auth.amount)
+
+      VmuCore.CMS.PrepaidLedger.prepaid_account?(account_id) ->
+        VmuCore.CMS.PrepaidLedger.refund(account_id, auth.amount)
+
+      true ->
+        case AccountStateCoordinator.reverse(account_id, auth.stan, auth.amount) do
+          {:ok, _new_otb} -> :ok
+          {:error, reason} ->
+            Logger.warning("[FAS Reversal] ASC.reverse failed account=#{account_id}: " <>
+                           "#{inspect(reason)} — OTB not restored in memory (DB hold is released)")
+        end
     end
   end
 

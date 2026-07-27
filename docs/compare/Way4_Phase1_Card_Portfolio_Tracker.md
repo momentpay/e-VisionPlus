@@ -419,10 +419,24 @@ failures, zero regressions.
 Full-suite regression: CTA/FAS suites same 2 pre-existing
 `AuthorizationIntegrationTest` failures, zero regressions.
 
-**Next**: P3 (authorization — routes from `FAS.Authorization` via a
-`"PREPAID"` branch alongside Debit's existing `"DEBIT"` one, calling
-`PrepaidLedger.spend/3`), P4 (settlement posting, same shape as Debit's
-D4), P5 (expiry/dormancy sweep + ops UI).
+## 5b. P3 — Authorization
+
+**Status: ✅ Done (2026-07-27)**
+
+| # | Task | Status |
+|---|---|---|
+| P3.1 | `FAS.Authorization` — added a `"PREPAID"` branch to the existing `product_type` dispatch alongside `"DEBIT"`; `run_prepaid_authorization/1` translates `PrepaidLedger.spend/3`'s result into the same shape `handle_asc_result/2` already expects, so risk check/persist/hold/TRAM feed all work unchanged | ✅ |
+| P3.2 | `resolve_account/1` — added the Prepaid clause. **Found and fixed live before it shipped**: the existing Debit clause (`%Card{debit_account_id: debit_account_id} -> ...`) was an unguarded catch-all that would have also matched a prepaid card (whose `debit_account_id` is nil too), silently resolving it to a nil account_id. Added `when not is_nil(debit_account_id)` to that clause before adding the new prepaid one | ✅ |
+| P3.3 | `CMS.PrepaidLedger.refund/2` — a generic amount-based restore (inserts a `REFUND` LOAD-like row) for touchpoints (`AuthExpirySweepJob`, `ReversalHandler`) that only have `account_id`+`amount`, not a specific `SPEND` entry's `consumed_from` breakdown to reverse precisely via `credit/1`. `balance/1`/`spend/3` both treat `REFUND` rows as consumable value alongside `LOAD` rows | ✅ |
+| P3.4 | `CMS.PrepaidLedger.prepaid_account?/1` — mirrors `DebitAuthorization.debit_account?/1`; `AuthExpirySweepJob.do_reverse/3` and `ReversalHandler.restore_otb/1` both now branch credit/debit/prepaid three ways instead of two | ✅ |
+| P3.5 | Real tests | ✅ 2/2 new `authorization_integration_test.exs` cases (approve within balance + decrement, decline over balance + balance untouched) |
+
+Full-suite regression: 299 tests, same 10 pre-existing failures, zero
+regressions.
+
+**Next**: P4 (settlement posting, same shape as Debit's D4 — a
+`SettlementPostingAdapter` branch posting via `InternalGlPoster.
+post_prepaid_spend/5`), P5 (expiry/dormancy sweep + ops UI).
 
 ---
 

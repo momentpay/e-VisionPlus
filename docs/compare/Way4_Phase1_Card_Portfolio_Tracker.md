@@ -362,20 +362,54 @@ Full HCS/CTA/CMS/FAS/ASM/COL/admin regression before and after D1: same
 
 ## 5. Prepaid Cards (native build, not ported)
 
-**Status: ⬜ Pending — not started, design not yet written**
+**Status: 🔄 In Progress — P1 (ledger + account model) done 2026-07-27, P2-P5 next**
 
 Avenza's prepaid auth path is real and live but resolves through
 `WalletLedger.Commands.AuthorizeCardDebit` — a `wallet_*`-app dependency
-that doesn't exist here. Building this natively means the actual
-"prepaid program" layer (funding, load, dormancy, reconciliation —
-currently living in `wallet_accounts`/`wallet_web` in Avenza, not
-portable 1:1) needs an in-house equivalent inside vmu_core's own
-CMS/CTA, closed-loop clearing through TRAMS (issuer is also acquirer for
-on-us transactions), consistent with this repo's "no product bypasses
-FAS→TRAMS→GL" principle.
+that doesn't exist here (same "build native" call as Debit — confirmed,
+not assumed, given Debit's item 4 already proved this exact dependency
+gap is real). Building this natively means the actual "prepaid program"
+layer (funding, load, dormancy, reconciliation) needs an in-house
+equivalent inside vmu_core's own CMS/CTA, closed-loop clearing through
+TRAMS, consistent with this repo's "no product bypasses FAS→TRAMS→GL"
+principle.
 
-Needs its own design pass before implementation starts — check `docs/
-prepaid/` for an existing requirements stub first.
+Full design + 4 confirmed product/architecture decisions in `docs/
+prepaid/PREPAID_Module_Requirements.md` §7-9: full-KYC reloadable only
+in v1 (no anonymous/gift-card tier — avoids building a second, lighter
+identity model before there's a concrete need); funding supports
+internal transfer **and** external bank transfer/cash deposit, same
+data-model-only pattern as Debit's D2; market config reads the existing
+`BankParameter.regulatory_regime` cascade, same as Debit; **deliberately
+NOT sharing Debit's account model** — Debit's `available_balance` is a
+simple mutated counter (correct for it: no per-unit expiry, real-time-
+critical, proven race-safe), but Prepaid needs **per-load expiry/
+dormancy** (FR-005) — you can't expire "part of a flat counter," only a
+specific load's remaining value — so it uses a genuine ledger instead,
+the same "ledger row itself reflects partial consumption, never a
+separately mutated balance" shape `LMS.PointsLedger` already proved out
+(and whose *absence* was the real LMS-P1 bug this session found).
+
+| # | Task | Status |
+|---|---|---|
+| P1.1 | `CMS.PrepaidAccount` schema — own identity fields for the parameter cascade, deliberately **no** `available_balance` field at all (unlike `DebitAccount`) | ✅ |
+| P1.2 | `CMS.PrepaidLedgerEntry` schema — LOAD/SPEND/FEE/EXPIRE/REFUND/ADJUSTMENT types; LOAD rows carry their own `remaining_amount` + `expiry_date`; SPEND rows carry a `consumed_from` JSONB-array breakdown of exactly which load(s) they drew from | ✅ |
+| P1.3 | `CMS.PrepaidLedger.balance/1` — always derived (`sum(remaining_amount)` over ACTIVE LOAD rows), never stored | ✅ |
+| P1.4 | `CMS.PrepaidLedger.load/1` — posts the funding-side GL entry (new 1006/5002 codes) in the same transaction as the LOAD row, same real-time-GL convention as Debit's D2 | ✅ |
+| P1.5 | `CMS.PrepaidLedger.spend/3` — consumes ACTIVE, unexpired loads soonest-expiring-first (`ORDER BY expiry_date ASC NULLS LAST`), `FOR UPDATE`-locked, spanning multiple loads if one isn't enough; declines `:insufficient_funds` and touches nothing if the total available is short | ✅ |
+| P1.6 | `CMS.PrepaidLedger.credit/1` — reversal restores exactly the load(s) a given SPEND drew from via its own recorded breakdown, never guesses | ✅ |
+| P1.7 | `CMS.PrepaidAccountOpening.open/1` | ✅ |
+| P1.8 | Real tests | ✅ 13/13 (`prepaid_ledger_test.exs` — derived balance, multi-load accumulation, external-reference validation, single-load spend, FIFO-by-expiry consumption, multi-load-spanning spend, insufficient-funds decline leaves state untouched, an EXPIRED load is never consumed, suspended-account rejection, exact-restoration reversal, `:not_found`/`:not_a_spend_entry` reversal errors, and a real concurrent-spend oversell test with `FOR UPDATE` locking) |
+
+Full-suite regression: CMS suite same 4 pre-existing `InterestIntegrationTest`
+failures, zero regressions.
+
+**Next**: P2 (card issuance — `CardLifecycle.issue_new_prepaid/2`,
+`cta_cards.prepaid_account_id` as a third nullable FK alongside
+`account_id`/`debit_account_id`), P3 (authorization — routes from `FAS.
+Authorization` via a `"PREPAID"` branch alongside Debit's existing
+`"DEBIT"` one, calling `PrepaidLedger.spend/3`), P4 (settlement posting,
+same shape as Debit's D4), P5 (expiry/dormancy sweep + ops UI).
 
 ---
 

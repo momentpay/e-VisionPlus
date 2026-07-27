@@ -19,6 +19,12 @@ defmodule VmuCore.CMS.InternalGlPoster do
   asset, so a deposit increases a liability account, not a receivable:
     1006 — Bank cash/clearing account (asset)
     5001 — Debit deposit liability
+
+  Prepaid (Way4 parity plan Phase 1 item 5) is liability-direction too,
+  but its own distinct code — a different product for chart-of-accounts
+  purposes even though the mechanism (stored value the bank owes the
+  cardholder) is the same shape as Debit's:
+    5002 — Prepaid stored-value liability
   """
 
   require Logger
@@ -148,6 +154,48 @@ defmodule VmuCore.CMS.InternalGlPoster do
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Debit card purchase settlement"
+    })
+  end
+
+  @doc """
+  Post a load into a prepaid account (Way4 parity plan Phase 1 item 5,
+  P1) — same liability-direction shape as `post_debit_deposit/5`, its
+  own GL code (5002, not 5001 — a different product).
+  """
+  def post_prepaid_load(prepaid_account_id, amount, posting_date, channel, idempotency_key) do
+    post(%{
+      account_id:       prepaid_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "DEPOSIT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "1006",
+      gl_account_cr:    "5002",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        "Prepaid account load: #{channel}"
+    })
+  end
+
+  @doc """
+  Post a cleared spend against a prepaid account (Way4 parity plan Phase
+  1 item 5, P4) — exact reverse of `post_prepaid_load/5`. Ledger value
+  movement already happened at authorization via `CMS.PrepaidLedger.
+  spend/2`; this only makes the journal entry permanent.
+  """
+  def post_prepaid_spend(prepaid_account_id, amount, posting_date, currency, idempotency_key) do
+    post(%{
+      account_id:       prepaid_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "PURCHASE",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "5002",
+      gl_account_cr:    "1006",
+      currency:         currency || "AED",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        "Prepaid card purchase settlement"
     })
   end
 end

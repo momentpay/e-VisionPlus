@@ -29,6 +29,14 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   decremented in real time at authorization (no OTB-then-settle two-phase
   model for this product) — settlement only needs to post the permanent
   GL entry and clear the hold, not touch a balance bucket.
+
+  ## Prepaid (Way4 parity plan Phase 1 item 5, P4)
+
+  Same shape as Debit's branch above — `auth.account_id` may also be a
+  `CMS.PrepaidAccount.prepaid_account_id`. The stored-value ledger was
+  already debited at authorization via `PrepaidLedger.spend/3`;
+  settlement only posts the permanent GL entry (`InternalGlPoster.
+  post_prepaid_spend/5`, its own 5002 code) and clears the hold.
   """
 
   require Logger
@@ -37,7 +45,7 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   alias VmuCore.Repo
   alias VmuCore.FAS.{AuthLookup, PendingHold}
   alias VmuCore.FAS.GL.{CardAccountCodes, VmuCoreGlAdapter}
-  alias VmuCore.CMS.{LedgerEntry, PurchasePosting, DebitAuthorization, InternalGlPoster}
+  alias VmuCore.CMS.{LedgerEntry, PurchasePosting, DebitAuthorization, PrepaidLedger, InternalGlPoster}
   alias WalletGl.GlPostingRecord
   alias WalletSharedKernel.Money
 
@@ -84,10 +92,15 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   # credit-receivable concept at all. Dispatch first, same convention as
   # `FAS.Authorization.run_authorization/1`'s product_type branch.
   defp do_confirm(auth, settled_amount, settled_date) do
-    if DebitAuthorization.debit_account?(auth.account_id) do
-      do_confirm_debit(auth, settled_amount, settled_date)
-    else
-      do_confirm_credit(auth, settled_amount, settled_date)
+    cond do
+      DebitAuthorization.debit_account?(auth.account_id) ->
+        do_confirm_debit(auth, settled_amount, settled_date)
+
+      PrepaidLedger.prepaid_account?(auth.account_id) ->
+        do_confirm_prepaid(auth, settled_amount, settled_date)
+
+      true ->
+        do_confirm_credit(auth, settled_amount, settled_date)
     end
   end
 
@@ -168,6 +181,39 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
 
         {:error, reason} ->
           Logger.error("[SettlementPostingAdapter] Failed (debit) #{key}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  # No balance-bucket/ledger step here either — the stored-value ledger
+  # was already debited in real time at authorization (`PrepaidLedger.
+  # spend/3`). Settlement only makes the journal entry permanent and
+  # clears the hold, same shape as do_confirm_debit/3.
+  defp do_confirm_prepaid(auth, settled_amount, settled_date) do
+    key = "settlement:#{auth.approval_code}:#{auth.rrn}"
+
+    if already_posted?(key) do
+      Logger.debug("[SettlementPostingAdapter] Already posted (prepaid): #{key}")
+      sync_tram(auth, settled_amount, settled_date)
+      :ok
+    else
+      Repo.transaction(fn ->
+        case InternalGlPoster.post_prepaid_spend(auth.account_id, settled_amount, settled_date, auth.currency, key) do
+          {:ok, _entry} -> :ok
+          {:error, :duplicate} -> :ok
+          {:error, reason} -> Repo.rollback({:gl_post_failed, reason})
+        end
+
+        clear_hold(auth)
+      end)
+      |> case do
+        {:ok, _} ->
+          sync_tram(auth, settled_amount, settled_date)
+          :ok
+
+        {:error, reason} ->
+          Logger.error("[SettlementPostingAdapter] Failed (prepaid) #{key}: #{inspect(reason)}")
           {:error, reason}
       end
     end

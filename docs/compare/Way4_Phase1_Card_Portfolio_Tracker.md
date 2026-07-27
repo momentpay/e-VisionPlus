@@ -434,9 +434,23 @@ Full-suite regression: CTA/FAS suites same 2 pre-existing
 Full-suite regression: 299 tests, same 10 pre-existing failures, zero
 regressions.
 
-**Next**: P4 (settlement posting, same shape as Debit's D4 — a
-`SettlementPostingAdapter` branch posting via `InternalGlPoster.
-post_prepaid_spend/5`), P5 (expiry/dormancy sweep + ops UI).
+## 5c. P4 — Settlement posting
+
+**Status: ✅ Done (2026-07-27)**
+
+| # | Task | Status |
+|---|---|---|
+| P4.1 | `SettlementPostingAdapter.do_confirm/3` — dispatch generalized from a 2-way (credit/debit) to a 3-way `cond` (credit/debit/prepaid), checking `PrepaidLedger.prepaid_account?/1` | ✅ |
+| P4.2 | `InternalGlPoster.post_prepaid_spend/5` — exact reverse of `post_prepaid_load/5` (DR 5002/CR 1006), same shape as Debit's `post_debit_purchase/5` | ✅ |
+| P4.3 | `do_confirm_prepaid/3` — no balance/ledger step at all (the stored-value ledger was already debited at authorization via `spend/3`); settlement only makes the journal entry permanent and clears the hold, same shape as `do_confirm_debit/3` | ✅ |
+| P4.4 | Real tests | ✅ 4/4 `settlement_posting_adapter_prepaid_test.exs` (correct GL direction + hold clearing, ledger untouched at settlement, idempotent retry, `refund/2`'s REFUND-row restore verified independently) |
+
+Full-suite regression: 303 tests, same 10 pre-existing failures, zero
+regressions.
+
+**A prepaid card can now load, authorize, clear-match, and settle
+end-to-end against real Postgres** — P1→P2→P3→P4 all done. Only P5
+(expiry/dormancy sweep + ops UI) remains for item 5.
 
 ---
 

@@ -404,12 +404,25 @@ separately mutated balance" shape `LMS.PointsLedger` already proved out
 Full-suite regression: CMS suite same 4 pre-existing `InterestIntegrationTest`
 failures, zero regressions.
 
-**Next**: P2 (card issuance — `CardLifecycle.issue_new_prepaid/2`,
-`cta_cards.prepaid_account_id` as a third nullable FK alongside
-`account_id`/`debit_account_id`), P3 (authorization — routes from `FAS.
-Authorization` via a `"PREPAID"` branch alongside Debit's existing
-`"DEBIT"` one, calling `PrepaidLedger.spend/3`), P4 (settlement posting,
-same shape as Debit's D4), P5 (expiry/dormancy sweep + ops UI).
+## 5a. P2 — Card issuance
+
+**Status: ✅ Done (2026-07-27)**
+
+| # | Task | Status |
+|---|---|---|
+| P2.1 | `cta_cards.prepaid_account_id` — third nullable FK alongside `account_id`/`debit_account_id` | ✅ |
+| P2.2 | `CTA.Card.changeset/2`'s "exactly one" invariant generalized from a 2-way to an N-way check (`Enum.reject(&is_nil/1)` over all three ref fields, error if 0 or >1 set) | ✅ |
+| P2.3 | `CTA.CardLifecycle.issue_new_prepaid/2` — mirrors `issue_new_debit/2` exactly | ✅ |
+| P2.4 | `CTA.Cards.by_prepaid_account/1` | ✅ |
+| P2.5 | Real tests | ✅ 8/8 `card_lifecycle_issue_prepaid_test.exs` (issuance, opts, invalid card_type, activate/block/unblock work unchanged, roster lookup, 3-way invariant) |
+
+Full-suite regression: CTA/FAS suites same 2 pre-existing
+`AuthorizationIntegrationTest` failures, zero regressions.
+
+**Next**: P3 (authorization — routes from `FAS.Authorization` via a
+`"PREPAID"` branch alongside Debit's existing `"DEBIT"` one, calling
+`PrepaidLedger.spend/3`), P4 (settlement posting, same shape as Debit's
+D4), P5 (expiry/dormancy sweep + ops UI).
 
 ---
 

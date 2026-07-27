@@ -66,6 +66,19 @@ defmodule VmuCore.CTA.Cards do
     )
   end
 
+  @doc """
+  All cards for a prepaid account, newest generation first (Way4 parity
+  plan Phase 1 item 5, P2).
+  """
+  @spec by_prepaid_account(Ecto.UUID.t()) :: [Card.t()]
+  def by_prepaid_account(prepaid_account_id) do
+    Repo.all(
+      from c in Card,
+        where: c.prepaid_account_id == ^prepaid_account_id,
+        order_by: [desc: c.generation, desc: c.inserted_at]
+    )
+  end
+
   @doc "The live card holding a pan_token (nil if none)."
   @spec by_pan_token(String.t()) :: Card.t() | nil
   def by_pan_token(pan_token) do

@@ -28,10 +28,14 @@ defmodule VmuCore.CTA.Card do
     field :account_id,        :binary_id
     # Way4 parity plan Phase 1 item 4 (Debit, 2026-07-26) — a debit card
     # points here instead of :account_id, since CMS.Account requires a
-    # credit_limit a debit account doesn't have. Exactly one of the two
-    # must be set (enforced in changeset/2, not a DB CHECK — same
-    # convention as hcs_spending_controls.fleet_card_id/employee_card_id).
+    # credit_limit a debit account doesn't have.
     field :debit_account_id,  :binary_id
+    # Way4 parity plan Phase 1 item 5 (Prepaid, 2026-07-27) — a prepaid
+    # card points here instead. Exactly one of account_id/
+    # debit_account_id/prepaid_account_id must be set (enforced in
+    # changeset/2, not a DB CHECK — same convention as
+    # hcs_spending_controls.fleet_card_id/employee_card_id).
+    field :prepaid_account_id, :binary_id
     field :pan_token,         :string
     field :last_four,         :string
     field :expiry,            :string
@@ -56,7 +60,7 @@ defmodule VmuCore.CTA.Card do
   end
 
   @required ~w[pan_token card_type status generation]a
-  @optional ~w[account_id debit_account_id last_four expiry emboss_name block_reason replaces_card_id
+  @optional ~w[account_id debit_account_id prepaid_account_id last_four expiry emboss_name block_reason replaces_card_id
                activation_method dispatch_ref ecom_enabled atm_enabled
                contactless_enabled intl_enabled issued_at activated_at
                blocked_at expired_at]a
@@ -78,18 +82,22 @@ defmodule VmuCore.CTA.Card do
   end
 
   defp validate_exactly_one_account_ref(changeset) do
-    account_id = get_field(changeset, :account_id)
-    debit_account_id = get_field(changeset, :debit_account_id)
+    refs =
+      [:account_id, :debit_account_id, :prepaid_account_id]
+      |> Enum.map(&get_field(changeset, &1))
+      |> Enum.reject(&is_nil/1)
 
-    case {account_id, debit_account_id} do
-      {nil, nil} ->
-        add_error(changeset, :account_id, "either account_id or debit_account_id is required")
+    case length(refs) do
+      0 ->
+        add_error(changeset, :account_id,
+          "one of account_id/debit_account_id/prepaid_account_id is required")
 
-      {a, d} when not is_nil(a) and not is_nil(d) ->
-        add_error(changeset, :account_id, "exactly one of account_id/debit_account_id must be set")
+      1 ->
+        changeset
 
       _ ->
-        changeset
+        add_error(changeset, :account_id,
+          "exactly one of account_id/debit_account_id/prepaid_account_id must be set")
     end
   end
 

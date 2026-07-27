@@ -21,7 +21,8 @@ defmodule VmuCore.CTA.CardLifecycle do
   import Ecto.Query
 
   alias VmuCore.{Repo, CTA.Card, CTA.Cards, CTA.PanGenerator, CTA.CredentialVault,
-                 CMS.Account, CMS.DebitAccount, CMS.FeeEngine, FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
+                 CMS.Account, CMS.DebitAccount, CMS.PrepaidAccount, CMS.FeeEngine,
+                 FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
   alias VmuCore.Shared.{ModuleConfigEngine, LogoParameter}
 
   @reason_to_block_code %{"LOST" => "L", "STOLEN" => "S", "FRAUD" => "F"}
@@ -92,12 +93,14 @@ defmodule VmuCore.CTA.CardLifecycle do
   embossing-order workflow yet — pass `:emboss_name` explicitly or it's
   left blank on the card).
 
-  `activate/2`, `block/3`, `unblock/2` already work unchanged for a
-  debit card issued this way — they operate purely by `card_id` through
-  `Cards.transition/3`, whose account-denormal sync already no-ops
-  safely when `card.account_id` is nil (confirmed, not assumed).
-  `replace/3`/`renew/2` are NOT yet debit-aware (both read `CMS.Account`
-  internally) — flagged, not fixed here.
+  `activate/2`, `block/3`, `unblock/2` work unchanged for a debit card
+  issued this way — they operate purely by `card_id` through `Cards.
+  transition/3`, whose account-denormal sync now correctly no-ops when
+  `card.account_id` is nil (D5, 2026-07-26 — real fix: Ecto forbids
+  `field == ^nil` comparisons outright, so this needed an explicit guard,
+  not just careful reasoning). `replace/3`/`renew/2` are NOT yet
+  debit-aware (both read `CMS.Account` internally) — flagged, not fixed
+  here.
   """
   @spec issue_new_debit(DebitAccount.t(), keyword()) :: {:ok, Card.t()} | {:error, term()}
   def issue_new_debit(%DebitAccount{} = account, opts \\ []) do
@@ -118,6 +121,48 @@ defmodule VmuCore.CTA.CardLifecycle do
                card_type:        card_type
              }) do
         AuditLog.record(opts[:operator], "debit_card_issue_new", card.card_id,
+          %{card_type: card_type})
+
+        if Keyword.get(opts, :activate, false) do
+          activate(card.card_id, operator: opts[:operator])
+        else
+          {:ok, card}
+        end
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Issue a new prepaid card (Way4 parity plan Phase 1 item 5, P2)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Issue a brand-new generation-1 card against a `CMS.PrepaidAccount`
+  instead of `CMS.Account`/`CMS.DebitAccount` — the `prepaid_account_id`
+  column. Mirrors `issue_new_debit/2` exactly, same reasons: no
+  `emboss_name` denormal to default from, `activate/2`/`block/3`/
+  `unblock/2` work unchanged (same nil-guarded denormal sync),
+  `replace/3`/`renew/2` are not yet prepaid-aware.
+  """
+  @spec issue_new_prepaid(PrepaidAccount.t(), keyword()) :: {:ok, Card.t()} | {:error, term()}
+  def issue_new_prepaid(%PrepaidAccount{} = account, opts \\ []) do
+    card_type = Keyword.get(opts, :card_type, "PRIMARY")
+
+    if card_type not in @issuable_types do
+      {:error, {:invalid_card_type, card_type}}
+    else
+      with {:ok, %{pan_token: pan_token, last_four: last_four}} <-
+             PanGenerator.generate(account.sys_id, account.bank_id, account.logo_id),
+           {:ok, card} <-
+             Cards.issue(%{
+               prepaid_account_id: account.prepaid_account_id,
+               pan_token:          pan_token,
+               last_four:          last_four,
+               expiry:             default_expiry(account.sys_id, account.bank_id, account.logo_id),
+               emboss_name:        Keyword.get(opts, :emboss_name),
+               card_type:          card_type
+             }) do
+        AuditLog.record(opts[:operator], "prepaid_card_issue_new", card.card_id,
           %{card_type: card_type})
 
         if Keyword.get(opts, :activate, false) do

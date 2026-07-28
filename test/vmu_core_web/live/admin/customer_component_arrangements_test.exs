@@ -1,10 +1,12 @@
 defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
   @moduledoc """
   Real Postgres via Sandbox, no mocking. Koṣa domain-model alignment
-  (2026-07-28) — first-ever test for `CustomerComponent`, covering the
-  new "Arrangements (All Products)" panel: a customer's CIF detail page
-  should show every product relationship they have, not just credit
-  accounts (`Customer.list_accounts_for/1`'s old, credit-only scope).
+  (2026-07-28) — a customer's CIF detail page should show every product
+  relationship they have, not just credit accounts (`Customer.
+  list_accounts_for/1`'s old, credit-only scope). Reworked 2026-07-28b
+  into sub-tabs-by-product-family with the specific card/account's own
+  admin component embedded inline (architect-supplied reference design),
+  replacing the original flat list of "View in X" links.
   """
 
   use ExUnit.Case, async: false
@@ -58,7 +60,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     {sys_id, bank_id, logo_id, block_id}
   end
 
-  test "a customer with both a debit and a prepaid account shows both arrangements on their CIF detail page" do
+  test "a customer with both a debit and a prepaid account shows both as sub-tabs, defaulting to the first with data" do
     {sys_id, bank_id, logo_id, block_id} = parameter_hierarchy_fixture()
     n = System.unique_integer([:positive])
 
@@ -84,11 +86,17 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     # Arrangements now lives behind its own detail tab (2026-07-28 tab redesign).
     html = view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
 
-    assert html =~ "Arrangements"
-    assert html =~ "DEBIT"
-    assert html =~ "PREPAID"
-    assert html =~ "View in Debit Cards"
-    assert html =~ "View in Prepaid Cards"
+    # No credit accounts, so the sub-tab bar defaults to Debit (first
+    # family in display order with data) — its own DebitComponent detail
+    # renders inline, not a "View in X" link out to a different page.
+    assert html =~ "Debit Card"
+    assert html =~ "Prepaid Card"
+    assert html =~ "Account detail"
+    assert html =~ "— Debit Account"
+
+    # Switching the sub-tab embeds PrepaidComponent's own detail view instead.
+    html = view |> element("div[phx-click=arr_family][phx-value-f=prepaid]") |> render_click()
+    assert html =~ "— Prepaid Account"
   end
 
   test "a customer with no products shows the empty state, not an error" do
@@ -106,6 +114,6 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
     html = view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
 
-    assert html =~ "No product relationships for this customer yet."
+    assert html =~ "No credit cards for this customer."
   end
 end

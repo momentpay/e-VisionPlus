@@ -23,6 +23,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   alias VmuCore.Shared.ModuleConfigEngine
   alias VmuCore.ASM.Authz
   alias VmuCore.CMS.Arrangements
+  alias VmuCoreWeb.Live.Admin.{AccountComponent, DebitComponent, PrepaidComponent, HcsComponent}
 
   @id_types [
     {"-- Select ID Type --", ""},
@@ -92,6 +93,8 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
        linked_accounts: [],
        arrangements: [],
        detail_tab: 1,
+       arr_family: :credit,
+       arr_selected_ref: nil,
        current_operator: nil,
        can_edit: false,
        can_create: false
@@ -225,8 +228,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     if cust do
       accounts = Customer.list_accounts_for(cust.customer_id)
       arrangements = Arrangements.search(%{customer_id: cust.customer_id})
-      {:noreply, assign(socket, mode: :detail, detail_tab: 1, viewing: cust, linked_accounts: accounts,
-                         arrangements: arrangements, result: nil)}
+      arr_family = default_arr_family(arrangements)
+      {:noreply, assign(socket, mode: :detail, detail_tab: 1, arr_family: arr_family,
+                         arr_selected_ref: first_ref_for_family(arrangements, arr_family),
+                         viewing: cust, linked_accounts: accounts, arrangements: arrangements, result: nil)}
     else
       {:noreply, socket}
     end
@@ -254,6 +259,21 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     {:noreply, assign(socket, detail_tab: String.to_integer(t))}
   end
 
+  # Portfolio-in-place sub-tabs (2026-07-28) — switching product family
+  # auto-selects that family's first arrangement (if any) so a customer
+  # with exactly one card of that type shows its detail immediately,
+  # matching the reference design's single-card families.
+  def handle_event("arr_family", %{"f" => f}, socket) do
+    family = String.to_existing_atom(f)
+    first_ref = first_ref_for_family(socket.assigns.arrangements, family)
+
+    {:noreply, assign(socket, arr_family: family, arr_selected_ref: first_ref)}
+  end
+
+  def handle_event("arr_select", %{"ref" => ref}, socket) do
+    {:noreply, assign(socket, arr_selected_ref: ref)}
+  end
+
   def handle_event("cust_change", %{"cust" => params}, socket) do
     {:noreply, assign(socket, form_data: params)}
   end
@@ -278,9 +298,12 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           action = if socket.assigns.editing, do: "updated", else: "created"
           accounts = Customer.list_accounts_for(saved.customer_id)
           arrangements = Arrangements.search(%{customer_id: saved.customer_id})
+          arr_family = default_arr_family(arrangements)
           {:noreply, socket
             |> load_customers()
-            |> assign(mode: :detail, detail_tab: 1, editing: nil, viewing: saved,
+            |> assign(mode: :detail, detail_tab: 1, arr_family: arr_family,
+                      arr_selected_ref: first_ref_for_family(arrangements, arr_family),
+                      editing: nil, viewing: saved,
                       linked_accounts: accounts, arrangements: arrangements,
                       result: {:ok, "Customer #{action}."})}
 
@@ -843,58 +866,120 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     """
   end
 
-  # Arrangements (Koṣa domain-model alignment, 2026-07-28) — every product
-  # relationship this customer has, across Credit/Debit/Prepaid/Corporate,
-  # in one place. Replaces the old tier-conditional "Linked Accounts"
-  # panel (credit-only, Customer.list_accounts_for/1) — this shows
-  # regardless of customer tier, since a CORPORATE customer's own
-  # CORPORATE_FACILITY arrangement is exactly as real as a RETAIL
-  # customer's CREDIT/DEBIT/PREPAID ones. Status/summary come from
-  # Arrangements.search/1's live per-product enrichment, never duplicated
-  # onto Arrangement itself. "View in X" opens the specific record's
-  # detail page directly via ?view=<view_ref>.
+  # Arrangements (Koṣa domain-model alignment, 2026-07-28; reworked into
+  # sub-tabs-with-inline-detail 2026-07-28b per architect-supplied
+  # reference design) — every product relationship this customer has,
+  # across Credit/Debit/Prepaid/Corporate, grouped into sub-tabs by
+  # product family. Picking a specific card embeds that product's own
+  # admin LiveComponent directly on this page via the same ?view=
+  # deep-link mechanism AdminLive's URL-based navigation uses — it just
+  # never leaves the Customer page. Replaces the old flat list of "View
+  # in X" links that always navigated away.
+  #
+  # Known rough edge: the embedded component's own "Back to list"
+  # control (if clicked) shows that WHOLE product's full list inline,
+  # not just this customer's — each family's own dedicated admin page
+  # is still the right place for that broader list/search/create
+  # workflow; this view is for "I'm already looking at one customer,
+  # show me their card" navigation.
   defp tab_arrangements(assigns) do
+    assigns = assign(assigns, counts: arrangement_counts(assigns.arrangements))
+
     ~H"""
-    <%= if @arrangements == [] do %>
-      <p class="text-sm text-muted">No product relationships for this customer yet.</p>
-    <% else %>
-      <%= for row <- @arrangements do %>
-        <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
-        <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span>
-            <%= if row.status do %>
-              <span class={"badge #{status_badge_cls(row.status)}"} style="margin-left:4px;"><%= row.status %></span>
-            <% end %>
-            <span class="text-sm text-muted" style="margin-left:8px;"><%= row.summary %></span>
-            <span class="text-sm text-muted" style="margin-left:8px;">opened <%= row.arrangement.opened_at %></span>
-          </div>
-          <a class="btn btn-xs" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
+    <div class="detail-tabs" style="margin:-20px -20px 16px -20px;">
+      <%= for {family, label, icon} <- arrangement_families() do %>
+        <div class={"detail-tab#{if @arr_family == family, do: " active"}"}
+          phx-click="arr_family" phx-value-f={family} phx-target={@myself}>
+          <%= icon %> <%= label %> <span class="text-muted">(<%= Map.get(@counts, family, 0) %>)</span>
         </div>
+      <% end %>
+    </div>
+
+    <% rows_for_family = Enum.filter(@arrangements, &(arrangement_family(&1.arrangement.product_type) == @arr_family)) %>
+
+    <%= if rows_for_family == [] do %>
+      <p class="text-sm text-muted">No <%= family_label(@arr_family) %> for this customer.</p>
+    <% else %>
+      <%= if length(rows_for_family) > 1 do %>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+          <%= for row <- rows_for_family do %>
+            <button type="button"
+              class={"btn btn-sm #{if @arr_selected_ref == row.view_ref, do: "btn-primary", else: "btn-secondary"}"}
+              phx-click="arr_select" phx-value-ref={row.view_ref} phx-target={@myself}>
+              <%= row.arrangement.product_type %> — <%= String.slice(row.view_ref, 0, 8) %>…
+              <%= if row.status, do: "(#{row.status})" %>
+            </button>
+          <% end %>
+        </div>
+      <% end %>
+
+      <%= if @arr_selected_ref do %>
+        <.live_component module={arrangement_component(@arr_family)}
+          id={"portfolio-#{@arr_family}-#{@arr_selected_ref}"}
+          current_operator={@current_operator} deep_link_id={@arr_selected_ref} />
       <% end %>
     <% end %>
     """
   end
 
-  defp status_badge_cls("ACTIVE"), do: "badge-green"
-  defp status_badge_cls("SUSPENDED"), do: "badge-yellow"
-  defp status_badge_cls("BLOCKED"), do: "badge-red"
-  defp status_badge_cls("CLOSED"), do: "badge-gray"
-  defp status_badge_cls("DORMANT"), do: "badge-gray"
-  defp status_badge_cls(_), do: "badge-gray"
+  defp arrangement_families do
+    [
+      {:credit,    "Credit Card",    "💳"},
+      {:debit,     "Debit Card",     "🏦"},
+      {:prepaid,   "Prepaid Card",   "💰"},
+      {:corporate, "Corporate Card", "🏢"},
+      {:fleet,     "Fleet Card",     "🚚"}
+    ]
+  end
 
-  defp arrangement_target("CREDIT"), do: {"account", "Accounts (CMS)"}
-  defp arrangement_target("DEBIT"), do: {"debit", "Debit Cards"}
-  defp arrangement_target("PREPAID"), do: {"prepaid", "Prepaid Cards"}
-  defp arrangement_target("CORPORATE_FACILITY"), do: {"hcs", "Corporate Cards (HCS)"}
-  defp arrangement_target("CORPORATE_EMPLOYEE"), do: {"hcs", "Corporate Cards (HCS)"}
-  defp arrangement_target("CORPORATE_FLEET"), do: {"hcs", "Corporate Cards (HCS)"}
-  defp arrangement_target(_), do: {"customer", "Customers (CIF)"}
+  defp arrangement_family("CREDIT"), do: :credit
+  defp arrangement_family("DEBIT"), do: :debit
+  defp arrangement_family("PREPAID"), do: :prepaid
+  defp arrangement_family("CORPORATE_FACILITY"), do: :corporate
+  defp arrangement_family("CORPORATE_EMPLOYEE"), do: :corporate
+  defp arrangement_family("CORPORATE_FLEET"), do: :fleet
+  defp arrangement_family(_), do: :other
 
-  defp arrangement_badge_cls("CREDIT"), do: "badge-blue"
-  defp arrangement_badge_cls("DEBIT"), do: "badge-green"
-  defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
-  defp arrangement_badge_cls(_), do: "badge-gray"
+  defp arrangement_component(:credit), do: AccountComponent
+  defp arrangement_component(:debit), do: DebitComponent
+  defp arrangement_component(:prepaid), do: PrepaidComponent
+  defp arrangement_component(:corporate), do: HcsComponent
+  defp arrangement_component(:fleet), do: HcsComponent
+
+  defp arrangement_counts(arrangements) do
+    Enum.reduce(arrangements, %{}, fn row, acc ->
+      Map.update(acc, arrangement_family(row.arrangement.product_type), 1, &(&1 + 1))
+    end)
+  end
+
+  defp family_label(:credit), do: "credit cards"
+  defp family_label(:debit), do: "debit cards"
+  defp family_label(:prepaid), do: "prepaid cards"
+  defp family_label(:corporate), do: "corporate cards"
+  defp family_label(:fleet), do: "fleet cards"
+
+  # First family (in display order) that has at least one arrangement —
+  # so opening a Debit-only customer's Arrangements tab doesn't default
+  # to an empty Credit Card sub-tab.
+  defp default_arr_family(arrangements) do
+    families_with_data = arrangements |> Enum.map(&arrangement_family(&1.arrangement.product_type)) |> MapSet.new()
+
+    arrangement_families()
+    |> Enum.find(fn {family, _, _} -> MapSet.member?(families_with_data, family) end)
+    |> case do
+      {family, _, _} -> family
+      nil -> :credit
+    end
+  end
+
+  defp first_ref_for_family(arrangements, family) do
+    arrangements
+    |> Enum.filter(&(arrangement_family(&1.arrangement.product_type) == family))
+    |> case do
+      [first | _] -> first.view_ref
+      [] -> nil
+    end
+  end
 
   # ── Form view (2-pane: section nav + fields) ────────────────────────────────
 

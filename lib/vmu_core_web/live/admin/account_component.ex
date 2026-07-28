@@ -198,7 +198,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       if search != "" and search != nil do
         cust_ids =
           Repo.all(from c in Customer,
-            where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%"),
+            where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%") or
+                   ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^"%#{search}%"),
             select: c.customer_id)
         where(query, [a], a.last_four == ^search or a.customer_id in ^cust_ids)
       else
@@ -614,8 +615,13 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       if String.length(q || "") >= 2 do
         term    = "%#{q}%"
         bank_id = socket.assigns.form_data["bank_id"] || ""
+        # Real bug found live (2026-07-28, during Debit wizard testing —
+        # same pattern copied from here): matching first_name/last_name
+        # separately means a combined "First Last" search never matches
+        # either field alone — also matches on the concatenated full name.
         base    = from c in Customer,
           where: (ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                  ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
                   ilike(c.email, ^term) or ilike(c.mobile_number, ^term)),
           limit: 10
         base    = if bank_id != "", do: where(base, [c], c.bank_id == ^bank_id), else: base
@@ -745,7 +751,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           where: a.bank_id == ^acc.bank_id and
                  a.account_id != ^acc.account_id and
                  (a.last_four == ^q or
-                  ilike(c.first_name, ^term) or ilike(c.last_name, ^term)),
+                  ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                  ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term)),
           preload: [],
           limit: 8,
           select: %{account_id: a.account_id, last_four: a.last_four, emboss_name: a.emboss_name,

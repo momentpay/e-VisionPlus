@@ -255,7 +255,8 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
         from(p in PrepaidAccount, order_by: [desc: p.inserted_at])
       else
         from(p in PrepaidAccount, join: c in Customer, on: c.customer_id == p.customer_id,
-          where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%"),
+          where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%") or
+                 ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^"%#{search}%"),
           order_by: [desc: p.inserted_at])
       end
 

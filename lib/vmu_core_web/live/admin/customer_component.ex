@@ -147,6 +147,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         where(query, [c],
           ilike(c.first_name, ^term) or
           ilike(c.last_name,  ^term) or
+          ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
           ilike(c.email,      ^term) or
           ilike(c.mobile_number, ^term) or
           ilike(c.id_number,  ^term)

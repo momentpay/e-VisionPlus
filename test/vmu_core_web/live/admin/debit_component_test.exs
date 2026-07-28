@@ -80,6 +80,32 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     {account, sys_id, bank_id, logo_id, block_id}
   end
 
+  test "wizard customer search matches a combined 'First Last' name, not just one field" do
+    # Real bug found live (2026-07-28): searching "Ahmed Al Rashid" (what
+    # an operator naturally types) matched neither first_name ("Ahmed")
+    # nor last_name ("Al Rashid") alone.
+    operator = operator_fixture("SUPERVISOR")
+    {sys_id, bank_id, _logo_id, _block_id} = parameter_hierarchy_fixture()
+    n = System.unique_integer([:positive])
+
+    customer =
+      %Customer{}
+      |> Customer.changeset(%{sys_id: sys_id, bank_id: bank_id, first_name: "FullName", last_name: "SearchTest#{n}"})
+      |> Repo.insert!()
+
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+    view |> element("button[phx-click=debit_new]") |> render_click()
+
+    html =
+      view
+      |> element("input[phx-keyup=cust_search_wizard]")
+      |> render_keyup(%{"q" => "FullName SearchTest#{n}"})
+
+    assert html =~ "FullName"
+    assert html =~ "SearchTest#{n}"
+    assert html =~ to_string(customer.customer_id)
+  end
+
   test "opening a new debit account for an existing customer via the 3-step wizard" do
     operator = operator_fixture("SUPERVISOR")
     {sys_id, bank_id, logo_id, _block_id} = parameter_hierarchy_fixture()

@@ -133,9 +133,14 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     results =
       if String.length(q || "") >= 2 do
         term = "%#{q}%"
+        # Real bug found live (2026-07-28): matching first_name/last_name
+        # separately means a combined "First Last" search (what an
+        # operator naturally types) never matches either field alone —
+        # also matches on the concatenated full name.
         Repo.all(
           from c in Customer,
             where: ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                   ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
                    ilike(c.email, ^term) or ilike(c.mobile_number, ^term),
             limit: 10
         )
@@ -371,7 +376,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
         from(d in DebitAccount, order_by: [desc: d.inserted_at])
       else
         from(d in DebitAccount, join: c in Customer, on: c.customer_id == d.customer_id,
-          where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%"),
+          where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%") or
+                 ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^"%#{search}%"),
           order_by: [desc: d.inserted_at])
       end
 

@@ -243,4 +243,228 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       assert html =~ "grouped by vehicle"
     end
   end
+
+  describe "Employee Card admin UI (Card Products UX Parity Phase 3, 2026-07-28)" do
+    test "adding a brand-new employee card via the 3-step wizard (new individual customer)" do
+      {company, _sys_id, _bank_id, _logo_id, _block_id} = company_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=emp_wizard_new]") |> render_click()
+
+      step2_html =
+        view
+        |> form("form[phx-submit=emp_new_customer_save]", %{
+          "cust" => %{"first_name" => "Aisha", "last_name" => "Employee1", "email" => "aisha@example.com"}
+        })
+        |> render_submit()
+
+      assert step2_html =~ "Step 2"
+
+      view
+      |> form("form[phx-change=emp_wizard_change]", %{
+        "card" => %{"employee_name" => "Aisha Employee1", "department" => "Sales", "individual_limit" => "5000.00"}
+      })
+      |> render_change()
+
+      view |> element("button[phx-click=emp_wizard_step][phx-value-s='3']") |> render_click()
+      review_html = render(view)
+      assert review_html =~ "Step 3 — Review"
+      assert review_html =~ "5000.00"
+
+      html = view |> element("button[phx-click=emp_wizard_save]") |> render_click()
+      assert html =~ "Employee card issued for Aisha Employee1."
+
+      card = Repo.get_by!(VmuCore.HCS.EmployeeCard, company_id: company.id, employee_name: "Aisha Employee1")
+      assert D.equal?(card.individual_limit, D.new("5000.00"))
+      assert card.status == "ACTIVE"
+
+      account = Repo.get!(VmuCore.CMS.Account, card.employee_account_id)
+      assert account.account_type == "EMPLOYEE_CARD"
+    end
+
+    test "individual_limit exceeding the company's remaining pool is rejected" do
+      {company, _sys_id, _bank_id, _logo_id, _block_id} = company_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=emp_wizard_new]") |> render_click()
+
+      view
+      |> form("form[phx-submit=emp_new_customer_save]", %{
+        "cust" => %{"first_name" => "Over", "last_name" => "Pool2"}
+      })
+      |> render_submit()
+
+      view
+      |> form("form[phx-change=emp_wizard_change]", %{
+        "card" => %{"employee_name" => "Over Pool2", "individual_limit" => "999999.00"}
+      })
+      |> render_change()
+
+      view |> element("button[phx-click=emp_wizard_step][phx-value-s='3']") |> render_click()
+      html = view |> element("button[phx-click=emp_wizard_save]") |> render_click()
+
+      assert html =~ "exceeds the company remaining facility pool"
+      refute Repo.get_by(VmuCore.HCS.EmployeeCard, company_id: company.id, employee_name: "Over Pool2")
+    end
+
+    defp employee_card_fixture(company, sys_id, bank_id, limit \\ "5000.00") do
+      n = System.unique_integer([:positive])
+
+      customer =
+        %Customer{}
+        |> Customer.changeset(%{sys_id: sys_id, bank_id: bank_id, first_name: "Emp", last_name: "Fixture#{n}"})
+        |> Repo.insert!()
+
+      {:ok, %{employee_card: card}} =
+        CompanyOnboarding.add_employee_card(
+          company.id,
+          %{
+            customer_id: customer.customer_id, sys_id: sys_id, bank_id: bank_id,
+            logo_id: Repo.get!(VmuCore.CMS.Account, company.parent_account_id).logo_id,
+            block_id: Repo.get!(VmuCore.CMS.Account, company.parent_account_id).block_id,
+            pan_token: "emp-fixture-#{n}", last_four: "0000", expiry_date: "0000"
+          },
+          %{employee_name: "Emp Fixture#{n}", individual_limit: D.new(limit)}
+        )
+
+      {card, customer}
+    end
+
+    test "account-level block suspends the employee card and history shows BLOCKED" do
+      {company, sys_id, bank_id, _logo_id, _block_id} = company_fixture()
+      {card, _customer} = employee_card_fixture(company, sys_id, bank_id)
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=emp_block_save]", %{
+          "action" => %{"block_code" => "F", "reason_code" => "FRAUD_ALERT"}
+        })
+        |> render_submit()
+
+      assert html =~ "applied"
+
+      updated = Repo.get!(VmuCore.HCS.EmployeeCard, card.id)
+      assert updated.status == "SUSPENDED"
+
+      account = Repo.get!(VmuCore.CMS.Account, card.employee_account_id)
+      assert account.block_code == "F"
+
+      view |> element("div[phx-click=employee_detail_tab][phx-value-t='3']") |> render_click()
+      assert render(view) =~ "BLOCKED"
+    end
+
+    test "changing limits re-validates against the company pool and rejects an over-pool request" do
+      {company, sys_id, bank_id, _logo_id, _block_id} = company_fixture()
+      {card, _customer} = employee_card_fixture(company, sys_id, bank_id, "5000.00")
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
+
+      ok_html =
+        view
+        |> form("form[phx-submit=emp_limits_save]", %{"action" => %{"individual_limit" => "8000.00"}})
+        |> render_submit()
+
+      assert ok_html =~ "Limits updated"
+      assert D.equal?(Repo.get!(VmuCore.HCS.EmployeeCard, card.id).individual_limit, D.new("8000.00"))
+
+      view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
+
+      over_html =
+        view
+        |> form("form[phx-submit=emp_limits_save]", %{"action" => %{"individual_limit" => "999999.00"}})
+        |> render_submit()
+
+      assert over_html =~ "exceeds the company remaining facility pool"
+    end
+
+    test "issuing a real card, activating it, and setting per-card channel controls" do
+      {company, sys_id, bank_id, _logo_id, _block_id} = company_fixture()
+      {card, _customer} = employee_card_fixture(company, sys_id, bank_id)
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> element("div[phx-click=employee_detail_tab][phx-value-t='2']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
+
+      card_html =
+        view
+        |> form("form[phx-submit=issue_card_save]", %{"card" => %{"card_type" => "SUPPLEMENTARY"}})
+        |> render_submit()
+
+      assert card_html =~ "SUPPLEMENTARY card issued (INACTIVE)."
+
+      activate_html = view |> element("button[phx-click=card_activate]") |> render_click()
+      assert activate_html =~ "Card activated."
+
+      view |> element("button[phx-click=open_channels]") |> render_click()
+
+      channels_html =
+        view
+        |> form("form[phx-submit=card_channels_save]", %{
+          "ecom_enabled" => "false", "atm_enabled" => "true",
+          "contactless_enabled" => "", "intl_enabled" => "false"
+        })
+        |> render_submit()
+
+      assert channels_html =~ "Channel controls updated."
+
+      [issued] = VmuCore.CTA.Cards.by_account(card.employee_account_id)
+      assert issued.ecom_enabled == false
+      assert issued.atm_enabled == true
+    end
+
+    test "address/phone/email changes update the individual employee's own customer record" do
+      {company, sys_id, bank_id, _logo_id, _block_id} = company_fixture()
+      {card, customer} = employee_card_fixture(company, sys_id, bank_id)
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=change_email]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=emp_nonmon_save]", %{
+          "action" => %{"event_type" => "email_change", "new_email" => "updated@example.com"}
+        })
+        |> render_submit()
+
+      assert html =~ "Email change recorded"
+      assert Repo.get!(Customer, customer.customer_id).email == "updated@example.com"
+    end
+
+    test "KYC status can be verified on the individual employee's customer record" do
+      {company, sys_id, bank_id, _logo_id, _block_id} = company_fixture()
+      {card, customer} = employee_card_fixture(company, sys_id, bank_id)
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
+      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+
+      html = view |> element("button[phx-click=emp_kyc][phx-value-status=VERIFIED]") |> render_click()
+      assert html =~ "KYC status set to VERIFIED"
+
+      updated = Repo.get!(Customer, customer.customer_id)
+      assert updated.kyc_status == "VERIFIED"
+      assert updated.kyc_verified_at
+    end
+  end
 end

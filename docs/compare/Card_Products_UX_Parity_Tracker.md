@@ -1,6 +1,70 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit `8c8a85d`. Phase 2d (Prepaid retrofit) done, same day — see below. Phase 3 (HCS) next, and will build full parity from the start instead of retrofitting later.
+**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit `8c8a85d`. Phase 2d (Prepaid retrofit) done — commit `7fa5f5d`. Phase 3 (HCS Employee Cards) done — see §7 for the "extend the model" architecture decision and the account_type EOD bug it surfaced. Phase 4 (HCS Corporate polish) next.
+
+## §7 — Phase 3 (HCS Employee Cards): "extend the model" decision
+
+Employee Card had **zero admin UI at all** (a read-only table row, no
+create/view/manage), and architecturally didn't map onto the Debit/
+Prepaid 6-item template the way Debit/Prepaid mapped onto each other —
+no `CTA.Card` (no PAN), no `Shared.Customer` link, just a company-scoped
+limit-tracking sub-account (`HCS.EmployeeCard` + a `CMS.Account` row).
+User chose **"extend the model first"**: give Employee Card a real
+`CTA.Card` and a real individual `Shared.Customer`, so all 6 template
+items apply uniformly instead of skipping 4 of them as "not applicable."
+
+**This turned out to require far less new backend work than expected**,
+because `add_employee_card/3` already inserts its sub-account into
+`cms_accounts` — the exact same table Credit uses — so `CTA.
+CardLifecycle.issue_new/2`, `CMS.BlockCodeHistory`, and `CMS.
+NonMonetaryEvent` all already worked against an Employee Card's
+`employee_account_id` completely unchanged. No new Employee-Card-specific
+tables were needed (unlike Debit/Prepaid's Phase 1e/2d, which each
+needed two new tables) — the only new module is `HCS.EmployeeCardCommand`
+for the two things that DO differ from Credit: `apply_block`/`remove_block`
+cascade to three places, not one (`cms_accounts.block_code`, `HCS.
+EmployeeCard.status` — confirmed by reading `LimitController.
+get_active_card/1` that HCS's own spend-limit enforcement gates on
+this field, NOT `block_code` — and any real issued `CTA.Card`), and
+`change_limit/4` reuses `add_employee_card/3`'s exact company-pool math
+so a limit *change* re-validates against the facility the same way a
+new card issuance does.
+
+**Real pre-existing bug found while scoping this** (see `CMS.Account`'s
+`account_type` field, migration `20260728000006`, commit `9281604`):
+`account_type: "EMPLOYEE_CARD"`/`"CORPORATE_PARENT"` was always passed
+into `Account.changeset/2` by `CompanyOnboarding` but silently dropped
+— not a schema field — so every HCS sub-account was indistinguishable
+from a real credit account to `EodSchedulerJob`/`LockAccountsJob`,
+which sweep by `cycle_code`/`account_status` with no product-type
+filter. Fixed by persisting the field (backfilled "CREDIT" for all
+pre-existing rows) and filtering both EOD jobs to `account_type ==
+"CREDIT"`. This was a **blocking prerequisite**, not a nice-to-have —
+issuing a real `CTA.Card` against an unfixed account would have made
+it fully transactable too, compounding the bug rather than just
+exposing a UI gap.
+
+Deliberately excluded, consistent with the domain: Adjustments (no
+separate ledger exists for Employee Card the way Debit/Prepaid have —
+`individual_limit`/`daily_spend` already track spend directly, no
+manual balance-correction mechanism exists to expose). Company-level
+KYC (`HCS.Company.kyc_status`) is untouched — Phase 3's KYC action
+targets the *individual employee's* own `Shared.Customer.kyc_status`,
+a distinct, smaller-scope concept.
+
+Two real bugs found live while building the UI: (1) notice messages
+containing an apostrophe (`"company's"`) never matched test assertions
+`=~`-checking the same literal string — HEEx auto-escapes `'` to
+`&#39;` in interpolated text — fixed by rephrasing to avoid possessives/
+contractions in all new user-facing messages, the same convention this
+codebase's other messages already followed without anyone having
+written it down. (2) `load_employee_detail/2` unconditionally reset
+`employee_detail_tab` to 1 on every call, including reloads after
+in-tab actions (issuing a card while on the Cards tab silently bounced
+the view back to Overview) — fixed by only setting the tab explicitly
+at the two "fresh navigation" call sites (`view_employee`, a brand-new
+card's wizard save), not inside the shared loader — same convention
+Debit/Prepaid's own `load_detail/2` already uses.
 **Date:** 2026-07-28
 **Trigger:** User screenshots showing Credit's account-opening wizard
 (Customer → Product → Card & Credit → Config → Review) and 6-tab detail

@@ -21,6 +21,7 @@ defmodule VmuCore.CMS.PrepaidAccount do
   @primary_key {:prepaid_account_id, :binary_id, autogenerate: true}
 
   @valid_statuses ~w[ACTIVE SUSPENDED CLOSED DORMANT]
+  @valid_kyc_statuses ~w[PENDING VERIFIED REJECTED]
 
   schema "cms_prepaid_accounts" do
     field :customer_id,  :binary_id
@@ -34,17 +35,31 @@ defmodule VmuCore.CMS.PrepaidAccount do
     field :opened_at,    :date
     field :closed_at,    :date
 
+    # Card Products UX Parity Phase 2d (2026-07-28) — Prepaid's own
+    # copies of Credit's account-level Block/velocity-limits/KYC fields
+    # (see docs/compare/Card_Products_UX_Parity_Tracker.md §6), same
+    # shape as CMS.DebitAccount's Phase 1e retrofit.
+    field :block_code,         :string
+    field :block_reason,       :string
+    field :blocked_at,         :naive_datetime
+    field :velocity_limits,    :map, default: %{}
+    field :kyc_status,         :string, default: "PENDING"
+    field :kyc_verified_at,    :naive_datetime
+
     timestamps(type: :utc_datetime)
   end
 
   @required ~w[customer_id sys_id bank_id logo_id block_id opened_at]a
-  @optional ~w[currency status closed_at]a
+  @optional ~w[currency status closed_at
+               block_code block_reason blocked_at velocity_limits
+               kyc_status kyc_verified_at]a
 
   def changeset(account, attrs) do
     account
     |> cast(attrs, @required ++ @optional)
     |> validate_required(@required)
     |> validate_inclusion(:status, @valid_statuses)
+    |> validate_inclusion(:kyc_status, @valid_kyc_statuses)
   end
 
   def active?(%__MODULE__{status: "ACTIVE"}), do: true

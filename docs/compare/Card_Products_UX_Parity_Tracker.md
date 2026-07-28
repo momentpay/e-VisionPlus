@@ -1,6 +1,6 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit below. Phase 2d (Prepaid retrofit) next; Phase 3 (HCS) will build full parity from the start instead of retrofitting later.
+**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit `8c8a85d`. Phase 2d (Prepaid retrofit) done, same day — see below. Phase 3 (HCS) next, and will build full parity from the start instead of retrofitting later.
 **Date:** 2026-07-28
 **Trigger:** User screenshots showing Credit's account-opening wizard
 (Customer → Product → Card & Credit → Config → Review) and 6-tab detail
@@ -237,6 +237,6 @@ shared polymorphic table).
 | Phase | Scope |
 |---|---|
 | **Phase 1e — Debit retrofit** | All 6 items above, applied to Debit — **done 2026-07-28**: account-level Block/Unblock (own `cms_debit_block_history` table), Address/Phone/Email change (`cms_debit_non_monetary_events`), structured POS/ATM velocity limits (JSONB, admin-editable, not yet enforced on the live auth path), per-card channel controls (reused `CardLifecycle.set_channel_controls/2` unchanged), Supplementary card option, per-product KYC (Verify/Reject/Reset, advisory-only). 6 new UI-level tests, 13/13 passing; full suite 366 tests / same 10 pre-existing failures, no regression. Two real bugs fixed live: the `@block_reason_codes`/`@unblock_reason_codes` tuples were built `{code, description}` but the render `{label, val}` destructuring needed `{description, code}` — selects were submitting the description text instead of the code; and module-attribute option lists (`@block_codes` etc.) aren't visible inside a `~H` sigil at all (`@foo` always means `assigns.foo` there) — fixed by lifting them into `mount`'s assigns, the same convention `AccountComponent` already uses. |
-| **Phase 2d — Prepaid retrofit** | All 6 items above, applied to Prepaid |
+| **Phase 2d — Prepaid retrofit** | All 6 items above, applied to Prepaid — **done 2026-07-28**: same shape as Debit's Phase 1e (own `cms_prepaid_block_history`/`cms_prepaid_non_monetary_events` tables, structured POS/ATM velocity limits, per-card channel controls, Supplementary card option, per-product KYC). Applied the two Phase 1e lessons proactively this time (reason-code tuple order, module-attribute-into-assigns) — all 13 new tests passed on the first run, no fix-forward needed. Full suite 377 tests / same 10 pre-existing failures, no regression. |
 | **Phase 3 — HCS Employee Cards** | Now includes full parity (all 6 items + the wizard/tabs/Adjustments already planned) from the start, not as a later catch-up |
 | **Phase 4 — HCS Corporate polish** | Unchanged — Fleet Cards/Spending Controls/Reports reorganized into tabs |

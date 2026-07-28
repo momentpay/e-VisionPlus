@@ -395,24 +395,34 @@ reintroduced here.
 
 ### Phase 2 — Digital channel absorption (the wallet-app "port in" work)
 This is the concrete first slice of the still-unwritten wallet→vmu_core
-porting plan flagged in the platform-of-record decision. **Not started —
-this phase needs its own detailed design doc before any code**, the same
-discipline used for every other module in this repo (`docs/<module>/
-<Module>_Requirements.md` before implementation). Covers: Digital Wallet,
-QR Payments, Instant Payments, Account-to-Account, and (pending Decision 3
-below) Multi-Currency.
+porting plan flagged in the platform-of-record decision. Covers: Digital
+Wallet, QR Payments, Instant Payments, Account-to-Account, and (pending
+Decision 3 below) Multi-Currency.
 
-- Recommended first step: a `docs/wallet/WALLET_Module_Requirements.md`-
-  style requirements pass (the doc stub already exists under
-  `docs/wallet/` — currently a planning stub, not yet a real gap-analysis
-  against `wallet-app`'s actual `WalletLedger`/`WalletAccounts` code) that
-  decides what ports in as-is vs. what gets rebuilt on the `cms_accounts`
-  spine, per the "best implementation wins, one model of record" principle
-  already agreed for the ledger/account convergence question.
-- ATM Switching and ISO20022 are grouped here provisionally — both are
-  genuinely new acquiring/rail capabilities with no natural home yet;
-  confirm during the requirements pass rather than assuming they belong
-  with the wallet channel work.
+~~Requirements pass~~ ✅ Done 2026-07-28 —
+[`../wallet/DIGITAL_WALLET_Module_Requirements.md`](../wallet/DIGITAL_WALLET_Module_Requirements.md).
+**Note the naming collision this surfaced**: `docs/wallet/WALLET_Module_
+Requirements.md` (the doc previously assumed to be this phase's stub) is
+actually scoped to network/scheme tokenization (Apple/Google Pay via
+VTS/MDES — Decision 1 below), an unrelated capability that happens to
+share the word "wallet." The real gap-analysis against `wallet-app`'s
+actual `WalletAccounts`/`WalletLedger`/`WalletTransfers` code lives in the
+new doc. Verdict, applying "best implementation wins, one model of
+record" together with the Prepaid precedent (`Way4_Phase1_Card_Portfolio_
+Tracker.md`'s sequencing decision — wallet-app's account/ledger code was
+found real and mature for Prepaid too, and the verdict was still "build
+native, don't port"): **build Digital Wallet accounts natively on
+`cms_accounts`, reusing `wallet_accounts`/`wallet_ledger`/`wallet_
+transfers`/QR as design reference, not code to port** — one exception,
+QR's wire-format design is clean enough to adopt close to as-is. The new
+doc's §4 also directly informs **Decision 2 below**: wallet-app's own
+multi-currency wallets are built via a "Wallet Product" grouping N
+single-currency sub-accounts, not a multi-currency balance on one row —
+compatible with ADR-C4 without reversing it.
+
+- ATM Switching and ISO20022 remain grouped here provisionally — both are
+  genuinely new acquiring/rail capabilities with no natural home yet; the
+  new requirements doc didn't resolve this, still needs its own look.
 
 ### Phase 3 — Platform maturity
 Lower urgency; these are cross-cutting improvements to what Phases 0–2
@@ -445,7 +455,13 @@ Phase 0 above.
    account support (reversing ADR-C4), or does that belong entirely in a
    future wallet/channel layer (Phase 2) while `cms_accounts` stays
    single-currency by design? This is an architecture decision, not a
-   feature toggle.
+   feature toggle. **Partially informed 2026-07-28** — see
+   `../wallet/DIGITAL_WALLET_Module_Requirements.md` §4: wallet-app's own
+   real multi-currency wallets don't reverse an equivalent single-currency
+   rule either, they compose N single-currency accounts under one
+   customer-facing "Wallet Product." Still needs explicit product
+   confirmation that composition satisfies the actual requirement (see
+   that doc's §8 Open Question 1) before treating this as closed.
 3. **KYC provider market** — config-driven recognition rules are cheap;
    external provider adapters (e.g., India CKYC) are market-gated and were
    already parked once pending a launch-market answer — still open. (Note:
@@ -478,7 +494,9 @@ of the four open decisions in §3; Prepaid and Tokenization each depend on
 one specific decision and can be scoped in parallel once that decision
 lands; BNPL's dependency is now an integration contract with
 `MerchantManagementSystem` (merchant eligibility data), not anything
-inside this repo. Phase 2 should not start until its own requirements pass
-(see Phase 2 above) is written — this is the single largest undertaking in
-the plan and deserves the same design discipline as every other module in
-this repo, not an improvised port.
+inside this repo. Phase 2's requirements pass is now written (see Phase 2
+above) — its Phase W1/W2/W3 (account foundation, wallet-to-wallet
+transfer, personal QR) have no remaining open decisions and can be
+sequenced next; W6+ (A2A, Instant Payments, merchant QR) each still need
+their own external rail/vendor/ownership decision per that doc's §8
+before being scoped further.

@@ -24,6 +24,7 @@ defmodule VmuCore.CMS.DebitAccount do
   @primary_key {:debit_account_id, :binary_id, autogenerate: true}
 
   @valid_statuses ~w[ACTIVE SUSPENDED CLOSED DORMANT]
+  @valid_kyc_statuses ~w[PENDING VERIFIED REJECTED]
 
   schema "cms_debit_accounts" do
     field :customer_id,        :binary_id
@@ -38,17 +39,33 @@ defmodule VmuCore.CMS.DebitAccount do
     field :opened_at,          :date
     field :closed_at,          :date
 
+    # Card Products UX Parity Phase 1e (2026-07-28) — Debit's own copies
+    # of Credit's account-level Block/velocity-limits/KYC fields (see
+    # docs/compare/Card_Products_UX_Parity_Tracker.md §6). block_code/
+    # block_reason/blocked_at mirror CMS.Account's shape exactly, kept
+    # in sync by CMS.DebitBlockHistory.record_block/6 the same way
+    # BlockCodeHistory keeps CMS.Account in sync.
+    field :block_code,         :string
+    field :block_reason,       :string
+    field :blocked_at,         :naive_datetime
+    field :velocity_limits,    :map, default: %{}
+    field :kyc_status,         :string, default: "PENDING"
+    field :kyc_verified_at,    :naive_datetime
+
     timestamps(type: :utc_datetime)
   end
 
   @required ~w[customer_id sys_id bank_id logo_id block_id opened_at]a
-  @optional ~w[available_balance currency status closed_at]a
+  @optional ~w[available_balance currency status closed_at
+               block_code block_reason blocked_at velocity_limits
+               kyc_status kyc_verified_at]a
 
   def changeset(account, attrs) do
     account
     |> cast(attrs, @required ++ @optional)
     |> validate_required(@required)
     |> validate_inclusion(:status, @valid_statuses)
+    |> validate_inclusion(:kyc_status, @valid_kyc_statuses)
     |> validate_number(:available_balance, greater_than_or_equal_to: 0)
   end
 

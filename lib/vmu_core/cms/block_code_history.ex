@@ -167,6 +167,11 @@ defmodule VmuCore.CMS.BlockCodeHistory do
   defp put_applied_at(%Ecto.Changeset{} = cs) do
     if get_field(cs, :applied_at),
       do:   cs,
-      else: put_change(cs, :applied_at, NaiveDateTime.utc_now())
+      # Real bug found live (2026-07-28, building DebitBlockHistory's
+      # parallel copy of this exact code): NaiveDateTime.utc_now/0
+      # carries microseconds, but applied_at is a plain :naive_datetime
+      # (second precision) — Ecto rejects it at insert time. Any caller
+      # that didn't already pass its own applied_at would have hit this.
+      else: put_change(cs, :applied_at, NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second))
   end
 end

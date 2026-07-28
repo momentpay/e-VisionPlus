@@ -190,4 +190,81 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
 
     assert html =~ "A reference is required for this channel."
   end
+
+  describe "Adjustments (Card Products UX Parity Phase 1c, 2026-07-28)" do
+    test "a CREDIT adjustment approved by a different supervisor increases the balance" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      maker = operator_fixture("SUPERVISOR")
+      checker = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=debit_adjustment_save]", %{
+          "adjustment" => %{
+            "direction" => "CREDIT", "amount" => "60.00", "reason" => "Goodwill",
+            "reference_id" => "CAS-1", "supervisor_id" => checker.username
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Adjustment posted."
+      assert html =~ "60.00"
+
+      updated = Repo.get!(DebitAccount, account.debit_account_id)
+      assert D.equal?(updated.available_balance, D.new("60.00"))
+    end
+
+    test "the maker cannot approve their own adjustment (4-eyes)" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      maker = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=debit_adjustment_save]", %{
+          "adjustment" => %{
+            "direction" => "CREDIT", "amount" => "60.00", "reason" => "Self-approve",
+            "reference_id" => "CAS-2", "supervisor_id" => maker.username
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "cannot approve your own action"
+
+      updated = Repo.get!(DebitAccount, account.debit_account_id)
+      assert D.equal?(updated.available_balance, D.new(0))
+    end
+
+    test "a DEBIT adjustment exceeding the available balance fails cleanly" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      maker = operator_fixture("SUPERVISOR")
+      checker = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=debit_adjustment_save]", %{
+          "adjustment" => %{
+            "direction" => "DEBIT", "amount" => "10.00", "reason" => "Reverse",
+            "reference_id" => "CAS-3", "supervisor_id" => checker.username
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "insufficient funds"
+    end
+  end
 end

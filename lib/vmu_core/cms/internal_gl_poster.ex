@@ -158,6 +158,43 @@ defmodule VmuCore.CMS.InternalGlPoster do
   end
 
   @doc """
+  Post a manual balance adjustment against a debit account (Card
+  Products UX Parity Phase 1c, 2026-07-28). `direction: "CREDIT"` uses
+  the same DR/CR shape as `post_debit_deposit/5` (increases
+  available_balance); `direction: "DEBIT"` reverses it, same shape as
+  `post_debit_purchase/5` (decreases available_balance).
+  """
+  def post_debit_adjustment(debit_account_id, amount, "CREDIT", posting_date, narrative, idempotency_key) do
+    post(%{
+      account_id:       debit_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "ADJUSTMENT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "1006",
+      gl_account_cr:    "5001",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        narrative
+    })
+  end
+
+  def post_debit_adjustment(debit_account_id, amount, "DEBIT", posting_date, narrative, idempotency_key) do
+    post(%{
+      account_id:       debit_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "ADJUSTMENT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "5001",
+      gl_account_cr:    "1006",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        narrative
+    })
+  end
+
+  @doc """
   Post a load into a prepaid account (Way4 parity plan Phase 1 item 5,
   P1) — same liability-direction shape as `post_debit_deposit/5`, its
   own GL code (5002, not 5001 — a different product).

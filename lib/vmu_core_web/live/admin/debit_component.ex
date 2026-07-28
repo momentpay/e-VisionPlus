@@ -27,7 +27,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   import VmuCoreWeb.AdminUI
 
   alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
-                 CMS.DebitFundingCommand, CTA.CardLifecycle, CTA.Cards}
+                 CMS.DebitFundingCommand, CMS.DebitAdjustmentCommand, CTA.CardLifecycle, CTA.Cards}
   alias VmuCore.Shared.{Customer, LogoParameter, BlockParameter}
   alias VmuCore.ASM.Authz
   alias Decimal, as: D
@@ -46,6 +46,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        account: nil,
        fundings: [],
        cards: [],
+       adjustments: [],
        can_edit: false,
        loaded_deep_link_id: nil,
        embedded: false,
@@ -249,6 +250,52 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   end
 
   # ---------------------------------------------------------------------------
+  # Adjustments (Card Products UX Parity Phase 1c, 2026-07-28)
+  # ---------------------------------------------------------------------------
+
+  def handle_event("debit_adjustment_save", %{"adjustment" => params}, socket) do
+    amount = parse_decimal(params["amount"])
+
+    cond do
+      is_nil(amount) ->
+        {:noreply, assign(socket, notice: "A valid amount is required.", notice_kind: :error)}
+
+      params["reference_id"] in [nil, ""] ->
+        {:noreply, assign(socket, notice: "Reference ID is required.", notice_kind: :error)}
+
+      true ->
+        case resolve_checker(socket, params["supervisor_id"], amount) do
+          {:ok, checker} ->
+            attrs = %{
+              debit_account_id: socket.assigns.account.debit_account_id,
+              direction: params["direction"], amount: amount,
+              reason: params["reason"] || "", reference_id: params["reference_id"],
+              operator_id: maker_id(socket), supervisor_id: checker.username
+            }
+
+            case DebitAdjustmentCommand.post(attrs) do
+              {:ok, _adjustment} ->
+                {:noreply, socket
+                            |> load_detail(socket.assigns.account.debit_account_id)
+                            |> assign(active_action: :none, notice: "Adjustment posted.", notice_kind: :success)}
+
+              {:error, :insufficient_funds} ->
+                {:noreply, assign(socket, notice: "Adjustment failed — insufficient funds for a DEBIT of that amount.", notice_kind: :error)}
+
+              {:error, %Ecto.Changeset{} = cs} ->
+                {:noreply, assign(socket, notice: "Adjustment failed — #{inspect(cs.errors)}", notice_kind: :error)}
+
+              {:error, reason} ->
+                {:noreply, assign(socket, notice: "Adjustment failed — #{inspect(reason)}", notice_kind: :error)}
+            end
+
+          {:error, checker_error} ->
+            {:noreply, assign(socket, notice: checker_error_msg(checker_error), notice_kind: :error)}
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Card issuance / lifecycle
   # ---------------------------------------------------------------------------
 
@@ -349,7 +396,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       active_action: :none,
       notice: nil,
       fundings: Repo.all(from f in DebitFunding, where: f.debit_account_id == ^debit_account_id, order_by: [desc: f.inserted_at]),
-      cards: Cards.by_debit_account(debit_account_id)
+      cards: Cards.by_debit_account(debit_account_id),
+      adjustments: DebitAdjustmentCommand.list_for(debit_account_id)
     )
   end
 
@@ -373,6 +421,37 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   defp money(nil), do: "—"
   defp money(%D{} = d), do: d |> D.round(2) |> D.to_string()
   defp money(v), do: to_string(v)
+
+  # ── ASM-P3.1-style 4-eyes identity helpers (Card Products UX Parity
+  # Phase 1c, 2026-07-28) — same convention AccountComponent's Temp
+  # Limit/Fee Waiver/Financial Adjustment actions already use.
+  defp maker_id(socket) do
+    case Map.get(socket.assigns, :current_operator) do
+      %{username: username} -> username
+      _ -> "SYSTEM"
+    end
+  end
+
+  defp resolve_checker(socket, supervisor_username, amount) do
+    case Map.get(socket.assigns, :current_operator) do
+      %VmuCore.ASM.Operator{} = maker ->
+        VmuCore.ASM.Authz.validate_checker(supervisor_username, maker, "debit", amount)
+
+      _ ->
+        {:error, :checker_not_found}
+    end
+  end
+
+  defp checker_error_msg(:checker_not_found),
+    do: "4-eyes: Supervisor username not found or not an active operator."
+  defp checker_error_msg(:checker_is_maker),
+    do: "4-eyes: You cannot approve your own action — enter a different supervisor."
+  defp checker_error_msg(:checker_lacks_permission),
+    do: "4-eyes: That operator's role cannot approve debit actions."
+  defp checker_error_msg(:checker_exceeds_authority),
+    do: "4-eyes: Amount exceeds that supervisor's authority limit."
+  defp checker_error_msg(other),
+    do: "4-eyes validation failed — #{inspect(other)}"
 
   defp status_cls("ACTIVE"),    do: "badge-green"
   defp status_cls("SUSPENDED"), do: "badge-yellow"
@@ -497,7 +576,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
            docs/compare/Card_Products_UX_Parity_Tracker.md). --%>
       <div class="card" style="padding:0;overflow:hidden;">
         <div class="detail-tabs">
-          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Funding History", "💰"}, {3, "Cards", "💳"}] do %>
+          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Funding History", "💰"}, {3, "Cards", "💳"}, {4, "Adjustments", "🧾"}] do %>
             <div class={"detail-tab#{if @detail_tab == idx, do: " active"}"}
               phx-click="detail_tab" phx-value-t={idx} phx-target={@myself}>
               <%= icon %> <%= label %>
@@ -509,6 +588,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
             <% 1 -> %> <%= debit_tab_overview(assigns) %>
             <% 2 -> %> <%= debit_tab_funding_history(assigns) %>
             <% 3 -> %> <%= debit_tab_cards(assigns) %>
+            <% 4 -> %> <%= debit_tab_adjustments(assigns) %>
             <% _ -> %> <p>Invalid tab.</p>
           <% end %>
         </div>
@@ -644,6 +724,72 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
                   <button :if={c.status == "BLOCKED"} class="btn btn-xs" phx-click="card_unblock" phx-value-id={c.card_id} phx-target={@myself}>Unblock</button>
                 </div>
               </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  # Card Products UX Parity Phase 1c (2026-07-28) — Debit's first manual
+  # balance-correction capability, 4-eyes approved (same
+  # ASM.Authz.validate_checker/4 pattern Credit's Temp Limit/Fee Waiver/
+  # Financial Adjustment already use). CREDIT increases available_balance,
+  # DEBIT decreases it — real banking terminology for a deposit/asset
+  # account (the opposite polarity from Credit's card-side adjustment).
+  defp debit_tab_adjustments(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Adjustments (<%= length(@adjustments) %>)</span>
+      <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="adjustment" phx-target={@myself}>+ New Adjustment</button>
+    </div>
+
+    <%= if @active_action == :adjustment do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>🧾 New Adjustment (4-eyes)</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="debit_adjustment_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Direction *</label>
+              <select class="input" name="adjustment[direction]" required>
+                <option value="CREDIT">Credit (increase balance)</option>
+                <option value="DEBIT">Debit (decrease balance)</option>
+              </select></div>
+            <div class="form-group"><label class="form-label">Amount *</label>
+              <input class="input" type="text" name="adjustment[amount]" placeholder="50.00" required/></div>
+            <div class="form-group"><label class="form-label">Reason *</label>
+              <input class="input" type="text" name="adjustment[reason]" maxlength="100" required/></div>
+            <div class="form-group"><label class="form-label">Reference ID *</label>
+              <input class="input" type="text" name="adjustment[reference_id]" placeholder="CAS-1234" required/></div>
+            <div class="form-group"><label class="form-label">Approving Supervisor (username) *</label>
+              <input class="input" type="text" name="adjustment[supervisor_id]" required/></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Post Adjustment</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Reason</th><th>Reference</th><th>Maker / Checker</th></tr></thead>
+        <tbody>
+          <%= if @adjustments == [] do %>
+            <tr><td colspan="6" class="empty-row" style="text-align:center;">No adjustments posted.</td></tr>
+          <% end %>
+          <%= for a <- @adjustments do %>
+            <tr>
+              <td><%= Calendar.strftime(a.inserted_at, "%Y-%m-%d %H:%M") %></td>
+              <td><span class={"badge #{if a.direction == "CREDIT", do: "badge-green", else: "badge-red"}"}><%= a.direction %></span></td>
+              <td class="mono"><%= money(a.amount) %></td>
+              <td><%= a.reason %></td>
+              <td><%= a.reference_id %></td>
+              <td style="font-size:12px;"><code><%= a.operator_id %></code> / <code><%= a.supervisor_id %></code></td>
             </tr>
           <% end %>
         </tbody>

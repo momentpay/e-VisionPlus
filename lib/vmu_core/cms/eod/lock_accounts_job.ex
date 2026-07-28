@@ -20,11 +20,15 @@ defmodule VmuCore.CMS.EOD.LockAccountsJob do
 
     Logger.info("[EOD] LockAccounts: cycle_code=#{cycle_code} date=#{eod_date}")
 
+    # account_type == "CREDIT" excludes HCS's EMPLOYEE_CARD/CORPORATE_PARENT
+    # sub-accounts — real bug found live 2026-07-28, see CMS.Account's
+    # account_type field comment.
     accounts_to_lock =
       Repo.all(
         from a in Account,
           where: a.cycle_code == ^cycle_code
-            and a.account_status == "ACTIVE",
+            and a.account_status == "ACTIVE"
+            and a.account_type == "CREDIT",
           select: a.account_id
       )
 

@@ -113,11 +113,16 @@ defmodule VmuCore.CMS.EOD.EodSchedulerJob do
         [String.pad_leading(to_string(today_day), 2, "0")]
       end
 
-    # Only enqueue for cycle_codes that actually have ACTIVE accounts today
+    # Only enqueue for cycle_codes that actually have ACTIVE accounts today.
+    # account_type == "CREDIT" excludes HCS's EMPLOYEE_CARD/CORPORATE_PARENT
+    # sub-accounts (real bug found live 2026-07-28 — see CMS.Account's
+    # account_type field comment) — those are limit-tracking facilities,
+    # not revolving credit lines, and must never enter interest accrual.
     Repo.all(
       from a in Account,
         where: a.cycle_code in ^matching_codes
-          and a.account_status in ["ACTIVE", "DELINQUENT"],
+          and a.account_status in ["ACTIVE", "DELINQUENT"]
+          and a.account_type == "CREDIT",
         distinct: true,
         select: a.cycle_code
     )

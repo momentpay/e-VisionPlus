@@ -11,6 +11,9 @@ defmodule VmuCore.CMS.Arrangements do
 
   import Ecto.Query
   alias VmuCore.{Repo, CMS.Arrangement}
+  alias VmuCore.CMS.{Account, DebitAccount, PrepaidAccount, PrepaidLedger}
+  alias VmuCore.HCS.{Company, EmployeeCard, FleetCard}
+  alias VmuCore.Shared.Customer
 
   @doc """
   attrs = %{customer_id:, product_type:, account_ref:, opened_at: (optional, default today)}
@@ -30,4 +33,132 @@ defmodule VmuCore.CMS.Arrangements do
         order_by: [desc: a.inserted_at]
     )
   end
+
+  @doc """
+  Cross-product account rollup for the admin "All Products" list (2026-07-28)
+  — one row per Arrangement enriched with live status/summary pulled from
+  whichever product table actually owns it, plus the customer's name.
+  Never persists status/balance onto Arrangement itself; this is a
+  read-time join across up to six tables, batched per product_type (not
+  N+1 per row).
+
+  opts = %{product_type: (optional filter), search: (optional customer
+  name substring), limit: (default 200)}
+
+  Returns a list of %{arrangement:, customer:, status:, summary:} maps.
+  """
+  def search(opts \\ %{}) do
+    product_type = Map.get(opts, :product_type, "")
+    search_term  = Map.get(opts, :search, "")
+    limit        = Map.get(opts, :limit, 200)
+
+    query = from a in Arrangement, order_by: [desc: a.inserted_at], limit: ^limit
+
+    query =
+      if product_type != "", do: where(query, [a], a.product_type == ^product_type), else: query
+
+    query =
+      if search_term != "" and search_term != nil do
+        cust_ids =
+          Repo.all(
+            from c in Customer,
+              where: ilike(c.first_name, ^"%#{search_term}%") or ilike(c.last_name, ^"%#{search_term}%"),
+              select: c.customer_id
+          )
+        where(query, [a], a.customer_id in ^cust_ids)
+      else
+        query
+      end
+
+    arrangements = Repo.all(query)
+
+    customer_ids = arrangements |> Enum.map(& &1.customer_id) |> Enum.uniq()
+    customers =
+      if customer_ids == [] do
+        %{}
+      else
+        Repo.all(from c in Customer, where: c.customer_id in ^customer_ids) |> Map.new(&{&1.customer_id, &1})
+      end
+
+    enrichment = enrich_by_product_type(arrangements)
+
+    Enum.map(arrangements, fn arr ->
+      %{
+        arrangement: arr,
+        customer:    Map.get(customers, arr.customer_id),
+        status:      get_in(enrichment, [{arr.product_type, arr.account_ref}, :status]),
+        summary:     get_in(enrichment, [{arr.product_type, arr.account_ref}, :summary])
+      }
+    end)
+  end
+
+  # Keyed by {product_type, account_ref} — account_ref is only guaranteed
+  # unique within a product_type (the DB's own unique index shape), not
+  # globally across product tables.
+  defp enrich_by_product_type(arrangements) do
+    arrangements
+    |> Enum.group_by(& &1.product_type)
+    |> Enum.flat_map(fn {type, group} -> enrich_group(type, Enum.map(group, & &1.account_ref)) end)
+    |> Map.new()
+  end
+
+  defp enrich_group("CREDIT", refs) do
+    Repo.all(from a in Account, where: a.account_id in ^refs,
+      select: {a.account_id, a.account_status, a.credit_limit, a.open_to_buy})
+    |> Enum.map(fn {id, status, limit, otb} ->
+      {{"CREDIT", id}, %{status: status, summary: "Limit #{money(limit)} / OTB #{money(otb)}"}}
+    end)
+  end
+
+  defp enrich_group("DEBIT", refs) do
+    Repo.all(from a in DebitAccount, where: a.debit_account_id in ^refs,
+      select: {a.debit_account_id, a.status, a.available_balance, a.currency})
+    |> Enum.map(fn {id, status, bal, ccy} ->
+      {{"DEBIT", id}, %{status: status, summary: "#{money(bal)} #{ccy}"}}
+    end)
+  end
+
+  defp enrich_group("PREPAID", refs) do
+    Repo.all(from a in PrepaidAccount, where: a.prepaid_account_id in ^refs,
+      select: {a.prepaid_account_id, a.status, a.currency})
+    |> Enum.map(fn {id, status, ccy} ->
+      {{"PREPAID", id}, %{status: status, summary: "#{money(PrepaidLedger.balance(id))} #{ccy}"}}
+    end)
+  end
+
+  defp enrich_group("CORPORATE_FACILITY", refs) do
+    Repo.all(from c in Company, where: c.id in ^to_ints(refs),
+      select: {c.id, c.status, c.credit_limit, c.available_limit})
+    |> Enum.map(fn {id, status, limit, avail} ->
+      {{"CORPORATE_FACILITY", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+    end)
+  end
+
+  defp enrich_group("CORPORATE_EMPLOYEE", refs) do
+    Repo.all(from c in EmployeeCard, where: c.id in ^to_ints(refs),
+      select: {c.id, c.status, c.individual_limit, c.available_individual})
+    |> Enum.map(fn {id, status, limit, avail} ->
+      {{"CORPORATE_EMPLOYEE", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+    end)
+  end
+
+  defp enrich_group("CORPORATE_FLEET", refs) do
+    Repo.all(from c in FleetCard, where: c.id in ^to_ints(refs),
+      select: {c.id, c.status, c.individual_limit, c.available_individual})
+    |> Enum.map(fn {id, status, limit, avail} ->
+      {{"CORPORATE_FLEET", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+    end)
+  end
+
+  defp enrich_group(_type, _refs), do: []
+
+  defp to_ints(refs) do
+    refs
+    |> Enum.map(fn r -> case Integer.parse(r) do {n, ""} -> n; _ -> nil end end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp money(nil), do: "0.00"
+  defp money(%Decimal{} = d), do: d |> Decimal.round(2) |> Decimal.to_string()
+  defp money(v), do: to_string(v)
 end

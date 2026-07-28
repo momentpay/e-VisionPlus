@@ -72,6 +72,12 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        bank_filter: "",
        logo_filter: "",
        dpd_filter: "",
+       # Koṣa domain-model alignment (2026-07-28) — "credit" is this page's
+       # original scope; "all" is a read-only cross-product rollup driven
+       # by CMS.Arrangement, each row linking out to its own product page.
+       list_scope: "credit",
+       all_accounts: [],
+       all_product_filter: "",
        # Detail
        account: nil,
        customer: nil,
@@ -148,6 +154,20 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     custs     = if cust_ids == [], do: [], else: Repo.all(from c in Customer, where: c.customer_id in ^cust_ids)
     custs_map = Map.new(custs, &{&1.customer_id, &1})
     assign(socket, accounts: accounts, customers_map: custs_map)
+  end
+
+  # Koṣa domain-model alignment (2026-07-28) — cross-product rollup, driven
+  # by CMS.Arrangement instead of CMS.Account, for the "All Products" tab.
+  defp load_all_accounts(socket) do
+    s = socket.assigns
+
+    rows =
+      Arrangements.search(%{
+        product_type: s.all_product_filter,
+        search: s.acc_search
+      })
+
+    assign(socket, all_accounts: rows)
   end
 
   defp search_accounts(search, status_f, bank_f, logo_f, dpd_f) do
@@ -236,7 +256,19 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   @impl true
   def handle_event("acc_search", %{"q" => q}, socket) do
-    {:noreply, socket |> assign(acc_search: q) |> load_accounts()}
+    socket = assign(socket, acc_search: q)
+    socket = if socket.assigns.list_scope == "all", do: load_all_accounts(socket), else: load_accounts(socket)
+    {:noreply, socket}
+  end
+
+  def handle_event("acc_scope", %{"scope" => scope}, socket) do
+    socket = assign(socket, list_scope: scope)
+    socket = if scope == "all", do: load_all_accounts(socket), else: load_accounts(socket)
+    {:noreply, socket}
+  end
+
+  def handle_event("all_product_filter", %{"product_type" => pt}, socket) do
+    {:noreply, socket |> assign(all_product_filter: pt) |> load_all_accounts()}
   end
 
   def handle_event("acc_filter", params, socket) do
@@ -1220,6 +1252,24 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
     ~H"""
     <div>
+      <div class="card-header" style="display:flex;gap:8px;margin-bottom:16px;padding:0;border:none;">
+        <button
+          class={"btn btn-sm #{if @list_scope == "credit", do: "btn-primary", else: "btn-secondary"}"}
+          phx-click="acc_scope" phx-value-scope="credit" phx-target={@myself}
+        >
+          Credit Accounts
+        </button>
+        <button
+          class={"btn btn-sm #{if @list_scope == "all", do: "btn-primary", else: "btn-secondary"}"}
+          phx-click="acc_scope" phx-value-scope="all" phx-target={@myself}
+        >
+          All Products (Arrangements)
+        </button>
+      </div>
+
+      <%= if @list_scope == "all" do %>
+        <%= render_all_products_list(assigns) %>
+      <% else %>
       <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
         <div class="stat-card">
           <div class="stat-label">Total Accounts</div>
@@ -1348,9 +1398,104 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           </table>
         </div>
       </div>
+      <% end %>
     </div>
     """
   end
+
+  # Koṣa domain-model alignment (2026-07-28) — read-only cross-product
+  # rollup: one row per Arrangement (Credit/Debit/Prepaid/Corporate),
+  # linking out to whichever admin page actually owns that account for
+  # detail/actions. This tab never duplicates product logic — it's a
+  # navigation aid, not a second account-management surface.
+  defp render_all_products_list(assigns) do
+    ~H"""
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <input
+          type="text"
+          class="input"
+          style="flex:1;min-width:220px;"
+          placeholder="Search by customer name…"
+          value={@acc_search}
+          phx-keyup="acc_search" phx-key="Enter"
+          phx-debounce="300"
+          phx-value-q={@acc_search}
+          phx-target={@myself}
+        />
+        <select class="input" style="width:220px;"
+          phx-change="all_product_filter" phx-target={@myself} name="product_type">
+          <option value="">All Product Types</option>
+          <option value="CREDIT">Credit</option>
+          <option value="DEBIT">Debit</option>
+          <option value="PREPAID">Prepaid</option>
+          <option value="CORPORATE_FACILITY">Corporate — Facility</option>
+          <option value="CORPORATE_EMPLOYEE">Corporate — Employee</option>
+          <option value="CORPORATE_FLEET">Corporate — Fleet</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Product</th>
+              <th>Status</th>
+              <th>Summary</th>
+              <th>Opened</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= if @all_accounts == [] do %>
+              <tr><td colspan="6" class="empty-row">No arrangements found.</td></tr>
+            <% end %>
+            <%= for row <- @all_accounts do %>
+              <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
+              <tr>
+                <td>
+                  <%= if row.customer do %>
+                    <div class="fw-600"><%= row.customer.first_name %> <%= row.customer.last_name %></div>
+                    <div style="font-size:11px;color:var(--text-secondary)"><%= row.customer.email %></div>
+                  <% else %>
+                    <span class="text-muted">—</span>
+                  <% end %>
+                </td>
+                <td><span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span></td>
+                <td>
+                  <%= if row.status do %>
+                    <span class={"badge #{status_cls(row.status)}"}><%= row.status %></span>
+                  <% else %>
+                    <span class="text-muted">—</span>
+                  <% end %>
+                </td>
+                <td style="font-size:12px;"><%= row.summary || "—" %></td>
+                <td style="font-size:12px;"><%= date_s(row.arrangement.opened_at) %></td>
+                <td>
+                  <a class="btn btn-sm btn-secondary" href={"/visionplus/admin/#{mod}"}>View in <%= label %> →</a>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  defp arrangement_target("CREDIT"), do: {"account", "Accounts (CMS)"}
+  defp arrangement_target("DEBIT"), do: {"debit", "Debit Cards"}
+  defp arrangement_target("PREPAID"), do: {"prepaid", "Prepaid Cards"}
+  defp arrangement_target("CORPORATE_FACILITY"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_EMPLOYEE"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_FLEET"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target(_), do: {"account", "Accounts (CMS)"}
+
+  defp arrangement_badge_cls("CREDIT"), do: "badge-blue"
+  defp arrangement_badge_cls("DEBIT"), do: "badge-green"
+  defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
+  defp arrangement_badge_cls(_), do: "badge-gray"
 
   # ── Detail view ──────────────────────────────────────────────────────────────
 

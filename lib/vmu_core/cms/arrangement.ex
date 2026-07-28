@@ -21,6 +21,8 @@ defmodule VmuCore.CMS.Arrangement do
 
   @primary_key {:id, :binary_id, autogenerate: true}
 
+  @type t :: %__MODULE__{}
+
   @product_types ~w[CREDIT DEBIT PREPAID CORPORATE_FACILITY CORPORATE_EMPLOYEE CORPORATE_FLEET]
 
   schema "cms_arrangements" do

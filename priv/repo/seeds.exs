@@ -272,6 +272,18 @@ Repo.insert_all("cms_accounts", [
     open_date: ~D[2024-01-15], inserted_at: now_naive, updated_at: now_naive}
 ], on_conflict: :nothing)
 
+# Koṣa domain-model alignment (2026-07-28) — CMS.Arrangement didn't exist
+# when this phase was first written, so none of these 10 seed accounts
+# ever got a CREDIT arrangement, and were invisible on the Customer/
+# Accounts "All Products" views despite being real accounts.
+Enum.zip([acc_ahmed, acc_sara, acc_priya, acc_mohammad, acc_jennifer,
+          acc_abdullah, acc_fiona, acc_khalid, acc_rashid, acc_fatima],
+         [cust_ahmed, cust_sara, cust_priya, cust_mohammad, cust_jennifer,
+          cust_abdullah, cust_fiona, cust_khalid, cust_rashid, cust_fatima])
+|> Enum.each(fn {account_id, customer_id} ->
+  VmuCore.CMS.Arrangements.record(%{customer_id: customer_id, product_type: "CREDIT", account_ref: account_id})
+end)
+
 # Balance Buckets
 Repo.insert_all("cms_balance_buckets", [
   %{account_id: acc_ahmed, retail_balance: Decimal.new("1800.00"),
@@ -784,6 +796,14 @@ IO.puts("--> Phase 7: HCS")
     industry_code: "6412", liability_model: "CENTRAL", billing_cycle_day: 25,
     credit_limit: Decimal.new("500000.00"), available_limit: Decimal.new("497500.00"),
     max_employee_cards: 100, relationship_manager: "RM-CORP-001",
+    # Koṣa domain-model alignment (2026-07-28) — found live: this was never
+    # set, so the company had no DB-level link to Abdullah Al Zaabi (its
+    # real owner, per the shared @zaabi-group.ae email domain / company
+    # name) despite both existing. Same real gap Arrangements.record/1
+    # below depends on (account_ref: to_string(id), customer_id resolved
+    # via this account) — without it there was no way to derive who owns
+    # this company at all.
+    parent_account_id: acc_abdullah,
     status: "ACTIVE", kyc_status: "VERIFIED",
     kyc_verified_at: DateTime.add(now_utc, -180 * 86400),
     inserted_at: now_utc, updated_at: now_utc},
@@ -792,10 +812,20 @@ IO.puts("--> Phase 7: HCS")
     industry_code: "5199", liability_model: "INDIVIDUAL", billing_cycle_day: 10,
     credit_limit: Decimal.new("100000.00"), available_limit: Decimal.new("100000.00"),
     max_employee_cards: 25, relationship_manager: "RM-CORP-002",
+    parent_account_id: acc_mohammad,
     status: "ACTIVE", kyc_status: "VERIFIED",
     kyc_verified_at: DateTime.add(now_utc, -90 * 86400),
     inserted_at: now_utc, updated_at: now_utc}
 ], returning: [:id], on_conflict: :nothing)
+
+# Koṣa domain-model alignment (2026-07-28) — CMS.Arrangement didn't exist
+# when this phase was first written, so neither company ever got a
+# CORPORATE_FACILITY row; on_conflict: :nothing above means this insert
+# is a no-op on a re-run (existing rows keep whatever parent_account_id
+# they already had), so record/1 is called unconditionally and just
+# swallows the duplicate error on a re-run — cheaper than a second lookup.
+VmuCore.CMS.Arrangements.record(%{customer_id: cust_abdullah, product_type: "CORPORATE_FACILITY", account_ref: to_string(co_zaabi)})
+VmuCore.CMS.Arrangements.record(%{customer_id: cust_mohammad, product_type: "CORPORATE_FACILITY", account_ref: to_string(co_alfarsi)})
 
 {2, [%{id: emp_rashid}, %{id: emp_fatima}]} = Repo.insert_all("hcs_employee_cards", [
   %{company_id: co_zaabi, employee_account_id: acc_rashid,

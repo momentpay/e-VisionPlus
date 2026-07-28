@@ -1,6 +1,6 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. Phase 3 (HCS Employee Cards) next.
+**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) and Phase 2d (Prepaid retrofit) added; Phase 3 (HCS) now builds full parity from the start instead of retrofitting later.
 **Date:** 2026-07-28
 **Trigger:** User screenshots showing Credit's account-opening wizard
 (Customer → Product → Card & Credit → Config → Review) and 6-tab detail
@@ -42,27 +42,38 @@ over.
 
 | Tab | Backing data | Status |
 |---|---|---|
-| Overview | balance, status, opened/closed dates | Exists today (flat) → becomes tab 1 |
-| Funding History | `DebitFunding` rows | Exists today (flat table) → becomes tab 2 |
-| Cards | existing card list + issue/activate/block/unblock | Exists today (flat) → becomes tab 3 |
-| Adjustments *(new)* | manual correcting entries — mirrors Credit's Financial Adjustment 4-eyes shape | **Real gap** — no backend or UI today |
+| Overview | balance, status, opened/closed dates | Done |
+| Funding History | `DebitFunding` rows | Done |
+| Cards | card list + issue/activate/block/unblock (+ channel controls, + SUPPLEMENTARY option — Phase 1e) | Done, extended in Phase 1e |
+| Adjustments | manual correcting entries, 4-eyes | Done |
+| History *(new, Phase 1e)* | combined Block History + Non-Monetary Event history, mirroring Credit's History tab | **Real gap**, per §6 |
 
-Deliberately **not** building: Statements (no billing cycle), Plans (no
-installment concept), non-monetary-event History (address/phone/email
-changes are Customer-level, already handled on the Customer page, not a
-Debit-account concern).
+Action toolbar above the tabs (mirroring Credit's own layout —
+identity/KYC row + account-action row), **new in Phase 1e**: Apply
+Block, Address/Phone/Email/Emboss Name change, Change Limits (velocity,
+store+display only — see §6 item 2), KYC Verification Workflow
+(Verify/Reject/Reset, advisory-only).
+
+Still correctly not building: Statements (no billing cycle), Plans (no
+installment concept) — genuinely tied to revolving credit, confirmed
+in §6.
 
 ### Prepaid (`CMS.PrepaidAccount` — ledger-based: LOAD/SPEND/FEE/EXPIRE/REFUND/ADJUSTMENT)
 
 | Tab | Backing data | Status |
 |---|---|---|
-| Overview | derived balance (`PrepaidLedger.balance/1`), status | Exists today (flat) → becomes tab 1 |
-| Ledger | `PrepaidLedgerEntry` full history — genuinely richer than Debit's funding list, this *is* Prepaid's real "Statements" equivalent | Exists today (flat table, LOAD only shown) → becomes tab 2, extend to show all entry types |
-| Cards | same shape as Debit | Exists today (flat) → becomes tab 3 |
-| Adjustments | expose the already-declared `ADJUSTMENT` entry_type | **Small gap** — schema supports it, context/UI don't yet |
+| Overview | derived balance (`PrepaidLedger.balance/1`), status | Done |
+| Ledger | `PrepaidLedgerEntry` full history — this *is* Prepaid's real "Statements" equivalent | Done |
+| Cards | card list + issue/activate/block/unblock (+ channel controls, + SUPPLEMENTARY option — Phase 2d) | Done, extended in Phase 2d |
+| Adjustments | 4-eyes, CREDIT/DEBIT direction | Done |
+| History *(new, Phase 2d)* | combined Block History + Non-Monetary Event history | **Real gap**, per §6 |
 
-Deliberately not building: Statements/Plans/temp-limit (no credit line
-concept applies to a stored-value product).
+Same new action toolbar as Debit's Phase 1e, own tables: Apply Block,
+Address/Phone/Email/Emboss Name change, Change Limits (velocity,
+store+display only), KYC Verification Workflow (advisory-only).
+
+Still correctly not building: Statements/Plans/temp-limit — no credit
+line concept applies to a stored-value product, confirmed in §6.
 
 ### HCS Corporate (`HCS.Company`/`EmployeeCard`/`FleetCard`)
 
@@ -132,3 +143,100 @@ throughout this project.
    the unified card master), or does `EmployeeCard.status` need its own
    state machine independent of the card's own status? Check the Fleet
    Card precedent from Way4 Phase 0 before deciding.
+
+---
+
+## 6. Scope correction (2026-07-28b) — user pushback, confirmed right
+
+User challenged §2's exclusions directly: "for credit — limit, address,
+email, phone and other options of Credit are applicable then why not
+for Debit and prepaid. I can have limit for transaction etc for debit
+also." Re-examined every excluded item against the actual code (not
+assumption) before responding — verified, not just reasoned about:
+
+- `CMS.Account.velocity_limits` (JSONB daily count/amount caps per
+  channel) exists on Credit; `DebitAccount`/`PrepaidAccount` have **no
+  equivalent field at all**. Real gap — a debit card needs a daily
+  ATM/POS cap same as anyone else's.
+- `CMS.Account.block_code`/`block_reason`/`blocked_at` +
+  `BlockCodeHistory` (account-level block, distinct from card-level
+  block) exist on Credit only. Debit/Prepaid can only block the *card*
+  today (`CardLifecycle.block/3`), never the *account* — no way to
+  freeze the relationship independent of which plastic is blocked.
+- `CTA.CardLifecycle.set_channel_controls/2` (ecom/ATM/contactless/
+  intl toggles) is already card-generic (`Cards.set_channel_controls/2`
+  has no product-specific logic) — just never wired into Debit's or
+  Prepaid's admin UI. Cheap fix, not a design question.
+- Supplementary cards: `Card.card_types()` already includes
+  `SUPPLEMENTARY` generically and multiple cards can already share one
+  `debit_account_id`/`prepaid_account_id` — Debit/Prepaid's story is
+  *simpler* than Credit's (no separate-account "linking" mechanic
+  needed, just issue a second card against the same account). The
+  issue-card dropdown just never offered the option.
+- Fee Waiver is correctly absent for now — blocked on no fee-*charging*
+  mechanism existing for Debit/Prepaid yet (no `FEE` transaction code
+  ever posted), not because the concept doesn't apply.
+- Address/Phone/Email/Emboss Name: originally proposed moving these to
+  the Customer page only, since `Shared.Customer` is the only place
+  those fields actually live and Credit's own `NonMonetaryEvent`
+  action updates the *customer* record while auditing it under the
+  *account's* id. **User explicitly rejected this — wants each
+  product's own copy of these actions too, KYC included** (consistent
+  with the Koṣa domain-model discussion earlier — KYC tiers can
+  genuinely differ per product, not just per customer).
+- Statements (billing-cycle snapshot), Plans (EMI/installments), and
+  the multi-bucket Balances tab remain correctly excluded — tied to
+  revolving credit and interest accrual, which Debit/Prepaid
+  structurally don't have. This part of §2 stands.
+
+**Real technical constraint found before proposing the retrofit:**
+`NonMonetaryEvent.account_id` and `BlockCodeHistory.account_id` both
+carry a genuine **database-level** `references(:cms_accounts, ...)`
+foreign key (not just Elixir typing) — confirmed by reading the actual
+migrations, not assumed. They cannot be reused as-is for Debit/Prepaid;
+inserting a `debit_account_id` would violate the FK. Rather than loosen
+a working, tested constraint on Credit's own tables, Debit/Prepaid get
+their **own parallel tables** — consistent with how Adjustments was
+already built (separate `DebitAdjustment`/`PrepaidAdjustment`, not one
+shared polymorphic table).
+
+### Confirmed additional scope — same for Debit and Prepaid, own copies
+
+1. **Account-level Block/Unblock** — new `block_code`/`block_reason`/
+   `blocked_at` fields + a new `cms_{debit,prepaid}_block_history`
+   table (own FK to that product's account table), mirroring
+   `BlockCodeHistory`'s reason-code shape.
+2. **Transaction/Velocity Limits** — new `velocity_limits` JSONB field
+   on `DebitAccount`/`PrepaidAccount`, mirroring `CMS.Account`'s. Scope
+   for this pass: **store + display + admin-editable**, not wired into
+   the live authorization path — `AccountStateCoordinator.
+   check_velocity/3` is Credit-only today and actually enforcing
+   Debit/Prepaid velocity limits at auth time is a separate, larger
+   change to `DebitAuthorization`/`PrepaidLedger.spend/3` (flagged, not
+   silently taken on here).
+3. **Channel Controls** — wire the already-generic
+   `CardLifecycle.set_channel_controls/2` into the Cards tab. No
+   schema change.
+4. **Supplementary Card** — add `SUPPLEMENTARY` to the issue-card
+   dropdown. No schema change.
+5. **Address/Phone/Email/Emboss Name changes** — new
+   `cms_{debit,prepaid}_non_monetary_events` table (own FK), mirroring
+   `NonMonetaryEvent`'s 4 relevant event types (no `cycle_change` —
+   neither product has a billing cycle).
+6. **Per-product KYC** — new `kyc_status`/`kyc_verified_at` fields on
+   `DebitAccount`/`PrepaidAccount` + a "KYC Verification Workflow"
+   toolbar (Verify/Reject/Reset) mirroring Customer's, scoped to that
+   product. Confirmed by checking the codebase first: `kyc_status` is
+   **purely advisory today, nowhere enforced as a gate** (no product
+   creation or card issuance currently checks it) — this stays
+   advisory-only for Debit/Prepaid too, consistent with the existing
+   convention, not a new business rule invented on top.
+
+### Revised phases
+
+| Phase | Scope |
+|---|---|
+| **Phase 1e — Debit retrofit** | All 6 items above, applied to Debit |
+| **Phase 2d — Prepaid retrofit** | All 6 items above, applied to Prepaid |
+| **Phase 3 — HCS Employee Cards** | Now includes full parity (all 6 items + the wizard/tabs/Adjustments already planned) from the start, not as a later catch-up |
+| **Phase 4 — HCS Corporate polish** | Unchanged — Fleet Cards/Spending Controls/Reports reorganized into tabs |

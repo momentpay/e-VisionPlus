@@ -8,7 +8,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   alias VmuCore.CMS.{
     Account, BalanceBucket, BlockCodeHistory, NonMonetaryEvent,
     SupplementaryCard, PlanSegment, TempLimit, FeeWaiver, FinancialAdjustment,
-    LedgerEntry, AccountStateCoordinator, EmiSchedule
+    LedgerEntry, AccountStateCoordinator, EmiSchedule, Arrangements
   }
   alias VmuCore.Shared.{Customer, BankParameter, LogoParameter, BlockParameter}
   alias VmuCore.CTA.{Cards, CardLifecycle, CredentialVault}
@@ -657,6 +657,14 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         %BalanceBucket{}
         |> BalanceBucket.changeset(%{account_id: new_acc.account_id, balance_date: Date.utc_today()})
         |> Repo.insert()
+
+        # Koṣa domain-model alignment (2026-07-28) — records the real
+        # cross-product index, same convention as the other three
+        # product-opening flows.
+        Arrangements.record(%{
+          customer_id: new_acc.customer_id, product_type: "CREDIT",
+          account_ref: new_acc.account_id, opened_at: new_acc.open_date || Date.utc_today()
+        })
 
         socket =
           socket

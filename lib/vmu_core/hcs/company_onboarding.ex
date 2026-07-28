@@ -5,7 +5,7 @@ defmodule VmuCore.HCS.CompanyOnboarding do
   """
 
   alias VmuCore.HCS.{Company, EmployeeCard}
-  alias VmuCore.CMS.Account
+  alias VmuCore.CMS.{Account, Arrangements}
   alias VmuCore.Repo
   import Ecto.Query
   alias Decimal, as: D
@@ -36,6 +36,16 @@ defmodule VmuCore.HCS.CompanyOnboarding do
           available_limit:   Map.get(attrs.company_attrs, :credit_limit, D.new(0))
         }))
         |> Repo.insert()
+
+      # Koṣa domain-model alignment (2026-07-28) — account_ref is the
+      # Company's own id, not the parent CMS.Account: HcsComponent's
+      # detail view is loaded by company id, so that's what a customer's
+      # arrangement list needs to click through to the right screen.
+      {:ok, _arrangement} =
+        Arrangements.record(%{
+          customer_id: parent_account.customer_id, product_type: "CORPORATE_FACILITY",
+          account_ref: to_string(company.id), opened_at: Date.utc_today()
+        })
 
       %{company: company, parent_account: parent_account}
     end)
@@ -93,6 +103,17 @@ defmodule VmuCore.HCS.CompanyOnboarding do
               issued_at:           DateTime.utc_now()
             }))
             |> Repo.insert()
+
+          # Koṣa domain-model alignment (2026-07-28) — account_ref is the
+          # EmployeeCard's own id (carries company_id), not the
+          # underlying CMS.Account — same "point at whatever an operator
+          # actually needs to click through to" reasoning as
+          # onboard_company/1 above.
+          {:ok, _arrangement} =
+            Arrangements.record(%{
+              customer_id: employee_account.customer_id, product_type: "CORPORATE_EMPLOYEE",
+              account_ref: to_string(card.id), opened_at: Date.utc_today()
+            })
 
           %{employee_card: card, employee_account: employee_account}
         end)

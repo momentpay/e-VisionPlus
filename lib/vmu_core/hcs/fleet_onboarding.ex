@@ -10,7 +10,7 @@ defmodule VmuCore.HCS.FleetOnboarding do
   customer per card.
   """
 
-  alias VmuCore.{Repo, HCS.Company, HCS.Vehicle, HCS.FleetCard, HCS.EmployeeCard, CMS.Account}
+  alias VmuCore.{Repo, HCS.Company, HCS.Vehicle, HCS.FleetCard, HCS.EmployeeCard, CMS.Account, CMS.Arrangements}
   import Ecto.Query
   alias Decimal, as: D
 
@@ -69,6 +69,17 @@ defmodule VmuCore.HCS.FleetOnboarding do
                 status: "ACTIVE", issued_at: DateTime.utc_now() |> DateTime.truncate(:second)
               }))
               |> Repo.insert()
+
+            # Koṣa domain-model alignment (2026-07-28) — account_ref is
+            # the FleetCard's own id (carries company_id); customer_id
+            # is the company's own identity, same as the account it was
+            # just synthesized from (a vehicle isn't a separate legal
+            # entity — see the moduledoc above).
+            {:ok, _arrangement} =
+              Arrangements.record(%{
+                customer_id: account.customer_id, product_type: "CORPORATE_FLEET",
+                account_ref: to_string(card.id), opened_at: Date.utc_today()
+              })
 
             %{fleet_card: card, account: account}
           end)

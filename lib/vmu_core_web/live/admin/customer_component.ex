@@ -690,29 +690,32 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     is_corporate = cust.customer_tier in ["BUSINESS", "CORPORATE"]
     assigns = assign(assigns, cust: cust, is_corporate: is_corporate)
     ~H"""
-    <!-- Detail header card -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-body" style="display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;">
-        <div style="display:flex;gap:20px;align-items:center;">
-          <div style="width:56px;height:56px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+    <!-- Detail header (2026-07-28b UI cleanup — identity + KYC actions
+         combined into one compact card instead of two full cards each
+         with their own header/padding; cuts the excess vertical space
+         between the page title and the tabs below). -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-body" style="padding:16px 20px;display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;">
+        <div style="display:flex;gap:16px;align-items:center;">
+          <div style="width:44px;height:44px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">
             <%= if @is_corporate, do: "🏢", else: "👤" %>
           </div>
           <div>
-            <div style="font-size:20px;font-weight:700;color:var(--text-primary);">
+            <div style="font-size:18px;font-weight:700;color:var(--text-primary);line-height:1.2;">
               <%= full_name(@cust) %>
             </div>
-            <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">
+            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">
               CIF: <%= @cust.customer_id %>
             </div>
-            <div style="margin-top:8px;display:flex;gap:8px;">
+            <div style="margin-top:6px;display:flex;gap:6px;">
               <span class={"badge #{kyc_badge_class(@cust.kyc_status)}"}><%= @cust.kyc_status || "PENDING" %></span>
               <span class={"badge #{tier_badge_class(@cust.customer_tier)}"}><%= @cust.customer_tier || "RETAIL" %></span>
               <span class="badge badge-gray"><%= @cust.bank_id %></span>
             </div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-          <button :if={@can_edit} phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-secondary">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button :if={@can_edit} phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-sm btn-secondary">
             Edit Customer
           </button>
           <button :if={@can_edit} phx-click="cust_delete" phx-target={@myself}
@@ -722,46 +725,41 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- KYC workflow actions -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <div class="card-title">KYC Verification Workflow</div>
-        <div class="card-subtitle">Current status: <%= @cust.kyc_status || "PENDING" %></div>
-      </div>
-      <div class="card-body">
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-          <%= if @cust.kyc_status != "VERIFIED" do %>
-            <button phx-click="kyc_verify" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-primary"
-              style="background:var(--success);border-color:var(--success);"
-              data-confirm={"Mark #{full_name(@cust)} as KYC VERIFIED?"}>
-              ✓ Verify Customer
-            </button>
-          <% end %>
-          <%= if @cust.kyc_status != "REJECTED" do %>
-            <button phx-click="kyc_reject" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-danger"
-              data-confirm={"Mark #{full_name(@cust)} as KYC REJECTED?"}>
-              ✗ Reject
-            </button>
-          <% end %>
-          <%= if @cust.kyc_status != "PENDING" do %>
-            <button phx-click="kyc_reset" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-secondary"
-              data-confirm={"Reset KYC status for #{full_name(@cust)} back to PENDING?"}>
-              ↺ Reset to Pending
-            </button>
-          <% end %>
-        </div>
+      <!-- Inline KYC action row — a slim divider strip rather than a
+           second full card, since these are contextual actions on the
+           identity above, not a separate information section. -->
+      <div style="border-top:1px solid var(--border);padding:10px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <span class="text-sm text-muted" style="margin-right:4px;">KYC:</span>
+        <%= if @cust.kyc_status != "VERIFIED" do %>
+          <button phx-click="kyc_verify" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-primary"
+            style="background:var(--success);border-color:var(--success);"
+            data-confirm={"Mark #{full_name(@cust)} as KYC VERIFIED?"}>
+            ✓ Verify
+          </button>
+        <% end %>
+        <%= if @cust.kyc_status != "REJECTED" do %>
+          <button phx-click="kyc_reject" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-danger"
+            data-confirm={"Mark #{full_name(@cust)} as KYC REJECTED?"}>
+            ✗ Reject
+          </button>
+        <% end %>
+        <%= if @cust.kyc_status != "PENDING" do %>
+          <button phx-click="kyc_reset" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-secondary"
+            data-confirm={"Reset KYC status for #{full_name(@cust)} back to PENDING?"}>
+            ↺ Reset to Pending
+          </button>
+        <% end %>
         <%= if @cust.kyc_verified_at do %>
-          <div class="text-sm text-muted" style="margin-top:10px;">
-            Verified at: <%= NaiveDateTime.to_string(@cust.kyc_verified_at) %>
-          </div>
+          <span class="text-sm text-muted" style="margin-left:4px;">
+            Verified at <%= NaiveDateTime.to_string(@cust.kyc_verified_at) %>
+          </span>
         <% end %>
       </div>
     </div>
@@ -916,7 +914,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       <%= if @arr_selected_ref do %>
         <.live_component module={arrangement_component(@arr_family)}
           id={"portfolio-#{@arr_family}-#{@arr_selected_ref}"}
-          current_operator={@current_operator} deep_link_id={@arr_selected_ref} />
+          current_operator={@current_operator} deep_link_id={@arr_selected_ref} embedded={true} />
       <% end %>
     <% end %>
     """

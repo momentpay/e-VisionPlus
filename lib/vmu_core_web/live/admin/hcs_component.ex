@@ -60,7 +60,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
        selected_vehicle_card: nil,
        selected_vehicle_history: [],
        can_edit: false,
-       loaded_deep_link_id: nil
+       loaded_deep_link_id: nil,
+       embedded: false
      )
      |> load_companies()}
   end
@@ -503,11 +504,13 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   def render(%{mode: :list} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title="Corporate Card Programmes (HCS)" subtitle="Company facilities and employee cards">
-        <:actions>
-          <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_company" phx-target={@myself}>+ New Company</button>
-        </:actions>
-      </.page_header>
+      <%= if not @embedded do %>
+        <.page_header title="Corporate Card Programmes (HCS)" subtitle="Company facilities and employee cards">
+          <:actions>
+            <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_company" phx-target={@myself}>+ New Company</button>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
@@ -578,11 +581,15 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   def render(%{mode: :detail} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title={"#{@company.company_name} (#{@company.company_code})"} subtitle="Company facility detail">
-        <:actions>
-          <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
-        </:actions>
-      </.page_header>
+      <%= if @embedded do %>
+        <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @company.company_name %> (<%= @company.company_code %>)</div>
+      <% else %>
+        <.page_header title={"#{@company.company_name} (#{@company.company_code})"} subtitle="Company facility detail">
+          <:actions>
+            <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
@@ -864,11 +871,18 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   def render(%{mode: :vehicle_detail} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title={"#{@selected_vehicle.plate_number} — #{@company.company_name}"} subtitle="Vehicle detail">
-        <:actions>
+      <%= if @embedded do %>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div style="font-size:16px;font-weight:700;"><%= @selected_vehicle.plate_number %> — <%= @company.company_name %></div>
           <button class="btn-sm" phx-click="back_to_company" phx-target={@myself}>← Back to company</button>
-        </:actions>
-      </.page_header>
+        </div>
+      <% else %>
+        <.page_header title={"#{@selected_vehicle.plate_number} — #{@company.company_name}"} subtitle="Vehicle detail">
+          <:actions>
+            <button class="btn-sm" phx-click="back_to_company" phx-target={@myself}>← Back to company</button>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 

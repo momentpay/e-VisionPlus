@@ -91,8 +91,11 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     # renders inline, not a "View in X" link out to a different page.
     assert html =~ "Debit Card"
     assert html =~ "Prepaid Card"
-    assert html =~ "Account detail"
     assert html =~ "— Debit Account"
+    # Embedded mode suppresses DebitComponent's own page header/"Back to
+    # list" chrome (2026-07-28b) — redundant/confusing when shown inline
+    # inside the Customer page, per Avenza's own Party 360 precedent.
+    refute html =~ "Back to list"
 
     # Switching the sub-tab embeds PrepaidComponent's own detail view instead.
     html = view |> element("div[phx-click=arr_family][phx-value-f=prepaid]") |> render_click()

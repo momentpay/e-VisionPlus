@@ -118,7 +118,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        blocks_for_logo: [],
        selected_logo: nil,
        bank_options: [],
-       loaded_deep_link_id: nil
+       loaded_deep_link_id: nil,
+       embedded: false
      )
      |> load_bank_options()
      |> load_accounts()}
@@ -1226,19 +1227,28 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   def render(assigns) do
     ~H"""
     <div>
-      <.page_header
-        title="Accounts (CMS)"
-        subtitle="Credit Management System — account base segments, balances and card operations"
-      >
-        <:actions>
-          <%= if @mode == :list do %>
-            <button phx-click="acc_new" phx-target={@myself} class="btn btn-primary">+ Open Account</button>
-          <% end %>
-          <%= if @mode in [:detail, :form] do %>
-            <button phx-click="acc_back" phx-target={@myself} class="btn btn-secondary">← Back to List</button>
-          <% end %>
-        </:actions>
-      </.page_header>
+      <%!-- Koṣa domain-model alignment (2026-07-28) — when embedded inline
+           inside another page (e.g. Customer's Arrangements sub-tabs via
+           CustomerComponent), this component's own page title/"Back to
+           List" chrome is redundant and confusing (there is no meaningful
+           "list" to go back to from that context). Matches the header-less
+           embeddable-component convention Avenza's own Party 360 view
+           already established (docs/party-product-tab-taxonomy.md). --%>
+      <%= if not @embedded do %>
+        <.page_header
+          title="Accounts (CMS)"
+          subtitle="Credit Management System — account base segments, balances and card operations"
+        >
+          <:actions>
+            <%= if @mode == :list do %>
+              <button phx-click="acc_new" phx-target={@myself} class="btn btn-primary">+ Open Account</button>
+            <% end %>
+            <%= if @mode in [:detail, :form] do %>
+              <button phx-click="acc_back" phx-target={@myself} class="btn btn-secondary">← Back to List</button>
+            <% end %>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @result do %>
         <% {kind, msg} = @result %>

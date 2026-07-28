@@ -47,7 +47,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        fundings: [],
        cards: [],
        can_edit: false,
-       loaded_deep_link_id: nil
+       loaded_deep_link_id: nil,
+       embedded: false
      )
      |> load_accounts()}
   end
@@ -318,11 +319,13 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   def render(%{mode: :list} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
-        <:actions>
-          <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_account" phx-target={@myself}>+ New Account</button>
-        </:actions>
-      </.page_header>
+      <%= if not @embedded do %>
+        <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
+          <:actions>
+            <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_account" phx-target={@myself}>+ New Account</button>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
@@ -387,11 +390,15 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   def render(%{mode: :detail} = assigns) do
     ~H"""
     <div class="component-panel">
-      <.page_header title={"#{@account.customer_name} — Debit Account"} subtitle="Account detail">
-        <:actions>
-          <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
-        </:actions>
-      </.page_header>
+      <%= if @embedded do %>
+        <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @account.customer_name %> — Debit Account</div>
+      <% else %>
+        <.page_header title={"#{@account.customer_name} — Debit Account"} subtitle="Account detail">
+          <:actions>
+            <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 

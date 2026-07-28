@@ -27,9 +27,37 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   import VmuCoreWeb.AdminUI
 
   alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
-                 CMS.DebitFundingCommand, CMS.DebitAdjustmentCommand, CTA.CardLifecycle, CTA.Cards}
+                 CMS.DebitFundingCommand, CMS.DebitAdjustmentCommand, CMS.DebitBlockHistory,
+                 CMS.DebitNonMonetaryEvent, CTA.CardLifecycle, CTA.Cards}
   alias VmuCore.Shared.{Customer, LogoParameter, BlockParameter}
   alias VmuCore.ASM.Authz
+
+  @default_operator_id "00000000-0000-0000-0000-000000000001"
+
+  @block_codes [
+    {"L — Lost Card",        "L"},
+    {"S — Stolen Card",      "S"},
+    {"F — Fraud Suspicion",  "F"},
+    {"C — Collections Hold", "C"}
+  ]
+
+  @block_reason_codes [
+    {"Cardholder reported card lost",          "REPORTED_LOST"},
+    {"Cardholder reported card stolen",        "REPORTED_STOLEN"},
+    {"Fraud team flagged suspicious activity", "FRAUD_ALERT"},
+    {"Account moved to collections queue",     "COLLECTIONS_HOLD"},
+    {"Cardholder requested temporary block",   "CUSTOMER_REQUEST"},
+    {"Applied by automated EOD batch",         "EOD_AUTOMATED"}
+  ]
+
+  @unblock_reason_codes [
+    {"Investigation completed, block lifted", "INVESTIGATION_CLOSED"},
+    {"Manual override by supervisor",         "SUPERVISOR_OVERRIDE"},
+    {"Cardholder requested unblock",          "CUSTOMER_REQUEST"}
+  ]
+
+  @operator_roles [{"Agent", "AGENT"}, {"Supervisor", "SUPERVISOR"}, {"System", "SYSTEM"}]
+  @tri_state [{"Inherit", ""}, {"Enabled", "true"}, {"Disabled", "false"}]
   alias Decimal, as: D
 
   @impl true
@@ -44,9 +72,23 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        notice_kind: :info,
        active_action: :none,
        account: nil,
+       customer: nil,
        fundings: [],
        cards: [],
        adjustments: [],
+       block_history: [],
+       nonmon_events: [],
+       channels_card_id: nil,
+       # Card Products UX Parity Phase 1e (2026-07-28) — module attribute
+       # option lists must be lifted into assigns: inside a ~H sigil, @foo
+       # always resolves against assigns, never a module attribute
+       # (confirmed live via a KeyError — same convention AccountComponent
+       # already uses for its own equivalent constants).
+       block_codes: @block_codes,
+       block_reason_codes: @block_reason_codes,
+       unblock_reason_codes: @unblock_reason_codes,
+       operator_roles: @operator_roles,
+       tri_state: @tri_state,
        can_edit: false,
        loaded_deep_link_id: nil,
        embedded: false,
@@ -115,6 +157,124 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
   def handle_event("action_close", _, socket) do
     {:noreply, assign(socket, active_action: :none)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Account-level Block / Non-Monetary Events / Limits / KYC
+  # (Card Products UX Parity Phase 1e, 2026-07-28) — own tables, own audit
+  # trails, mirroring AccountComponent's equivalent handlers exactly.
+  # ---------------------------------------------------------------------------
+
+  def handle_event("debit_block_save", %{"action" => params}, socket) do
+    acc   = socket.assigns.account
+    op_id = normalize_uuid(params["operator_id"])
+
+    case DebitBlockHistory.record_block(
+      acc.debit_account_id, params["block_code"], params["reason_code"],
+      params["reason_text"] || "", op_id, params["operator_role"] || "AGENT"
+    ) do
+      {:ok, _hist} ->
+        {:noreply, socket
+                    |> load_detail(acc.debit_account_id)
+                    |> assign(active_action: :none, notice: "Block code #{params["block_code"]} applied.", notice_kind: :success)}
+
+      {:error, cs} ->
+        {:noreply, assign(socket, notice: "Block failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("debit_unblock_save", %{"action" => params}, socket) do
+    acc   = socket.assigns.account
+    op_id = normalize_uuid(params["operator_id"])
+
+    case DebitBlockHistory.record_unblock(
+      acc.debit_account_id, acc.block_code || "L", params["reason_code"],
+      params["reason_text"] || "", op_id, params["operator_role"] || "AGENT"
+    ) do
+      {:ok, _hist} ->
+        {:noreply, socket
+                    |> load_detail(acc.debit_account_id)
+                    |> assign(active_action: :none, notice: "Block removed.", notice_kind: :success)}
+
+      {:error, cs} ->
+        {:noreply, assign(socket, notice: "Unblock failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("debit_nonmon_save", %{"action" => params}, socket) do
+    acc   = socket.assigns.account
+    etype = params["event_type"]
+    op_id = normalize_uuid(params["operator_id"])
+    {old_val, new_val} = build_nonmon_values(etype, params, socket.assigns)
+
+    case DebitNonMonetaryEvent.record(
+      debit_account_id: acc.debit_account_id,
+      event_type:        etype,
+      old_value:         old_val,
+      new_value:         new_val,
+      reason:            params["reason"] || "",
+      reference_id:      params["reference_id"],
+      operator_id:       op_id,
+      operator_role:     params["operator_role"] || "AGENT"
+    ) do
+      {:ok, _event} ->
+        apply_nonmon_change(etype, params, socket.assigns)
+        {:noreply, socket
+                    |> load_detail(acc.debit_account_id)
+                    |> assign(active_action: :none, notice: "#{etype_label(etype)} recorded.", notice_kind: :success)}
+
+      {:error, cs} ->
+        {:noreply, assign(socket, notice: "Event failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("debit_limits_save", %{"action" => params}, socket) do
+    acc   = socket.assigns.account
+    op_id = normalize_uuid(params["operator_id"])
+
+    new_limits = %{
+      "POS" => %{"daily_count" => parse_int(params["pos_daily_count"]), "daily_amount" => parse_int(params["pos_daily_amount"])},
+      "ATM" => %{"daily_count" => parse_int(params["atm_daily_count"]), "daily_amount" => parse_int(params["atm_daily_amount"])}
+    }
+
+    case acc |> DebitAccount.changeset(%{velocity_limits: new_limits}) |> Repo.update() do
+      {:ok, _updated} ->
+        DebitNonMonetaryEvent.record(
+          debit_account_id: acc.debit_account_id,
+          event_type:        "limit_change",
+          old_value:         acc.velocity_limits || %{},
+          new_value:         new_limits,
+          reason:            "Velocity limits updated",
+          operator_id:       op_id,
+          operator_role:     "AGENT"
+        )
+
+        {:noreply, socket
+                    |> load_detail(acc.debit_account_id)
+                    |> assign(active_action: :none, notice: "Velocity limits updated.", notice_kind: :success)}
+
+      {:error, cs} ->
+        {:noreply, assign(socket, notice: "Update failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("debit_kyc", %{"status" => status}, socket) do
+    acc = socket.assigns.account
+
+    attrs =
+      if status == "VERIFIED",
+        do: %{kyc_status: status, kyc_verified_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)},
+        else: %{kyc_status: status, kyc_verified_at: nil}
+
+    case acc |> DebitAccount.changeset(attrs) |> Repo.update() do
+      {:ok, _updated} ->
+        {:noreply, socket
+                    |> load_detail(acc.debit_account_id)
+                    |> assign(notice: "KYC status set to #{status}.", notice_kind: :success)}
+
+      {:error, cs} ->
+        {:noreply, assign(socket, notice: "KYC update failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -370,6 +530,34 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     end
   end
 
+  # Card Products UX Parity Phase 1e (2026-07-28) — per-card channel
+  # controls, reusing CTA.CardLifecycle.set_channel_controls/2 directly
+  # (already card-generic, confirmed unchanged for a debit-issued card).
+  def handle_event("open_channels", %{"id" => card_id}, socket) do
+    {:noreply, assign(socket, active_action: :card_channels, channels_card_id: card_id, notice: nil)}
+  end
+
+  def handle_event("card_channels_save", params, socket) do
+    card_id = socket.assigns.channels_card_id
+
+    controls = %{
+      ecom_enabled:        tri_parse(params["ecom_enabled"]),
+      atm_enabled:         tri_parse(params["atm_enabled"]),
+      contactless_enabled: tri_parse(params["contactless_enabled"]),
+      intl_enabled:        tri_parse(params["intl_enabled"])
+    }
+
+    case CardLifecycle.set_channel_controls(card_id, controls, operator: socket.assigns.current_operator) do
+      {:ok, _card} ->
+        {:noreply, socket
+                    |> load_detail(socket.assigns.account.debit_account_id)
+                    |> assign(active_action: :none, notice: "Channel controls updated.", notice_kind: :success)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, notice: "Update failed — #{inspect(reason)}", notice_kind: :error)}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private — data loading
   # ---------------------------------------------------------------------------
@@ -405,11 +593,14 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     assign(socket,
       mode: :detail,
       account: account,
+      customer: customer,
       active_action: :none,
       notice: nil,
       fundings: Repo.all(from f in DebitFunding, where: f.debit_account_id == ^debit_account_id, order_by: [desc: f.inserted_at]),
       cards: Cards.by_debit_account(debit_account_id),
-      adjustments: DebitAdjustmentCommand.list_for(debit_account_id)
+      adjustments: DebitAdjustmentCommand.list_for(debit_account_id),
+      block_history: DebitBlockHistory.history_for(debit_account_id),
+      nonmon_events: DebitNonMonetaryEvent.history_for(debit_account_id)
     )
   end
 
@@ -433,6 +624,77 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   defp money(nil), do: "—"
   defp money(%D{} = d), do: d |> D.round(2) |> D.to_string()
   defp money(v), do: to_string(v)
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+  defp parse_int(s), do: String.to_integer(s)
+
+  defp tri_parse("true"), do: true
+  defp tri_parse("false"), do: false
+  defp tri_parse(_), do: nil
+
+  defp tri_selected(nil, ""), do: true
+  defp tri_selected(true, "true"), do: true
+  defp tri_selected(false, "false"), do: true
+  defp tri_selected(_, _), do: false
+
+  defp normalize_uuid(""), do: @default_operator_id
+  defp normalize_uuid(nil), do: @default_operator_id
+  defp normalize_uuid(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> @default_operator_id
+    end
+  end
+
+  defp cs_error_msg(cs) do
+    Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
+  end
+
+  defp etype_label("address_change"), do: "Address change"
+  defp etype_label("phone_change"), do: "Phone change"
+  defp etype_label("email_change"), do: "Email change"
+  defp etype_label(t), do: t
+
+  # ── Non-monetary helpers (Card Products UX Parity Phase 1e, 2026-07-28)
+  # — mirrors AccountComponent's build_nonmon_values/apply_nonmon_change
+  # exactly, scoped to Debit's smaller event-type set (no cycle/emboss
+  # name changes at the account level for Debit).
+  defp build_nonmon_values("address_change", params, assigns) do
+    c = assigns.customer
+    old = %{"line1" => c && c.address_line1, "city" => c && c.city, "country" => c && c.country}
+    new = %{"line1" => params["new_line1"], "line2" => params["new_line2"],
+            "city" => params["new_city"], "postal" => params["new_postal"],
+            "country" => params["new_country"]}
+    {old, new}
+  end
+  defp build_nonmon_values("phone_change", params, assigns) do
+    c = assigns.customer
+    old = %{"mobile_country" => c && c.mobile_country, "mobile_number" => c && c.mobile_number}
+    new = %{"mobile_country" => params["new_mobile_country"], "mobile_number" => params["new_mobile_number"]}
+    {old, new}
+  end
+  defp build_nonmon_values("email_change", params, assigns) do
+    c = assigns.customer
+    {%{"email" => c && c.email}, %{"email" => params["new_email"]}}
+  end
+  defp build_nonmon_values(_, _, _), do: {nil, nil}
+
+  defp apply_nonmon_change("address_change", params, %{customer: c}) when not is_nil(c) do
+    c |> Customer.changeset(%{
+      address_line1: params["new_line1"], address_line2: params["new_line2"],
+      city: params["new_city"], postal_code: params["new_postal"], country: params["new_country"]
+    }) |> Repo.update()
+  end
+  defp apply_nonmon_change("phone_change", params, %{customer: c}) when not is_nil(c) do
+    c |> Customer.changeset(%{
+      mobile_country: params["new_mobile_country"], mobile_number: params["new_mobile_number"]
+    }) |> Repo.update()
+  end
+  defp apply_nonmon_change("email_change", params, %{customer: c}) when not is_nil(c) do
+    c |> Customer.changeset(%{email: params["new_email"]}) |> Repo.update()
+  end
+  defp apply_nonmon_change(_, _, _), do: :ok
 
   # ── ASM-P3.1-style 4-eyes identity helpers (Card Products UX Parity
   # Phase 1c, 2026-07-28) — same convention AccountComponent's Temp
@@ -472,6 +734,10 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   defp status_cls("INACTIVE"),  do: "badge-blue"
   defp status_cls("BLOCKED"),   do: "badge-red"
   defp status_cls(_),           do: "badge-gray"
+
+  defp kyc_badge_cls("VERIFIED"), do: "badge-green"
+  defp kyc_badge_cls("REJECTED"), do: "badge-red"
+  defp kyc_badge_cls(_),          do: "badge-yellow"
 
   # ---------------------------------------------------------------------------
   # Render
@@ -580,15 +846,48 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
-      <%!-- Card Products UX Parity Phase 1b (2026-07-28) — Overview/
-           Funding History/Cards tabs, replacing the flat stacked-section
-           page. Deliberately NOT copying Credit's 6-tab set (no
-           Statements/History/Plans concept applies to a single-balance
-           Debit account, no billing cycle, no installment plans — see
-           docs/compare/Card_Products_UX_Parity_Tracker.md). --%>
+      <%!-- Card Products UX Parity Phase 1e (2026-07-28) — account-level
+           actions, mirroring Credit's own toolbar exactly (own tables,
+           own audit trails — docs/compare/Card_Products_UX_Parity_Tracker.md
+           §6). Emboss Name deliberately NOT here: unlike Credit,
+           DebitAccount has no emboss_name field of its own — it's a
+           per-card property, so that action lives on each card row in
+           the Cards tab instead, not this account-level toolbar. --%>
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <%= if is_nil(@account.block_code) do %>
+            <button class="btn btn-sm btn-danger" phx-click="open_action" phx-value-a="apply_block" phx-target={@myself}>🔒 Apply Block</button>
+          <% else %>
+            <button class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="remove_block" phx-target={@myself}>🔓 Remove Block</button>
+          <% end %>
+          <button class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="change_address" phx-target={@myself}>📬 Address Change</button>
+          <button class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="change_phone" phx-target={@myself}>📱 Phone Change</button>
+          <button class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="change_email" phx-target={@myself}>✉️ Email Change</button>
+          <button class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="change_limits" phx-target={@myself}>📊 Change Limits</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);">
+          <span style="font-size:11px;color:var(--text-muted);align-self:center;font-weight:600;">KYC:</span>
+          <%= if @account.kyc_status != "VERIFIED" do %>
+            <button class="btn btn-sm btn-primary" style="background:var(--success);border-color:var(--success);"
+              phx-click="debit_kyc" phx-value-status="VERIFIED" phx-target={@myself}>✓ Verify</button>
+          <% end %>
+          <%= if @account.kyc_status != "REJECTED" do %>
+            <button class="btn btn-sm btn-danger" phx-click="debit_kyc" phx-value-status="REJECTED" phx-target={@myself}>✗ Reject</button>
+          <% end %>
+          <%= if @account.kyc_status != "PENDING" do %>
+            <button class="btn btn-sm btn-secondary" phx-click="debit_kyc" phx-value-status="PENDING" phx-target={@myself}>↺ Reset to Pending</button>
+          <% end %>
+          <span class={"badge #{kyc_badge_cls(@account.kyc_status)}"} style="margin-left:4px;"><%= @account.kyc_status %></span>
+        </div>
+      </div>
+
+      <%= if @active_action in [:apply_block, :remove_block, :change_address, :change_phone, :change_email, :change_limits] do %>
+        <%= debit_action_panel(assigns) %>
+      <% end %>
+
       <div class="card" style="padding:0;overflow:hidden;">
         <div class="detail-tabs">
-          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Funding History", "💰"}, {3, "Cards", "💳"}, {4, "Adjustments", "🧾"}] do %>
+          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Funding History", "💰"}, {3, "Cards", "💳"}, {4, "Adjustments", "🧾"}, {5, "History", "📜"}] do %>
             <div class={"detail-tab#{if @detail_tab == idx, do: " active"}"}
               phx-click="detail_tab" phx-value-t={idx} phx-target={@myself}>
               <%= icon %> <%= label %>
@@ -601,10 +900,246 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
             <% 2 -> %> <%= debit_tab_funding_history(assigns) %>
             <% 3 -> %> <%= debit_tab_cards(assigns) %>
             <% 4 -> %> <%= debit_tab_adjustments(assigns) %>
+            <% 5 -> %> <%= debit_tab_history(assigns) %>
             <% _ -> %> <p>Invalid tab.</p>
           <% end %>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Account-level action panels (Card Products UX Parity Phase 1e, 2026-07-28)
+  # ---------------------------------------------------------------------------
+
+  defp debit_action_panel(%{active_action: :apply_block} = assigns) do
+    ~H"""
+    <div class="action-panel action-panel-danger" style="margin-bottom:16px;">
+      <div class="action-panel-title">
+        <span>🔒 Apply Block Code</span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <form phx-submit="debit_block_save" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Block Code *</label>
+            <select class="input" name="action[block_code]" required>
+              <option value="">— Select —</option>
+              <%= for {label, val} <- @block_codes do %>
+                <option value={val}><%= label %></option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reason Code *</label>
+            <select class="input" name="action[reason_code]" required>
+              <option value="">— Select —</option>
+              <%= for {label, val} <- @block_reason_codes do %>
+                <option value={val}><%= label %></option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Free Text (optional)</label>
+            <input type="text" class="input" name="action[reason_text]" maxlength="200" placeholder="Additional details…"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operator Role</label>
+            <select class="input" name="action[operator_role]">
+              <%= for {label, val} <- @operator_roles do %>
+                <option value={val}><%= label %></option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label class="form-label">Operator ID (UUID)</label>
+            <input type="text" class="input" name="action[operator_id]" placeholder="00000000-0000-0000-0000-000000000001" style="font-family:monospace;"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-danger">Apply Block</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
+  defp debit_action_panel(%{active_action: :remove_block} = assigns) do
+    ~H"""
+    <div class="action-panel" style="margin-bottom:16px;border-color:#bbf7d0;background:#f0fdf4;">
+      <div class="action-panel-title">
+        <span>🔓 Remove Block Code <%= @account.block_code %></span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <form phx-submit="debit_unblock_save" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Reason Code *</label>
+            <select class="input" name="action[reason_code]" required>
+              <option value="">— Select —</option>
+              <%= for {label, val} <- @unblock_reason_codes do %>
+                <option value={val}><%= label %></option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operator Role</label>
+            <select class="input" name="action[operator_role]">
+              <%= for {label, val} <- @operator_roles do %>
+                <option value={val}><%= label %></option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes (optional)</label>
+            <input type="text" class="input" name="action[reason_text]" maxlength="200" placeholder="Reason for removing block…"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operator ID (UUID)</label>
+            <input type="text" class="input" name="action[operator_id]" placeholder="00000000-0000-0000-0000-000000000001" style="font-family:monospace;"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-success">Remove Block</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
+  defp debit_action_panel(%{active_action: act} = assigns) when act in [:change_address, :change_phone, :change_email] do
+    ~H"""
+    <div class="action-panel" style="margin-bottom:16px;">
+      <div class="action-panel-title">
+        <span>
+          <%= case @active_action do
+            :change_address -> "📬 Address Change"
+            :change_phone   -> "📱 Phone Change"
+            :change_email   -> "✉️ Email Change"
+          end %>
+        </span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <form phx-submit="debit_nonmon_save" phx-target={@myself}>
+        <input type="hidden" name="action[event_type]" value={
+          case @active_action do
+            :change_address -> "address_change"
+            :change_phone   -> "phone_change"
+            :change_email   -> "email_change"
+          end
+        }/>
+        <%= if @active_action == :change_address do %>
+          <div class="form-grid-2">
+            <div class="form-group" style="grid-column:1/-1;">
+              <label class="form-label">New Address Line 1 *</label>
+              <input type="text" class="input" name="action[new_line1]" required value={@customer && @customer.address_line1}/>
+            </div>
+            <div class="form-group" style="grid-column:1/-1;">
+              <label class="form-label">Address Line 2</label>
+              <input type="text" class="input" name="action[new_line2]" value={@customer && @customer.address_line2}/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">City *</label>
+              <input type="text" class="input" name="action[new_city]" required value={@customer && @customer.city}/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Postal Code</label>
+              <input type="text" class="input" name="action[new_postal]" value={@customer && @customer.postal_code}/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Country</label>
+              <input type="text" class="input" name="action[new_country]" value={@customer && @customer.country}/>
+            </div>
+          </div>
+        <% end %>
+        <%= if @active_action == :change_phone do %>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Country Code</label>
+              <input type="text" class="input" name="action[new_mobile_country]" value={@customer && @customer.mobile_country} placeholder="971"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mobile Number *</label>
+              <input type="text" class="input" name="action[new_mobile_number]" required value={@customer && @customer.mobile_number}/>
+            </div>
+          </div>
+        <% end %>
+        <%= if @active_action == :change_email do %>
+          <div class="form-group">
+            <label class="form-label">New Email Address *</label>
+            <input type="email" class="input" name="action[new_email]" required value={@customer && @customer.email}/>
+          </div>
+        <% end %>
+        <div class="form-grid-2" style="margin-top:12px;">
+          <div class="form-group">
+            <label class="form-label">Reason / Notes</label>
+            <input type="text" class="input" name="action[reason]" placeholder="Call centre ref or reason…"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reference ID (ticket / call ID)</label>
+            <input type="text" class="input" name="action[reference_id]" maxlength="50"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operator ID (UUID)</label>
+            <input type="text" class="input" name="action[operator_id]" placeholder="00000000-0000-0000-0000-000000000001" style="font-family:monospace;"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-primary">Save Change</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
+  defp debit_action_panel(%{active_action: :change_limits} = assigns) do
+    current = assigns.account.velocity_limits || %{}
+    pos = Map.get(current, "POS", %{})
+    atm = Map.get(current, "ATM", %{})
+    assigns = assign(assigns, pos: pos, atm: atm)
+
+    ~H"""
+    <div class="action-panel" style="margin-bottom:16px;">
+      <div class="action-panel-title">
+        <span>📊 Change Transaction/Velocity Limits</span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <div class="text-sm text-muted" style="margin-bottom:8px;">
+        Stored and admin-editable only in this pass — not yet enforced on
+        the live authorization path (see the tracker's Phase 1e scope note).
+      </div>
+      <form phx-submit="debit_limits_save" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">POS Daily Count</label>
+            <input type="number" class="input" name="action[pos_daily_count]" value={@pos["daily_count"]} min="0"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">POS Daily Amount</label>
+            <input type="number" class="input" name="action[pos_daily_amount]" value={@pos["daily_amount"]} min="0" step="100"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ATM Daily Count</label>
+            <input type="number" class="input" name="action[atm_daily_count]" value={@atm["daily_count"]} min="0"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ATM Daily Amount</label>
+            <input type="number" class="input" name="action[atm_daily_amount]" value={@atm["daily_amount"]} min="0" step="100"/>
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label class="form-label">Operator ID (UUID)</label>
+            <input type="text" class="input" name="action[operator_id]" placeholder="00000000-0000-0000-0000-000000000001" style="font-family:monospace;"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-primary">Save Limits</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
     </div>
     """
   end
@@ -706,10 +1241,65 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
               <select class="input" name="card[card_type]">
                 <option value="PRIMARY">Primary</option>
                 <option value="VIRTUAL">Virtual</option>
+                <option value="SUPPLEMENTARY">Supplementary</option>
               </select></div>
           </div>
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button type="submit" class="btn btn-primary">Issue Card</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <%= if @active_action == :card_channels do %>
+      <% channels_card = Enum.find(@cards, &(&1.card_id == @channels_card_id)) %>
+      <% assigns = assign(assigns, :channels_card, channels_card) %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>📶 Channel Controls — **** <%= @channels_card && @channels_card.last_four %></span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <div class="form-hint" style="margin-bottom:10px;">
+          Overrides the product's channel defaults for this card only. "Inherit" restores normal product behavior.
+        </div>
+        <form phx-submit="card_channels_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">E-Commerce</label>
+              <select class="input" name="ecom_enabled">
+                <%= for {label, val} <- @tri_state do %>
+                  <option value={val} selected={tri_selected(@channels_card && @channels_card.ecom_enabled, val)}><%= label %></option>
+                <% end %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">ATM</label>
+              <select class="input" name="atm_enabled">
+                <%= for {label, val} <- @tri_state do %>
+                  <option value={val} selected={tri_selected(@channels_card && @channels_card.atm_enabled, val)}><%= label %></option>
+                <% end %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Contactless</label>
+              <select class="input" name="contactless_enabled">
+                <%= for {label, val} <- @tri_state do %>
+                  <option value={val} selected={tri_selected(@channels_card && @channels_card.contactless_enabled, val)}><%= label %></option>
+                <% end %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">International</label>
+              <select class="input" name="intl_enabled">
+                <%= for {label, val} <- @tri_state do %>
+                  <option value={val} selected={tri_selected(@channels_card && @channels_card.intl_enabled, val)}><%= label %></option>
+                <% end %>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Save Controls</button>
             <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
           </div>
         </form>
@@ -734,6 +1324,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
                   <button :if={c.status == "INACTIVE"} class="btn btn-xs" phx-click="card_activate" phx-value-id={c.card_id} phx-target={@myself}>Activate</button>
                   <button :if={c.status == "ACTIVE"} class="btn btn-xs" phx-click="card_block" phx-value-id={c.card_id} phx-target={@myself}>Block</button>
                   <button :if={c.status == "BLOCKED"} class="btn btn-xs" phx-click="card_unblock" phx-value-id={c.card_id} phx-target={@myself}>Unblock</button>
+                  <button class="btn btn-xs" phx-click="open_channels" phx-value-id={c.card_id} phx-target={@myself}>Channels</button>
                 </div>
               </td>
             </tr>
@@ -802,6 +1393,54 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
               <td><%= a.reason %></td>
               <td><%= a.reference_id %></td>
               <td style="font-size:12px;"><code><%= a.operator_id %></code> / <code><%= a.supervisor_id %></code></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  # Card Products UX Parity Phase 1e (2026-07-28) — combined account-level
+  # audit trail: block/unblock actions and non-monetary maintenance events,
+  # merged and sorted, mirroring Credit's own History tab shape.
+  defp debit_tab_history(assigns) do
+    entries =
+      (Enum.map(assigns.block_history, fn h ->
+         %{
+           at: h.applied_at,
+           kind: h.action,
+           detail: "#{h.block_code || "—"} — #{h.reason_code}#{if h.reason_text, do: ": #{h.reason_text}", else: ""}",
+           operator: h.operator_id
+         }
+       end) ++
+         Enum.map(assigns.nonmon_events, fn e ->
+           %{
+             at: e.applied_at,
+             kind: String.upcase(e.event_type),
+             detail: e.reason || "—",
+             operator: e.operator_id
+           }
+         end))
+      |> Enum.sort_by(& &1.at, {:desc, NaiveDateTime})
+
+    assigns = assign(assigns, :entries, entries)
+
+    ~H"""
+    <div class="form-pane-section-title">Account History (<%= length(@entries) %>)</div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Event</th><th>Detail</th><th>Operator</th></tr></thead>
+        <tbody>
+          <%= if @entries == [] do %>
+            <tr><td colspan="4" class="empty-row" style="text-align:center;">No history yet.</td></tr>
+          <% end %>
+          <%= for e <- @entries do %>
+            <tr>
+              <td><%= Calendar.strftime(e.at, "%Y-%m-%d %H:%M") %></td>
+              <td><span class={"badge #{if e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"}"}><%= e.kind %></span></td>
+              <td><%= e.detail %></td>
+              <td style="font-size:12px;"><code><%= e.operator %></code></td>
             </tr>
           <% end %>
         </tbody>

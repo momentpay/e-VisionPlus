@@ -293,4 +293,170 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       assert html =~ "insufficient funds"
     end
   end
+
+  describe "Account-level parity actions (Card Products UX Parity Phase 1e, 2026-07-28)" do
+    test "applying and removing an account block updates status and history" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
+
+      block_html =
+        view
+        |> form("form[phx-submit=debit_block_save]", %{
+          "action" => %{"block_code" => "F", "reason_code" => "FRAUD_ALERT", "reason_text" => "Suspicious"}
+        })
+        |> render_submit()
+
+      assert block_html =~ "applied"
+      updated = Repo.get!(DebitAccount, account.debit_account_id)
+      assert updated.block_code == "F"
+
+      unblock_html =
+        view
+        |> element("button[phx-click=open_action][phx-value-a=remove_block]")
+        |> render_click()
+
+      unblock_html =
+        view
+        |> form("form[phx-submit=debit_unblock_save]", %{
+          "action" => %{"reason_code" => "INVESTIGATION_CLOSED"}
+        })
+        |> render_submit()
+
+      assert unblock_html =~ "Block removed"
+      cleared = Repo.get!(DebitAccount, account.debit_account_id)
+      assert is_nil(cleared.block_code)
+
+      view |> element("div[phx-click=detail_tab][phx-value-t='5']") |> render_click()
+      history_html = render(view)
+      assert history_html =~ "BLOCKED"
+      assert history_html =~ "UNBLOCKED"
+    end
+
+    test "an address change updates the linked customer and is recorded as a non-monetary event" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=change_address]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=debit_nonmon_save]", %{
+          "action" => %{
+            "event_type" => "address_change", "new_line1" => "789 New Blvd",
+            "new_city" => "Dubai", "new_country" => "AE"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Address change recorded"
+
+      updated_customer = Repo.get!(Customer, account.customer_id)
+      assert updated_customer.address_line1 == "789 New Blvd"
+
+      view |> element("div[phx-click=detail_tab][phx-value-t='5']") |> render_click()
+      assert render(view) =~ "ADDRESS_CHANGE"
+    end
+
+    test "changing velocity limits persists a structured map and logs a limit_change event" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=debit_limits_save]", %{
+          "action" => %{
+            "pos_daily_count" => "10", "pos_daily_amount" => "5000",
+            "atm_daily_count" => "3", "atm_daily_amount" => "2000"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Velocity limits updated"
+
+      updated = Repo.get!(DebitAccount, account.debit_account_id)
+      assert updated.velocity_limits["POS"]["daily_count"] == 10
+      assert updated.velocity_limits["ATM"]["daily_amount"] == 2000
+    end
+
+    test "KYC status can be verified, then reset back to pending" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+
+      verify_html = view |> element("button[phx-click=debit_kyc][phx-value-status=VERIFIED]") |> render_click()
+      assert verify_html =~ "KYC status set to VERIFIED"
+
+      verified = Repo.get!(DebitAccount, account.debit_account_id)
+      assert verified.kyc_status == "VERIFIED"
+      assert verified.kyc_verified_at
+
+      reset_html = view |> element("button[phx-click=debit_kyc][phx-value-status=PENDING]") |> render_click()
+      assert reset_html =~ "KYC status set to PENDING"
+
+      reset = Repo.get!(DebitAccount, account.debit_account_id)
+      assert reset.kyc_status == "PENDING"
+      assert is_nil(reset.kyc_verified_at)
+    end
+
+    test "supplementary card can be issued via the card-type dropdown" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=issue_card_save]", %{"card" => %{"card_type" => "SUPPLEMENTARY"}})
+        |> render_submit()
+
+      assert html =~ "SUPPLEMENTARY card issued (INACTIVE)."
+    end
+
+    test "per-card channel controls can be set, overriding product defaults" do
+      {account, _sys_id, _bank_id, _logo_id, _block_id} = debit_account_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
+
+      view
+      |> form("form[phx-submit=issue_card_save]", %{"card" => %{"card_type" => "PRIMARY"}})
+      |> render_submit()
+
+      view |> element("button[phx-click=open_channels]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=card_channels_save]", %{
+          "ecom_enabled" => "false", "atm_enabled" => "true",
+          "contactless_enabled" => "", "intl_enabled" => "false"
+        })
+        |> render_submit()
+
+      assert html =~ "Channel controls updated."
+
+      [card] = VmuCore.CTA.Cards.by_debit_account(account.debit_account_id)
+      assert card.ecom_enabled == false
+      assert card.atm_enabled == true
+      assert is_nil(card.contactless_enabled)
+      assert card.intl_enabled == false
+    end
+  end
 end

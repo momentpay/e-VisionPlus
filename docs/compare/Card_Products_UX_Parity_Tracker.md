@@ -1,6 +1,6 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Phase 1 (Debit) done — commits `e741e63` (1a wizard), `3c5ec57` (1b tabs), `0a4cd35` (1c Adjustments). Phase 2 (Prepaid) next.
+**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. Phase 3 (HCS Employee Cards) next.
 **Date:** 2026-07-28
 **Trigger:** User screenshots showing Credit's account-opening wizard
 (Customer → Product → Card & Credit → Config → Review) and 6-tab detail
@@ -107,7 +107,7 @@ records through dropdowns.
 | Phase | Scope | Why this order |
 |---|---|---|
 | **Phase 1 — Debit** ✅ | Wizard-based account creation (Customer → Product dropdowns → Review); tab-based detail (Overview/Funding History/Cards/Adjustments); build the Adjustments capability (context + UI) | Smallest, most self-contained product; the concrete pain point in the screenshots; establishes the reusable wizard-step and tab-bar pattern the rest of this plan reuses |
-| **Phase 2 — Prepaid** | Same shape as Phase 1, applied to Prepaid | Structurally near-identical to Debit once Phase 1's pattern exists — should move fast; extends the Ledger tab to show all entry types, wires the existing `ADJUSTMENT` entry_type into the UI |
+| **Phase 2 — Prepaid** ✅ | Same shape as Phase 1, applied to Prepaid | Structurally near-identical to Debit once Phase 1's pattern exists — should move fast; extends the Ledger tab to show all entry types, wires the existing `ADJUSTMENT` entry_type into the UI |
 | **Phase 3 — HCS Employee Cards** | Wire `add_employee_card/3` into a real creation wizard; add the entirely-missing activate/block/unblock lifecycle (new backend functions + UI); Employee Cards becomes its own tab | Biggest real gap in the whole audit — currently zero UI for something the backend already half-supports |
 | **Phase 4 — HCS Corporate polish** | Reorganize the existing Fleet Cards/Spending Controls/Reports content into the same tab convention as Phases 1–3; optionally wizard-ize Fleet Card issuance and Company creation | Lowest urgency — everything in this phase already works today, this is pure consistency/polish, not closing a functional gap |
 

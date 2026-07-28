@@ -47,7 +47,8 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
        balance: nil,
        ledger_entries: [],
        cards: [],
-       can_edit: false
+       can_edit: false,
+       loaded_deep_link_id: nil
      )
      |> load_accounts()}
   end
@@ -56,8 +57,21 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   def update(assigns, socket) do
     socket = assign(socket, assigns)
     operator = socket.assigns[:current_operator]
+    socket = assign(socket, can_edit: operator && Authz.can?(operator, "prepaid", "edit"))
 
-    {:ok, assign(socket, can_edit: operator && Authz.can?(operator, "prepaid", "edit"))}
+    # Koṣa domain-model alignment (2026-07-28) — a "View in Prepaid Cards"
+    # link lands here with ?view=<prepaid_account_id>; open straight to
+    # that account's detail instead of the bare list.
+    socket =
+      case assigns[:deep_link_id] do
+        id when is_binary(id) and id != "" and id != socket.assigns.loaded_deep_link_id ->
+          socket |> load_detail(id) |> assign(loaded_deep_link_id: id)
+
+        _ ->
+          socket
+      end
+
+    {:ok, socket}
   end
 
   # ---------------------------------------------------------------------------

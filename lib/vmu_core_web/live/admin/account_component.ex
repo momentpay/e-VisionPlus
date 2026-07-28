@@ -117,7 +117,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        logos_for_bank: [],
        blocks_for_logo: [],
        selected_logo: nil,
-       bank_options: []
+       bank_options: [],
+       loaded_deep_link_id: nil
      )
      |> load_bank_options()
      |> load_accounts()}
@@ -125,7 +126,26 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    socket = assign(socket, assigns)
+
+    # Koṣa domain-model alignment (2026-07-28) — a "View in Accounts (CMS)"
+    # link from the Customer/All-Products Arrangements panels lands here
+    # with ?view=<account_id>; open straight to that account's detail
+    # instead of the bare list. Guarded by loaded_deep_link_id so this
+    # only fires once per link click, not on every subsequent re-render.
+    socket =
+      case assigns[:deep_link_id] do
+        id when is_binary(id) and id != "" and id != socket.assigns.loaded_deep_link_id ->
+          socket
+          |> assign(mode: :detail, detail_tab: 1, active_action: :none, result: nil)
+          |> load_detail(id)
+          |> assign(loaded_deep_link_id: id)
+
+        _ ->
+          socket
+      end
+
+    {:ok, socket}
   end
 
   # ── Data Loading ─────────────────────────────────────────────────────────────
@@ -1473,7 +1493,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
                 <td style="font-size:12px;"><%= row.summary || "—" %></td>
                 <td style="font-size:12px;"><%= date_s(row.arrangement.opened_at) %></td>
                 <td>
-                  <a class="btn btn-sm btn-secondary" href={"/visionplus/admin/#{mod}"}>View in <%= label %> →</a>
+                  <a class="btn btn-sm btn-secondary" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
                 </td>
               </tr>
             <% end %>

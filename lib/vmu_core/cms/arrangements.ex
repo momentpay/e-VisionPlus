@@ -42,17 +42,26 @@ defmodule VmuCore.CMS.Arrangements do
   read-time join across up to six tables, batched per product_type (not
   N+1 per row).
 
-  opts = %{product_type: (optional filter), search: (optional customer
-  name substring), limit: (default 200)}
+  opts = %{customer_id: (optional filter), product_type: (optional
+  filter), search: (optional customer name substring), limit: (default 200)}
 
-  Returns a list of %{arrangement:, customer:, status:, summary:} maps.
+  Returns a list of %{arrangement:, customer:, status:, summary:,
+  view_ref:} maps. `view_ref` is what a "View" link should actually open
+  by — the same as `account_ref` for every product except
+  CORPORATE_EMPLOYEE/CORPORATE_FLEET, where it's resolved to the parent
+  Company's id (HCS's admin page has no standalone employee/fleet-card
+  detail view — only a company detail view with those nested inside it).
   """
   def search(opts \\ %{}) do
+    customer_id  = Map.get(opts, :customer_id)
     product_type = Map.get(opts, :product_type, "")
     search_term  = Map.get(opts, :search, "")
     limit        = Map.get(opts, :limit, 200)
 
     query = from a in Arrangement, order_by: [desc: a.inserted_at], limit: ^limit
+
+    query =
+      if customer_id, do: where(query, [a], a.customer_id == ^customer_id), else: query
 
     query =
       if product_type != "", do: where(query, [a], a.product_type == ^product_type), else: query
@@ -83,11 +92,13 @@ defmodule VmuCore.CMS.Arrangements do
     enrichment = enrich_by_product_type(arrangements)
 
     Enum.map(arrangements, fn arr ->
+      key = {arr.product_type, arr.account_ref}
       %{
         arrangement: arr,
         customer:    Map.get(customers, arr.customer_id),
-        status:      get_in(enrichment, [{arr.product_type, arr.account_ref}, :status]),
-        summary:     get_in(enrichment, [{arr.product_type, arr.account_ref}, :summary])
+        status:      get_in(enrichment, [key, :status]),
+        summary:     get_in(enrichment, [key, :summary]),
+        view_ref:    get_in(enrichment, [key, :view_ref]) || arr.account_ref
       }
     end)
   end
@@ -106,7 +117,7 @@ defmodule VmuCore.CMS.Arrangements do
     Repo.all(from a in Account, where: a.account_id in ^refs,
       select: {a.account_id, a.account_status, a.credit_limit, a.open_to_buy})
     |> Enum.map(fn {id, status, limit, otb} ->
-      {{"CREDIT", id}, %{status: status, summary: "Limit #{money(limit)} / OTB #{money(otb)}"}}
+      {{"CREDIT", id}, %{status: status, summary: "Limit #{money(limit)} / OTB #{money(otb)}", view_ref: id}}
     end)
   end
 
@@ -114,7 +125,7 @@ defmodule VmuCore.CMS.Arrangements do
     Repo.all(from a in DebitAccount, where: a.debit_account_id in ^refs,
       select: {a.debit_account_id, a.status, a.available_balance, a.currency})
     |> Enum.map(fn {id, status, bal, ccy} ->
-      {{"DEBIT", id}, %{status: status, summary: "#{money(bal)} #{ccy}"}}
+      {{"DEBIT", id}, %{status: status, summary: "#{money(bal)} #{ccy}", view_ref: id}}
     end)
   end
 
@@ -122,7 +133,7 @@ defmodule VmuCore.CMS.Arrangements do
     Repo.all(from a in PrepaidAccount, where: a.prepaid_account_id in ^refs,
       select: {a.prepaid_account_id, a.status, a.currency})
     |> Enum.map(fn {id, status, ccy} ->
-      {{"PREPAID", id}, %{status: status, summary: "#{money(PrepaidLedger.balance(id))} #{ccy}"}}
+      {{"PREPAID", id}, %{status: status, summary: "#{money(PrepaidLedger.balance(id))} #{ccy}", view_ref: id}}
     end)
   end
 
@@ -130,23 +141,29 @@ defmodule VmuCore.CMS.Arrangements do
     Repo.all(from c in Company, where: c.id in ^to_ints(refs),
       select: {c.id, c.status, c.credit_limit, c.available_limit})
     |> Enum.map(fn {id, status, limit, avail} ->
-      {{"CORPORATE_FACILITY", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+      {{"CORPORATE_FACILITY", to_string(id)},
+       %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}", view_ref: to_string(id)}}
     end)
   end
 
+  # HCS's admin page has no standalone employee-card detail view — only a
+  # company detail view with employee cards nested inside it — so
+  # view_ref resolves to the parent company's id, not the card's own id.
   defp enrich_group("CORPORATE_EMPLOYEE", refs) do
     Repo.all(from c in EmployeeCard, where: c.id in ^to_ints(refs),
-      select: {c.id, c.status, c.individual_limit, c.available_individual})
-    |> Enum.map(fn {id, status, limit, avail} ->
-      {{"CORPORATE_EMPLOYEE", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+      select: {c.id, c.company_id, c.status, c.individual_limit, c.available_individual})
+    |> Enum.map(fn {id, company_id, status, limit, avail} ->
+      {{"CORPORATE_EMPLOYEE", to_string(id)},
+       %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}", view_ref: to_string(company_id)}}
     end)
   end
 
   defp enrich_group("CORPORATE_FLEET", refs) do
     Repo.all(from c in FleetCard, where: c.id in ^to_ints(refs),
-      select: {c.id, c.status, c.individual_limit, c.available_individual})
-    |> Enum.map(fn {id, status, limit, avail} ->
-      {{"CORPORATE_FLEET", to_string(id)}, %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}"}}
+      select: {c.id, c.company_id, c.status, c.individual_limit, c.available_individual})
+    |> Enum.map(fn {id, company_id, status, limit, avail} ->
+      {{"CORPORATE_FLEET", to_string(id)},
+       %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}", view_ref: to_string(company_id)}}
     end)
   end
 

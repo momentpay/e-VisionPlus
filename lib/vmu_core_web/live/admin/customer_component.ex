@@ -223,7 +223,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
     if cust do
       accounts = Customer.list_accounts_for(cust.customer_id)
-      arrangements = Arrangements.list_for_customer(cust.customer_id)
+      arrangements = Arrangements.search(%{customer_id: cust.customer_id})
       {:noreply, assign(socket, mode: :detail, viewing: cust, linked_accounts: accounts,
                          arrangements: arrangements, result: nil)}
     else
@@ -272,7 +272,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         {:ok, saved} ->
           action = if socket.assigns.editing, do: "updated", else: "created"
           accounts = Customer.list_accounts_for(saved.customer_id)
-          arrangements = Arrangements.list_for_customer(saved.customer_id)
+          arrangements = Arrangements.search(%{customer_id: saved.customer_id})
           {:noreply, socket
             |> load_customers()
             |> assign(mode: :detail, editing: nil, viewing: saved,
@@ -317,7 +317,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       case cust |> Customer.changeset(attrs) |> Repo.update() do
         {:ok, updated} ->
           accounts = Customer.list_accounts_for(updated.customer_id)
-          arrangements = Arrangements.list_for_customer(updated.customer_id)
+          arrangements = Arrangements.search(%{customer_id: updated.customer_id})
           {:noreply, socket
             |> load_customers()
             |> assign(viewing: updated, linked_accounts: accounts, arrangements: arrangements,
@@ -805,24 +805,29 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
          Customer.list_accounts_for/1) — this shows regardless of
          customer tier, since a CORPORATE customer's own
          CORPORATE_FACILITY arrangement is exactly as real as a RETAIL
-         customer's CREDIT/DEBIT/PREPAID ones. Deliberately thin: no
-         status/balance shown here, since Arrangement never stores
-         them — click through to the owning screen for that. -->
+         customer's CREDIT/DEBIT/PREPAID ones. Status/summary come from
+         Arrangements.search/1's live per-product enrichment, never
+         duplicated onto Arrangement itself. "View in X" opens the
+         specific record's detail page directly via ?view=<view_ref>
+         (2026-07-28 — previously landed on the bare module list). -->
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header"><div class="card-title">Arrangements (All Products)</div></div>
       <div class="card-body">
         <%= if @arrangements == [] do %>
           <p class="text-sm text-muted">No product relationships for this customer yet.</p>
         <% else %>
-          <%= for arr <- @arrangements do %>
-            <% {mod, label} = arrangement_target(arr.product_type) %>
+          <%= for row <- @arrangements do %>
+            <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
             <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
               <div>
-                <span class={"badge #{arrangement_badge_cls(arr.product_type)}"}><%= arr.product_type %></span>
-                <span class="mono text-sm text-muted" style="margin-left:8px;">ref: <%= String.slice(arr.account_ref, 0, 12) %>…</span>
-                <span class="text-sm text-muted" style="margin-left:8px;">opened <%= arr.opened_at %></span>
+                <span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span>
+                <%= if row.status do %>
+                  <span class={"badge #{status_badge_cls(row.status)}"} style="margin-left:4px;"><%= row.status %></span>
+                <% end %>
+                <span class="text-sm text-muted" style="margin-left:8px;"><%= row.summary %></span>
+                <span class="text-sm text-muted" style="margin-left:8px;">opened <%= row.arrangement.opened_at %></span>
               </div>
-              <a class="btn btn-xs" href={"/visionplus/admin/#{mod}"}>View in <%= label %> →</a>
+              <a class="btn btn-xs" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
             </div>
           <% end %>
         <% end %>
@@ -830,6 +835,13 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     </div>
     """
   end
+
+  defp status_badge_cls("ACTIVE"), do: "badge-green"
+  defp status_badge_cls("SUSPENDED"), do: "badge-yellow"
+  defp status_badge_cls("BLOCKED"), do: "badge-red"
+  defp status_badge_cls("CLOSED"), do: "badge-gray"
+  defp status_badge_cls("DORMANT"), do: "badge-gray"
+  defp status_badge_cls(_), do: "badge-gray"
 
   defp arrangement_target("CREDIT"), do: {"account", "Accounts (CMS)"}
   defp arrangement_target("DEBIT"), do: {"debit", "Debit Cards"}

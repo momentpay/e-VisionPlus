@@ -59,7 +59,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
        selected_vehicle: nil,
        selected_vehicle_card: nil,
        selected_vehicle_history: [],
-       can_edit: false
+       can_edit: false,
+       loaded_deep_link_id: nil
      )
      |> load_companies()}
   end
@@ -68,8 +69,22 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   def update(assigns, socket) do
     socket = assign(socket, assigns)
     operator = socket.assigns[:current_operator]
+    socket = assign(socket, can_edit: operator && Authz.can?(operator, "hcs", "edit"))
 
-    {:ok, assign(socket, can_edit: operator && Authz.can?(operator, "hcs", "edit"))}
+    # Koṣa domain-model alignment (2026-07-28) — a "View in Corporate Cards
+    # (HCS)" link lands here with ?view=<company_id> (Arrangements.search/1
+    # already resolves CORPORATE_EMPLOYEE/CORPORATE_FLEET refs up to their
+    # parent company, since HCS has no standalone card-level detail view).
+    socket =
+      case assigns[:deep_link_id] do
+        id when is_binary(id) and id != "" and id != socket.assigns.loaded_deep_link_id ->
+          socket |> load_detail(id) |> assign(loaded_deep_link_id: id)
+
+        _ ->
+          socket
+      end
+
+    {:ok, socket}
   end
 
   # ---------------------------------------------------------------------------

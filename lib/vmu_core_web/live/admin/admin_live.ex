@@ -70,6 +70,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     {:ok, assign(socket,
       page_title: "VisionPlus Admin",
       active_module: "system",
+      deep_link_id: nil,
       modules: @modules,
       # "module_config" has no RolePermission rows of its own (Module Configuration
       # Framework v1 gate) — whoever can view "system" can view module config too.
@@ -79,11 +80,14 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   end
 
   @impl true
-  def handle_params(%{"module" => mod}, _uri, socket) when is_map_key(@modules, mod) do
-    {:noreply, assign(socket, active_module: mod)}
+  def handle_params(%{"module" => mod} = params, _uri, socket) when is_map_key(@modules, mod) do
+    # Koṣa domain-model alignment (2026-07-28) — the Arrangements panels
+    # link here with ?view=<id> so "View in X" opens that record's detail
+    # page directly instead of landing on the bare module list.
+    {:noreply, assign(socket, active_module: mod, deep_link_id: Map.get(params, "view"))}
   end
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, active_module: "system")}
+    {:noreply, assign(socket, active_module: "system", deep_link_id: nil)}
   end
 
   defp expand_module_config_visibility(visible) do
@@ -241,7 +245,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} />
               <% "account" -> %>
                 <.live_component module={AccountComponent} id="account-component"
-                                 current_operator={@current_operator} />
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "cms_eod" -> %>
                 <.live_component module={CmsEodComponent} id="cms-eod-component"
                                  current_operator={@current_operator} />
@@ -256,13 +260,13 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} />
               <% "hcs" -> %>
                 <.live_component module={HcsComponent} id="hcs-component"
-                                 current_operator={@current_operator} />
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "debit" -> %>
                 <.live_component module={DebitComponent} id="debit-component"
-                                 current_operator={@current_operator} />
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "prepaid" -> %>
                 <.live_component module={PrepaidComponent} id="prepaid-component"
-                                 current_operator={@current_operator} />
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "exceptions" -> %>
                 <.live_component module={ExceptionQueueComponent} id="exceptions-component"
                                  can_approve={@can_approve_exceptions} />

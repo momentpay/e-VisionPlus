@@ -5,8 +5,10 @@ foundation: `CMS.WalletProduct`, `CMS.WalletAccount`, load, atomic
 withdrawal, closure, block/unblock, non-monetary events, GL posting; 8/8
 new tests). **Phase W2 done 2026-07-28** (wallet-to-wallet transfer,
 `WalletTransferCommand`, 5/5 new tests, atomic-rollback money-conservation
-proven with real data). Full suite 398 tests / same 10 pre-existing
-failures, no regression. This is the Way4 parity plan's **Phase 2** requirements
+proven with real data). **Phase W3 done 2026-07-28** (personal QR
+receive+pay, `WalletQrIdentity`/`WalletQrPaymentCommand`, 12/12 new
+tests). Full suite 410 tests / same 10 pre-existing failures, no
+regression. This is the Way4 parity plan's **Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -111,8 +113,8 @@ reference**, not code to port.
 | Account entity | ~~Rebuild native — new `account_type: "WALLET"` value on `CMS.Account`~~ **SUPERSEDED, see the correction note above — built as `CMS.WalletAccount`, its own schema mirroring `CMS.DebitAccount`'s balance-based shape instead.** | A wallet is stored value, not a credit-limit product — `CMS.Account`'s columns don't fit; `CMS.DebitAccount`'s do |
 | Multi-currency wallet UX | **Rebuild native, informed by wallet-app's real pattern** — `wallet_accounts`' actual design is *not* a multi-currency balance on one row; it's a `WalletProduct` container holding N single-currency `SubWallet`s. This is directly compatible with this repo's own ADR-C4 (`CMS.Account` stays single-currency) without reversing it — build the "product" grouping as a new thin concept over multiple single-currency accounts, same relationship shape `HCS.Company`→`EmployeeCard` already uses. **Built 2026-07-28 as `CMS.WalletProduct` grouping N `CMS.WalletAccount` rows.** | **This materially informs Way4 plan §3 Decision 2** — multi-currency does not require reversing ADR-C4; a real, tested implementation of the exact same requirement achieves it via composition instead. Worth taking back to that decision explicitly. |
 | Ledger/balance posting | **Rebuild native on `InternalGlPoster`**, adopt `wallet_ledger.PostingEngine`'s *design* (idempotent by `reference_id`, balanced-debit/credit invariant validated before commit, freeze-aware rejection) as new `post_wallet_*` functions alongside the existing `post_debit_*`/`post_prepaid_*` ones | `InternalGlPoster`/`cms_ledger_entries` is already this repo's real ledger of record, integrated with TRAMS clearing for every other product. A second, parallel double-entry engine (`wallet_ledger`) would recreate exactly the "two ledgers, which one is real" split-brain this session's own CU-1 work (Unified Card Master) and the Phase 1 research note ("`cms_ledger_entries`/`InternalGlPoster` IS the real TRAMS ledger of record, not `WalletLedger`") already closed once |
-| Wallet-to-wallet transfer | **Rebuild native**, `Transfer`'s state shape (`:initiated→:reserved→:completed/:failed`, idempotency key) is a good reference; the actual move is two `InternalGlPoster` postings (debit sender, credit receiver) inside one `Repo.transaction`, same shape `PrepaidLedger.consume_active_loads/2`/Debit's own adjustment posting already use | No new balance-movement primitive needed — this repo already has the atomic dual-posting pattern proven twice today (Debit/Prepaid Adjustments) |
-| QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all |
+| Wallet-to-wallet transfer | **Rebuild native**, `Transfer`'s state shape (`:initiated→:reserved→:completed/:failed`, idempotency key) is a good reference; the actual move is two `InternalGlPoster` postings (debit sender, credit receiver) inside one `Repo.transaction`, same shape `PrepaidLedger.consume_active_loads/2`/Debit's own adjustment posting already use | No new balance-movement primitive needed — this repo already has the atomic dual-posting pattern proven twice today (Debit/Prepaid Adjustments). **✅ Done, Phase W2.** |
+| QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all. **✅ Done, Phase W3** (personal QR only — merchant-presented QR stays v2). |
 | A2A (wallet→bank) | **Design together, build later** — `P2aTransfer`'s domain shape (destination IBAN/BIC/account/bank-code fields, `:initiated→:submitted→:completed/:failed→:compensated`, compensation-on-failure) is worth adopting directly since it's genuinely well-designed and rail-agnostic; the actual bank-rail integration is unbuilt in *both* repos (`provider` is a bare atom, no concrete adapter anywhere) | Not blocked on a port-vs-rebuild question — blocked on the same kind of external vendor/rail decision as Instant Payments, just less totally-absent (the domain model exists) |
 | Instant Payments | **Not scoped yet** | See §3 — needs a rail decision first, unrelated to anything else in this table |
 | Step-up KYC on limit breach | **Rebuild native, adopt the pattern** — a new event type on `CMS.NonMonetaryEvent` (`wallet_limit_step_up_triggered`) firing when a wallet transfer/load would breach the current tier's cap, routed into a step-up KYC flow on `Shared.Customer` | `Shared.Customer.kyc_status` already exists; this needs a *trigger*, not a new customer model — the `wallet_kyc` step-up linkage is the piece genuinely missing here |
@@ -181,8 +183,31 @@ reference**, not code to port.
    `Repo.transaction` rolling back correctly propagates up through this
    command's outer one). Full suite 398 tests / same 10 pre-existing
    failures, no regression.
-3. **Phase W3 — QR (personal, receive + pay).** New QR identity module,
-   wired to Phase W2's transfer command.
+3. ~~**Phase W3 — QR (personal, receive + pay).**~~ ✅ **Done 2026-07-28.**
+   `CMS.WalletQrIdentity` (`WAL|v1|account_id|currency|amount|label|checksum`
+   wire format, decimal amounts not minor-unit integers — this codebase's
+   own money convention, unlike wallet-app's real `amount_kobo`;
+   truncated-SHA-256 checksum, explicitly documented as
+   corruption-detection only, not a cryptographic signature — same
+   honest limitation wallet-app's own real implementation has) +
+   `CMS.WalletQrPaymentCommand.pay/1` (resolves a scanned QR into a
+   `WalletTransferCommand.transfer/1` call — no new balance-movement
+   logic, QR is purely an encoding). Found and fixed one real robustness
+   gap while wiring this up: `WalletTransferCommand.transfer/1` used
+   `Repo.get!` for both accounts, which would crash the whole process on
+   a well-formed-but-nonexistent account id — exactly what a QR
+   generated against an account since closed, or a hand-crafted
+   malicious QR, could trigger. Changed to a UUID-format check +
+   non-raising lookup, returning `{:error, :sender_not_found}`/
+   `{:error, :receiver_not_found}` gracefully instead. Merchant-presented
+   QR (fixed/variable amount, revoke/expire — W006 in the feature
+   inventory) deliberately NOT built here — genuinely v2 relative to
+   personal QR, per the original scoping. 12/12 new tests
+   (`wallet_qr_identity_test.exs` unit tests for the wire format itself,
+   `wallet_qr_payment_command_test.exs` real-Postgres end-to-end scan-to-
+   pay, tamper detection, and the nonexistent-account graceful-failure
+   case). Full suite 410 tests / same 10 pre-existing failures, no
+   regression.
 4. **Phase W4 — Admin ops UI.** Wizard + tabs, same convention as Debit/
    Prepaid/HCS from this session's Card Products UX Parity work.
 5. **Phase W5 — Step-up KYC + limits/fees config.**

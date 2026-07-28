@@ -3,8 +3,10 @@
 **Status:** 🔄 In progress — **Phase W1 done 2026-07-28** (account/ledger
 foundation: `CMS.WalletProduct`, `CMS.WalletAccount`, load, atomic
 withdrawal, closure, block/unblock, non-monetary events, GL posting; 8/8
-new tests passing, full suite 393 tests / same 10 pre-existing failures,
-no regression). This is the Way4 parity plan's **Phase 2** requirements
+new tests). **Phase W2 done 2026-07-28** (wallet-to-wallet transfer,
+`WalletTransferCommand`, 5/5 new tests, atomic-rollback money-conservation
+proven with real data). Full suite 398 tests / same 10 pre-existing
+failures, no regression. This is the Way4 parity plan's **Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -124,7 +126,7 @@ reference**, not code to port.
 | ~~`CMS.Account` extension~~ `CMS.WalletAccount` (own schema) | ✅ Done — own table (`cms_wallet_accounts`), balance-based like `CMS.DebitAccount`, no EOD-exclusion question at all since it's not in `cms_accounts` (never seen by `EodSchedulerJob`/`LockAccountsJob` in the first place) |
 | Wallet Product / grouping concept | ✅ Done — `CMS.WalletProduct`, one row per customer-facing "wallet," `cms_wallet_accounts.wallet_product_id` FK, one currency per product (unique index) |
 | `InternalGlPoster` extension | ✅ `post_wallet_load/5` + `post_wallet_withdrawal/5` done (GL 1006/5003). `post_wallet_transfer_out`/`_in` not built separately — Phase W2's transfer reuses these two (a transfer is a withdrawal from sender + a load into receiver, atomic in one `Repo.transaction`). `post_wallet_fee/*` deferred to whichever phase actually needs a fee (none yet). |
-| Transfer command | New `WalletTransferCommand` — atomic dual-posting (`WalletWithdrawalCommand.withdraw/4` on sender + `WalletFundingCommand.fund/1`-shaped credit on receiver) inside one `Repo.transaction`, wallet-to-wallet only for v1 — Phase W2, not yet built |
+| Transfer command | ✅ Done — `WalletTransferCommand.transfer/1`, atomic dual-posting (`WalletWithdrawalCommand.withdraw/4` on sender + `WalletFundingCommand.fund/1` with `channel: "INTERNAL_TRANSFER"` on receiver) inside one `Repo.transaction`, wallet-to-wallet only for v1. New `CMS.WalletTransfer` table is the single authoritative record, inserted first so its own id links the receiver's funding row via `external_reference`. |
 | QR identity | New module implementing `wallet_transfers.QrIdentity`'s wire-format pattern, generate + parse + checksum validate, targeting `cms_accounts`-backed wallet accounts |
 | Step-up KYC trigger | New `NonMonetaryEvent` type + a check in the transfer/load command path comparing against the wallet's tier cap |
 | Wallet-appropriate LOGO/BLOCK config | New `product_type: "WALLET"` LOGO row(s), no `ParameterEngine` code changes |
@@ -166,10 +168,19 @@ reference**, not code to port.
    (multi-currency proof). 8/8 new tests
    (`test/vmu_core/cms/wallet_w1_test.exs`), full suite 393 tests / same 10
    pre-existing failures, no regression.
-2. **Phase W2 — Wallet-to-wallet transfer.** `WalletTransferCommand`,
-   atomic dual-posting, real-data test proving a transfer can't create or
-   destroy money (balanced-invariant check, matching `wallet_ledger`'s own
-   design).
+2. ~~**Phase W2 — Wallet-to-wallet transfer.**~~ ✅ **Done 2026-07-28.**
+   `WalletTransferCommand.transfer/1`, `CMS.WalletTransfer` (authoritative
+   record), same-currency + not-self + both-accounts-active guards. 5/5
+   new tests (`test/vmu_core/cms/wallet_transfer_command_test.exs`)
+   proving: exact amount moves, total balance across both accounts is
+   identical before/after (money-conservation), and — critically — an
+   insufficient-funds transfer rolls back atomically with **zero** trace
+   left anywhere (no balance change on either side, no `WalletTransfer`
+   row, no `WalletFunding` row), confirming Ecto's nested-transaction
+   semantics work as designed (`WalletWithdrawalCommand`'s own internal
+   `Repo.transaction` rolling back correctly propagates up through this
+   command's outer one). Full suite 398 tests / same 10 pre-existing
+   failures, no regression.
 3. **Phase W3 — QR (personal, receive + pay).** New QR identity module,
    wired to Phase W2's transfer command.
 4. **Phase W4 — Admin ops UI.** Wizard + tabs, same convention as Debit/

@@ -80,9 +80,11 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     operator = operator_fixture("SUPERVISOR")
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/customer")
 
-    html = view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    # Arrangements now lives behind its own detail tab (2026-07-28 tab redesign).
+    html = view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
 
-    assert html =~ "Arrangements (All Products)"
+    assert html =~ "Arrangements"
     assert html =~ "DEBIT"
     assert html =~ "PREPAID"
     assert html =~ "View in Debit Cards"
@@ -101,7 +103,8 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentArrangementsTest do
     operator = operator_fixture("SUPERVISOR")
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/customer")
 
-    html = view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    html = view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
 
     assert html =~ "No product relationships for this customer yet."
   end

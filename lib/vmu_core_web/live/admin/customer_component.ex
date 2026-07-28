@@ -91,6 +91,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
        bank_filter:  "",
        linked_accounts: [],
        arrangements: [],
+       detail_tab: 1,
        current_operator: nil,
        can_edit: false,
        can_create: false
@@ -224,7 +225,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     if cust do
       accounts = Customer.list_accounts_for(cust.customer_id)
       arrangements = Arrangements.search(%{customer_id: cust.customer_id})
-      {:noreply, assign(socket, mode: :detail, viewing: cust, linked_accounts: accounts,
+      {:noreply, assign(socket, mode: :detail, detail_tab: 1, viewing: cust, linked_accounts: accounts,
                          arrangements: arrangements, result: nil)}
     else
       {:noreply, socket}
@@ -247,6 +248,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   def handle_event("cust_section", %{"s" => s}, socket) do
     {:noreply, assign(socket, cust_section: String.to_integer(s))}
+  end
+
+  def handle_event("detail_tab", %{"t" => t}, socket) do
+    {:noreply, assign(socket, detail_tab: String.to_integer(t))}
   end
 
   def handle_event("cust_change", %{"cust" => params}, socket) do
@@ -275,7 +280,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           arrangements = Arrangements.search(%{customer_id: saved.customer_id})
           {:noreply, socket
             |> load_customers()
-            |> assign(mode: :detail, editing: nil, viewing: saved,
+            |> assign(mode: :detail, detail_tab: 1, editing: nil, viewing: saved,
                       linked_accounts: accounts, arrangements: arrangements,
                       result: {:ok, "Customer #{action}."})}
 
@@ -738,9 +743,41 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       </div>
     </div>
 
-    <!-- Detail info grid -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-      <!-- Personal info -->
+    <!-- Detail tabs (2026-07-28 — replaces the old always-scrolled 2x2
+         info grid + full-width Arrangements card with the same
+         detail-tabs pattern AccountComponent already uses, so this page
+         doesn't require scrolling through every section to find one). -->
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="detail-tabs">
+        <%= for {idx, label, icon} <- detail_tabs(@is_corporate) do %>
+          <div class={"detail-tab#{if @detail_tab == idx, do: " active"}"}
+            phx-click="detail_tab" phx-value-t={idx} phx-target={@myself}>
+            <%= icon %> <%= label %>
+          </div>
+        <% end %>
+      </div>
+      <div style="padding:20px;">
+        <%= case @detail_tab do %>
+          <% 1 -> %> <%= tab_overview(assigns) %>
+          <% 2 -> %> <%= tab_identity_kyc(assigns) %>
+          <% 3 -> %> <%= tab_corporate(assigns) %>
+          <% 4 -> %> <%= tab_arrangements(assigns) %>
+          <% _ -> %> <p>Invalid tab.</p>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp detail_tabs(is_corporate) do
+    [{1, "Overview", "📋"}, {2, "Identity & KYC", "🪪"}] ++
+      (if is_corporate, do: [{3, "Corporate", "🏢"}], else: []) ++
+      [{4, "Arrangements", "🔗"}]
+  end
+
+  defp tab_overview(assigns) do
+    ~H"""
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div class="card">
         <div class="card-header"><div class="card-title">Personal Information</div></div>
         <div class="card-body">
@@ -753,7 +790,6 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           ]}/>
         </div>
       </div>
-      <!-- Contact info -->
       <div class="card">
         <div class="card-header"><div class="card-title">Contact Details</div></div>
         <div class="card-body">
@@ -768,71 +804,75 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         </div>
       </div>
     </div>
+    """
+  end
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-      <!-- Identity / KYC -->
+  defp tab_identity_kyc(assigns) do
+    ~H"""
+    <div class="card">
+      <div class="card-header"><div class="card-title">Identity Documents</div></div>
+      <div class="card-body">
+        <.kv_detail rows={[
+          {"ID Type",   @cust.id_type},
+          {"ID Number", masked(@cust.id_number, "cif.id_number", @cust.sys_id, @current_operator)},
+          {"Expiry",    date_s(@cust.id_expiry)},
+          {"KYC Status",@cust.kyc_status || "PENDING"}
+        ]}/>
+      </div>
+    </div>
+    """
+  end
+
+  defp tab_corporate(assigns) do
+    ~H"""
+    <%= if @is_corporate do %>
       <div class="card">
-        <div class="card-header"><div class="card-title">Identity Documents</div></div>
+        <div class="card-header"><div class="card-title">Corporate Details</div></div>
         <div class="card-body">
           <.kv_detail rows={[
-            {"ID Type",   @cust.id_type},
-            {"ID Number", masked(@cust.id_number, "cif.id_number", @cust.sys_id, @current_operator)},
-            {"Expiry",    date_s(@cust.id_expiry)},
-            {"KYC Status",@cust.kyc_status || "PENDING"}
+            {"Company",       @cust.company_name},
+            {"Reg. Number",   @cust.registration_number},
+            {"Reg. Country",  @cust.registration_country},
+            {"Reg. Date",     date_s(@cust.registration_date)}
           ]}/>
         </div>
       </div>
-      <!-- Corporate (conditional) or Linked accounts -->
-      <%= if @is_corporate do %>
-        <div class="card">
-          <div class="card-header"><div class="card-title">Corporate Details</div></div>
-          <div class="card-body">
-            <.kv_detail rows={[
-              {"Company",       @cust.company_name},
-              {"Reg. Number",   @cust.registration_number},
-              {"Reg. Country",  @cust.registration_country},
-              {"Reg. Date",     date_s(@cust.registration_date)}
-            ]}/>
+    <% else %>
+      <p class="text-sm text-muted">This customer is not a corporate account.</p>
+    <% end %>
+    """
+  end
+
+  # Arrangements (Koṣa domain-model alignment, 2026-07-28) — every product
+  # relationship this customer has, across Credit/Debit/Prepaid/Corporate,
+  # in one place. Replaces the old tier-conditional "Linked Accounts"
+  # panel (credit-only, Customer.list_accounts_for/1) — this shows
+  # regardless of customer tier, since a CORPORATE customer's own
+  # CORPORATE_FACILITY arrangement is exactly as real as a RETAIL
+  # customer's CREDIT/DEBIT/PREPAID ones. Status/summary come from
+  # Arrangements.search/1's live per-product enrichment, never duplicated
+  # onto Arrangement itself. "View in X" opens the specific record's
+  # detail page directly via ?view=<view_ref>.
+  defp tab_arrangements(assigns) do
+    ~H"""
+    <%= if @arrangements == [] do %>
+      <p class="text-sm text-muted">No product relationships for this customer yet.</p>
+    <% else %>
+      <%= for row <- @arrangements do %>
+        <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
+        <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span>
+            <%= if row.status do %>
+              <span class={"badge #{status_badge_cls(row.status)}"} style="margin-left:4px;"><%= row.status %></span>
+            <% end %>
+            <span class="text-sm text-muted" style="margin-left:8px;"><%= row.summary %></span>
+            <span class="text-sm text-muted" style="margin-left:8px;">opened <%= row.arrangement.opened_at %></span>
           </div>
+          <a class="btn btn-xs" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
         </div>
       <% end %>
-    </div>
-
-    <!-- Arrangements (Koṣa domain-model alignment, 2026-07-28) — every
-         product relationship this customer has, across Credit/Debit/
-         Prepaid/Corporate, in one place. Replaces the old tier-
-         conditional "Linked Accounts" panel (credit-only,
-         Customer.list_accounts_for/1) — this shows regardless of
-         customer tier, since a CORPORATE customer's own
-         CORPORATE_FACILITY arrangement is exactly as real as a RETAIL
-         customer's CREDIT/DEBIT/PREPAID ones. Status/summary come from
-         Arrangements.search/1's live per-product enrichment, never
-         duplicated onto Arrangement itself. "View in X" opens the
-         specific record's detail page directly via ?view=<view_ref>
-         (2026-07-28 — previously landed on the bare module list). -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header"><div class="card-title">Arrangements (All Products)</div></div>
-      <div class="card-body">
-        <%= if @arrangements == [] do %>
-          <p class="text-sm text-muted">No product relationships for this customer yet.</p>
-        <% else %>
-          <%= for row <- @arrangements do %>
-            <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
-            <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span>
-                <%= if row.status do %>
-                  <span class={"badge #{status_badge_cls(row.status)}"} style="margin-left:4px;"><%= row.status %></span>
-                <% end %>
-                <span class="text-sm text-muted" style="margin-left:8px;"><%= row.summary %></span>
-                <span class="text-sm text-muted" style="margin-left:8px;">opened <%= row.arrangement.opened_at %></span>
-              </div>
-              <a class="btn btn-xs" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
-            </div>
-          <% end %>
-        <% end %>
-      </div>
-    </div>
+    <% end %>
     """
   end
 

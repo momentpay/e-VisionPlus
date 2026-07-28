@@ -25,6 +25,12 @@ defmodule VmuCore.CMS.InternalGlPoster do
   purposes even though the mechanism (stored value the bank owes the
   cardholder) is the same shape as Debit's:
     5002 — Prepaid stored-value liability
+
+  Digital Wallet (Way4 parity plan Phase 2, Phase W1, 2026-07-28) is the
+  same liability shape again, its own code — a wallet balance is stored
+  value the bank owes the customer, same mechanism as Debit/Prepaid,
+  different product:
+    5003 — Wallet stored-value liability
   """
 
   require Logger
@@ -267,6 +273,56 @@ defmodule VmuCore.CMS.InternalGlPoster do
       dr_amount:        amount,
       cr_amount:        amount,
       gl_account_dr:    "5002",
+      gl_account_cr:    "1006",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        narrative
+    })
+  end
+
+  @doc """
+  Post a load into a Digital Wallet account (Way4 parity plan Phase 2,
+  Phase W1, 2026-07-28) — same liability-direction shape as
+  `post_debit_deposit/5`/`post_prepaid_load/5`, its own GL code (5003).
+  """
+  def post_wallet_load(wallet_account_id, amount, posting_date, channel, idempotency_key) do
+    post(%{
+      account_id:       wallet_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "DEPOSIT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "1006",
+      gl_account_cr:    "5003",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        "Wallet account load: #{channel}"
+    })
+  end
+
+  @doc """
+  Post a withdrawal from a Digital Wallet account (Way4 parity plan
+  Phase 2, Phase W1, 2026-07-28) — exact reverse of `post_wallet_load/5`.
+  Unlike Debit's `post_debit_purchase/5` (which only makes an
+  already-reserved journal entry permanent after clearing),
+  `CMS.WalletWithdrawalCommand.withdraw/4` posts this in the SAME
+  transaction as the atomic balance decrement — a wallet withdrawal has
+  no separate authorization-then-clearing phases yet (no card/FAS path
+  exists for Wallet in Phase W1), so there is nothing to reconcile
+  later.
+  """
+  def post_wallet_withdrawal(wallet_account_id, amount, posting_date, narrative, idempotency_key) do
+    post(%{
+      account_id:       wallet_account_id,
+      idempotency_key:  idempotency_key,
+      # "PURCHASE" — reusing CMS.LedgerEntry's existing validated
+      # transaction_code (its own list has no dedicated WITHDRAWAL code;
+      # Debit/Prepaid's own money-leaving-the-account postings use the
+      # same code for the same reason, not a literal card purchase).
+      transaction_code: "PURCHASE",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "5003",
       gl_account_cr:    "1006",
       posting_date:     posting_date,
       value_date:       posting_date,

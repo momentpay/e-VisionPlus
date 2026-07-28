@@ -1,15 +1,36 @@
 # Digital Wallet (Account/Ledger Product) — Feasibility & Requirements
 
-**Status:** 📝 New-product planning doc (2026-07-28) — not started. This is
-the Way4 parity plan's **Phase 2** requirements pass
-(`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 — Digital
-channel absorption"), covering Digital Wallet, QR Payments, Instant
-Payments, and Account-to-Account (A2A). **Do not confuse this with
+**Status:** 🔄 In progress — **Phase W1 done 2026-07-28** (account/ledger
+foundation: `CMS.WalletProduct`, `CMS.WalletAccount`, load, atomic
+withdrawal, closure, block/unblock, non-monetary events, GL posting; 8/8
+new tests passing, full suite 393 tests / same 10 pre-existing failures,
+no regression). This is the Way4 parity plan's **Phase 2** requirements
+pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
+Digital channel absorption"), covering Digital Wallet, QR Payments,
+Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
 `WALLET_Module_Requirements.md`** in this same folder — that doc is scoped
 to network/scheme tokenization (Apple Pay/Google Pay via Visa VTS /
 Mastercard MDES), a completely different capability that happens to share
 the word "wallet." This doc is the wallet-app **account/ledger product**
 port-in question the Way4 plan's Phase 2 actually refers to.
+
+**Design correction made during W1 implementation (2026-07-28) — §4's
+"Account entity" row below is superseded, kept for the historical
+record.** The original recommendation was `account_type: "WALLET"` on
+`CMS.Account`, mirroring HCS Employee Card's reuse of that table.
+Building it surfaced why that's wrong: Employee Card's reuse only works
+because its own fields (`individual_limit`, `available_individual`)
+genuinely map onto `CMS.Account`'s credit-shaped columns (`credit_limit`,
+`open_to_buy`) — it's fundamentally a credit-limit product, just enforced
+differently. A wallet has no credit line at all; it's stored value,
+structurally identical to what `CMS.PrepaidAccount` already is in this
+codebase. **Built instead: `CMS.WalletAccount` as its own schema,
+mirroring `CMS.DebitAccount`'s shape** (balance-based `available_balance`,
+own `cms_wallet_block_history`/`cms_wallet_non_monetary_events` tables) —
+same pattern as Debit/Prepaid's Phase 1e/2d retrofit, not Employee Card's
+`cms_accounts` reuse. `CMS.WalletProduct` (the multi-currency grouping
+concept) is unaffected by this correction — it groups `WalletAccount` rows
+instead of `cms_accounts` rows, same idea.
 
 ---
 
@@ -85,8 +106,8 @@ reference**, not code to port.
 
 | Capability | Verdict | Reasoning |
 |---|---|---|
-| Account entity | **Rebuild native** — new `account_type: "WALLET"` value on `CMS.Account`, same pattern this session's HCS Employee Card work just proved out (an `EMPLOYEE_CARD`-typed row reuses `cms_accounts`, `BlockCodeHistory`, `NonMonetaryEvent`, `CTA.CardLifecycle` entirely unchanged) | Keeps one account table, one block/audit-trail mechanism, no new parallel schema |
-| Multi-currency wallet UX | **Rebuild native, informed by wallet-app's real pattern** — `wallet_accounts`' actual design is *not* a multi-currency balance on one row; it's a `WalletProduct` container holding N single-currency `SubWallet`s. This is directly compatible with this repo's own ADR-C4 (`CMS.Account` stays single-currency) without reversing it — build the "product" grouping as a new thin concept over multiple single-currency `cms_accounts` rows, same relationship shape `HCS.Company`→`EmployeeCard` already uses. | **This materially informs Way4 plan §3 Decision 2** — multi-currency does not require reversing ADR-C4; a real, tested implementation of the exact same requirement achieves it via composition instead. Worth taking back to that decision explicitly. |
+| Account entity | ~~Rebuild native — new `account_type: "WALLET"` value on `CMS.Account`~~ **SUPERSEDED, see the correction note above — built as `CMS.WalletAccount`, its own schema mirroring `CMS.DebitAccount`'s balance-based shape instead.** | A wallet is stored value, not a credit-limit product — `CMS.Account`'s columns don't fit; `CMS.DebitAccount`'s do |
+| Multi-currency wallet UX | **Rebuild native, informed by wallet-app's real pattern** — `wallet_accounts`' actual design is *not* a multi-currency balance on one row; it's a `WalletProduct` container holding N single-currency `SubWallet`s. This is directly compatible with this repo's own ADR-C4 (`CMS.Account` stays single-currency) without reversing it — build the "product" grouping as a new thin concept over multiple single-currency accounts, same relationship shape `HCS.Company`→`EmployeeCard` already uses. **Built 2026-07-28 as `CMS.WalletProduct` grouping N `CMS.WalletAccount` rows.** | **This materially informs Way4 plan §3 Decision 2** — multi-currency does not require reversing ADR-C4; a real, tested implementation of the exact same requirement achieves it via composition instead. Worth taking back to that decision explicitly. |
 | Ledger/balance posting | **Rebuild native on `InternalGlPoster`**, adopt `wallet_ledger.PostingEngine`'s *design* (idempotent by `reference_id`, balanced-debit/credit invariant validated before commit, freeze-aware rejection) as new `post_wallet_*` functions alongside the existing `post_debit_*`/`post_prepaid_*` ones | `InternalGlPoster`/`cms_ledger_entries` is already this repo's real ledger of record, integrated with TRAMS clearing for every other product. A second, parallel double-entry engine (`wallet_ledger`) would recreate exactly the "two ledgers, which one is real" split-brain this session's own CU-1 work (Unified Card Master) and the Phase 1 research note ("`cms_ledger_entries`/`InternalGlPoster` IS the real TRAMS ledger of record, not `WalletLedger`") already closed once |
 | Wallet-to-wallet transfer | **Rebuild native**, `Transfer`'s state shape (`:initiated→:reserved→:completed/:failed`, idempotency key) is a good reference; the actual move is two `InternalGlPoster` postings (debit sender, credit receiver) inside one `Repo.transaction`, same shape `PrepaidLedger.consume_active_loads/2`/Debit's own adjustment posting already use | No new balance-movement primitive needed — this repo already has the atomic dual-posting pattern proven twice today (Debit/Prepaid Adjustments) |
 | QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all |
@@ -100,10 +121,10 @@ reference**, not code to port.
 
 | Area | What's needed |
 |---|---|
-| `CMS.Account` extension | `account_type: "WALLET"` (reuses the account_type field/EOD-exclusion fixed for HCS this session — confirm the EOD `account_type == "CREDIT"` filter is correct to also exclude WALLET, since a wallet balance never accrues interest either) |
-| Wallet Product / grouping concept | New thin schema linking N single-currency `cms_accounts` rows under one customer-facing "wallet" — the multi-currency UX layer from §4 |
-| `InternalGlPoster` extension | New `post_wallet_load/*`, `post_wallet_transfer_out/*`, `post_wallet_transfer_in/*`, `post_wallet_fee/*` functions, idempotent-by-reference_id, following the exact shape of the existing `post_debit_*`/`post_prepaid_*` functions |
-| Transfer command | New `WalletTransferCommand` — atomic dual-posting (debit sender / credit receiver) inside one `Repo.transaction`, wallet-to-wallet only for v1 |
+| ~~`CMS.Account` extension~~ `CMS.WalletAccount` (own schema) | ✅ Done — own table (`cms_wallet_accounts`), balance-based like `CMS.DebitAccount`, no EOD-exclusion question at all since it's not in `cms_accounts` (never seen by `EodSchedulerJob`/`LockAccountsJob` in the first place) |
+| Wallet Product / grouping concept | ✅ Done — `CMS.WalletProduct`, one row per customer-facing "wallet," `cms_wallet_accounts.wallet_product_id` FK, one currency per product (unique index) |
+| `InternalGlPoster` extension | ✅ `post_wallet_load/5` + `post_wallet_withdrawal/5` done (GL 1006/5003). `post_wallet_transfer_out`/`_in` not built separately — Phase W2's transfer reuses these two (a transfer is a withdrawal from sender + a load into receiver, atomic in one `Repo.transaction`). `post_wallet_fee/*` deferred to whichever phase actually needs a fee (none yet). |
+| Transfer command | New `WalletTransferCommand` — atomic dual-posting (`WalletWithdrawalCommand.withdraw/4` on sender + `WalletFundingCommand.fund/1`-shaped credit on receiver) inside one `Repo.transaction`, wallet-to-wallet only for v1 — Phase W2, not yet built |
 | QR identity | New module implementing `wallet_transfers.QrIdentity`'s wire-format pattern, generate + parse + checksum validate, targeting `cms_accounts`-backed wallet accounts |
 | Step-up KYC trigger | New `NonMonetaryEvent` type + a check in the transfer/load command path comparing against the wallet's tier cap |
 | Wallet-appropriate LOGO/BLOCK config | New `product_type: "WALLET"` LOGO row(s), no `ParameterEngine` code changes |
@@ -128,10 +149,23 @@ reference**, not code to port.
 
 ## 7. Phased Implementation Plan (high-level — refine before starting)
 
-1. **Phase W1 — Account + ledger foundation.** `account_type: "WALLET"`,
-   Wallet Product grouping, `InternalGlPoster` wallet posting functions.
-   No transfer yet — this phase proves open/load/close end-to-end against
-   real Postgres, same discipline every other phase this session used.
+1. ~~**Phase W1 — Account + ledger foundation.**~~ ✅ **Done 2026-07-28.**
+   `CMS.WalletProduct` (grouping) + `CMS.WalletAccount` (own schema, see
+   the correction note above — not `account_type: "WALLET"` on
+   `CMS.Account`), `WalletProductOpening` (open product+account, records
+   an `Arrangement`), `WalletFundingCommand` (load), `WalletWithdrawalCommand`
+   (atomic balance-guarded withdrawal, `Postgres WHERE available_balance
+   >= amount`, same pattern as `CMS.DebitAuthorization`), `WalletAccountClosure`
+   (requires zero balance first), `WalletBlockHistory`/`WalletNonMonetaryEvent`
+   (own tables, mirror Debit's Phase 1e), `InternalGlPoster.post_wallet_load/5`
+   and `post_wallet_withdrawal/5` (new GL code 5003 — wallet stored-value
+   liability, paired with 1006 bank cash, same shape as Debit's 5001/
+   Prepaid's 5002). Proved end-to-end against real Postgres: open → load →
+   withdraw → close (requires zero balance) → block/unblock → non-monetary
+   event, plus a second single-currency account added to the same product
+   (multi-currency proof). 8/8 new tests
+   (`test/vmu_core/cms/wallet_w1_test.exs`), full suite 393 tests / same 10
+   pre-existing failures, no regression.
 2. **Phase W2 — Wallet-to-wallet transfer.** `WalletTransferCommand`,
    atomic dual-posting, real-data test proving a transfer can't create or
    destroy money (balanced-invariant check, matching `wallet_ledger`'s own

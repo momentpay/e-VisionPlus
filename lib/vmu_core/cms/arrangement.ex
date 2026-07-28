@@ -23,7 +23,7 @@ defmodule VmuCore.CMS.Arrangement do
 
   @type t :: %__MODULE__{}
 
-  @product_types ~w[CREDIT DEBIT PREPAID CORPORATE_FACILITY CORPORATE_EMPLOYEE CORPORATE_FLEET]
+  @product_types ~w[CREDIT DEBIT PREPAID CORPORATE_FACILITY CORPORATE_EMPLOYEE CORPORATE_FLEET WALLET]
 
   schema "cms_arrangements" do
     field :customer_id,  :binary_id

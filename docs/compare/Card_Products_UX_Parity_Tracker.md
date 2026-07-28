@@ -1,6 +1,6 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Planning — phases not yet started
+**Status:** Phase 1 (Debit) starting
 **Date:** 2026-07-28
 **Trigger:** User screenshots showing Credit's account-opening wizard
 (Customer → Product → Card & Credit → Config → Review) and 6-tab detail
@@ -119,17 +119,16 @@ throughout this project.
 
 ---
 
-## 5. Open questions before starting
+## 5. Decisions
 
-1. **Phase order** — proceed Debit → Prepaid → HCS Employee → HCS
-   polish as above, or reprioritize (e.g. HCS Employee Cards first,
-   since it's a full functional gap rather than a UX upgrade)?
-2. **Debit/Prepaid Adjustments** — confirm the 4-eyes maker/checker
-   pattern (like Credit's Temp Limit/Fee Waiver/Financial Adjustment)
-   is the right shape for this, rather than a single-operator action.
-3. **HCS Employee Card block/unblock** — should this reuse
-   `CTA.CardLifecycle.block/3`/`unblock/2` directly (the card is
-   already a real `cta_cards` row via the unified card master), or
-   does Employee Card status need its own state machine independent
-   of the card's own status? (Fleet cards already went through this
-   question during Way4 Phase 0 — worth checking that precedent.)
+1. **Phase order** — confirmed 2026-07-28: Debit → Prepaid → HCS
+   Employee Cards → HCS Corporate polish, as laid out above.
+2. **Debit/Prepaid Adjustments** — confirmed 2026-07-28: 4-eyes
+   maker/checker, same pattern as Credit's Temp Limit/Fee Waiver/
+   Financial Adjustment (`ASM.Authz.validate_checker/4`).
+3. **HCS Employee Card block/unblock mechanism** — still open, to
+   resolve during Phase 3: reuse `CTA.CardLifecycle.block/3`/
+   `unblock/2` directly (the card is already a real `cta_cards` row via
+   the unified card master), or does `EmployeeCard.status` need its own
+   state machine independent of the card's own status? Check the Fleet
+   Card precedent from Way4 Phase 0 before deciding.

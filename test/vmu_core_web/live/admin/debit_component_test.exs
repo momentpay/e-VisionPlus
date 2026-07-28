@@ -3,7 +3,11 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
   Real Postgres via Sandbox, no mocking. Way4 parity plan Phase 1 item 4
   (Debit, D5) — first-ever admin UI test coverage for Debit: account
   creation, funding, card issuance, and activate/block/unblock, all
-  end-to-end through the real LiveView.
+  end-to-end through the real LiveView. Account creation rewritten for
+  Card Products UX Parity Phase 1 (2026-07-28) — a 3-step wizard
+  (Customer search+select / Product dropdowns / Review) replacing the
+  old flat form that hand-typed SYS/BANK/LOGO/BLOCK IDs and always
+  created a brand-new Customer inline.
   """
 
   use ExUnit.Case, async: false
@@ -76,27 +80,54 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     {account, sys_id, bank_id, logo_id, block_id}
   end
 
-  test "creating a new debit account via the admin form" do
+  test "opening a new debit account for an existing customer via the 3-step wizard" do
     operator = operator_fixture("SUPERVISOR")
-    {sys_id, bank_id, logo_id, block_id} = parameter_hierarchy_fixture()
+    {sys_id, bank_id, logo_id, _block_id} = parameter_hierarchy_fixture()
+    n = System.unique_integer([:positive])
+
+    customer =
+      %Customer{}
+      |> Customer.changeset(%{sys_id: sys_id, bank_id: bank_id, first_name: "Wizard", last_name: "DebitTest#{n}"})
+      |> Repo.insert!()
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
 
-    view |> element("button[phx-click=open_action][phx-value-a=create_account]") |> render_click()
+    view |> element("button[phx-click=debit_new]") |> render_click()
 
-    html =
+    # Step 1 — search and select an existing customer (no more inline
+    # customer creation, no more hand-typed SYS/BANK IDs).
+    step1_html =
       view
-      |> form("form[phx-submit=create_account_save]", %{
-        "account" => %{
-          "first_name" => "New", "last_name" => "Customer",
-          "sys_id" => sys_id, "bank_id" => bank_id, "logo_id" => logo_id, "block_id" => block_id
-        }
-      })
-      |> render_submit()
+      |> element("input[phx-keyup=cust_search_wizard]")
+      |> render_keyup(%{"q" => "DebitTest#{n}"})
 
-    assert html =~ "New Customer"
+    assert step1_html =~ "Wizard"
 
-    account = Repo.get_by!(DebitAccount, sys_id: sys_id, bank_id: bank_id)
+    view |> element("button[phx-click=select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+
+    # Step 2 — Logo/Block dropdowns, not free-text
+    step2_html = render(view)
+    assert step2_html =~ "Step 2"
+    assert step2_html =~ logo_id
+
+    view
+    |> form("form[phx-change=wizard_change]", %{"acc" => %{"logo_id" => logo_id}})
+    |> render_change()
+
+    view |> element("button[phx-click=wizard_step][phx-value-s='3']") |> render_click()
+
+    # Step 3 — Review, then save
+    review_html = render(view)
+    assert review_html =~ "Step 3 — Review"
+    assert review_html =~ "Wizard"
+
+    # wizard_save lands straight on the new account's detail view (same
+    # chain the old create_account_save used) — the customer's name shows
+    # in the detail header title.
+    html = view |> element("button[phx-click=wizard_save]") |> render_click()
+    assert html =~ "Wizard DebitTest#{n} — Debit Account"
+
+    account = Repo.get_by!(DebitAccount, customer_id: customer.customer_id)
     assert D.equal?(account.available_balance, D.new(0))
     assert account.status == "ACTIVE"
   end

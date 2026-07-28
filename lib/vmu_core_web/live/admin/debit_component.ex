@@ -28,7 +28,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
   alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
                  CMS.DebitFundingCommand, CTA.CardLifecycle, CTA.Cards}
-  alias VmuCore.Shared.Customer
+  alias VmuCore.Shared.{Customer, LogoParameter, BlockParameter}
   alias VmuCore.ASM.Authz
   alias Decimal, as: D
 
@@ -48,7 +48,19 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        cards: [],
        can_edit: false,
        loaded_deep_link_id: nil,
-       embedded: false
+       embedded: false,
+       # Card Products UX Parity Phase 1 (2026-07-28) — wizard-based
+       # creation, replacing the old flat form that both hand-typed raw
+       # SYS/BANK/LOGO/BLOCK IDs AND always created a brand-new Customer
+       # (no way to open a Debit account for an existing one, unlike
+       # Credit's wizard). Mirrors AccountComponent's own wizard state
+       # shape so the pattern is legible across both components.
+       wizard_step: 1,
+       form_data: %{},
+       customer_search: "",
+       customer_results: [],
+       logos_for_bank: [],
+       blocks_for_logo: []
      )
      |> load_accounts()}
   end
@@ -100,39 +112,93 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   end
 
   # ---------------------------------------------------------------------------
-  # Create account
+  # Create account — wizard (Card Products UX Parity Phase 1, 2026-07-28)
   # ---------------------------------------------------------------------------
 
-  def handle_event("create_account_save", %{"account" => params}, socket) do
+  def handle_event("debit_new", _params, socket) do
+    {:noreply, assign(socket,
+      mode: :wizard, wizard_step: 1, form_data: %{},
+      customer_search: "", customer_results: [],
+      logos_for_bank: [], blocks_for_logo: [], notice: nil
+    )}
+  end
+
+  def handle_event("cust_search_wizard", %{"q" => q}, socket) do
+    results =
+      if String.length(q || "") >= 2 do
+        term = "%#{q}%"
+        Repo.all(
+          from c in Customer,
+            where: ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                   ilike(c.email, ^term) or ilike(c.mobile_number, ^term),
+            limit: 10
+        )
+      else
+        []
+      end
+    {:noreply, assign(socket, customer_search: q, customer_results: results)}
+  end
+
+  def handle_event("select_customer", %{"id" => cust_id}, socket) do
+    case Repo.get(Customer, cust_id) do
+      nil -> {:noreply, socket}
+      cust ->
+        fd = Map.merge(socket.assigns.form_data, %{
+          "customer_id" => to_string(cust.customer_id),
+          "customer_name" => "#{cust.first_name} #{cust.last_name}",
+          "kyc_status" => cust.kyc_status,
+          "bank_id" => cust.bank_id,
+          "sys_id" => cust.sys_id
+        })
+        logos = Repo.all(from l in LogoParameter, where: l.bank_id == ^cust.bank_id, order_by: [asc: l.logo_id])
+        {:noreply, assign(socket,
+          form_data: fd, customer_search: "", customer_results: [],
+          logos_for_bank: logos, wizard_step: 2
+        )}
+    end
+  end
+
+  def handle_event("wizard_step", %{"s" => s}, socket) do
+    {:noreply, assign(socket, wizard_step: String.to_integer(s))}
+  end
+
+  def handle_event("wizard_change", %{"acc" => params}, socket) do
+    fd = Map.merge(socket.assigns.form_data, params)
+
+    socket =
+      if params["logo_id"] && params["logo_id"] != socket.assigns.form_data["logo_id"] do
+        logo_id = params["logo_id"]
+        bank_id = fd["bank_id"] || ""
+        blocks =
+          Repo.all(
+            from b in BlockParameter,
+              where: b.logo_id == ^logo_id and b.bank_id == ^bank_id,
+              order_by: [asc: b.block_id]
+          )
+        assign(socket, form_data: fd, blocks_for_logo: blocks)
+      else
+        assign(socket, form_data: fd)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("wizard_save", _params, socket) do
     if socket.assigns.can_edit do
-      cond do
-        params["first_name"] in [nil, ""] or params["last_name"] in [nil, ""] ->
-          {:noreply, assign(socket, notice: "Customer name is required.", notice_kind: :error)}
+      fd = socket.assigns.form_data
 
-        true ->
-          customer_result =
-            %Customer{}
-            |> Customer.changeset(%{
-              sys_id: params["sys_id"], bank_id: params["bank_id"],
-              first_name: params["first_name"], last_name: params["last_name"]
-            })
-            |> Repo.insert()
+      case DebitAccountOpening.open(%{
+             customer_id: fd["customer_id"], sys_id: fd["sys_id"], bank_id: fd["bank_id"],
+             logo_id: fd["logo_id"], block_id: fd["block_id"] || "DFLT"
+           }) do
+        {:ok, account} ->
+          {:noreply, socket
+                      |> assign(mode: :list, notice: "Debit account opened for #{fd["customer_name"]}.", notice_kind: :success)
+                      |> load_accounts()
+                      |> then(&load_detail(&1, account.debit_account_id))}
 
-          with {:ok, customer} <- customer_result,
-               {:ok, account} <-
-                 DebitAccountOpening.open(%{
-                   customer_id: customer.customer_id, sys_id: params["sys_id"],
-                   bank_id: params["bank_id"], logo_id: params["logo_id"],
-                   block_id: params["block_id"]
-                 }) do
-            {:noreply, socket
-                        |> assign(mode: :list, notice: "Debit account opened for #{params["first_name"]} #{params["last_name"]}.", notice_kind: :success)
-                        |> load_accounts()
-                        |> then(&load_detail(&1, account.debit_account_id))}
-          else
-            {:error, changeset} ->
-              {:noreply, assign(socket, notice: "Create failed — #{inspect(changeset.errors)}", notice_kind: :error)}
-          end
+        {:error, changeset} ->
+          {:noreply, assign(socket, notice: "Create failed — #{inspect(changeset.errors)}", notice_kind: :error)}
       end
     else
       {:noreply, assign(socket, notice: "Your role cannot create debit accounts.", notice_kind: :error)}
@@ -322,41 +388,12 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       <%= if not @embedded do %>
         <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
           <:actions>
-            <button :if={@can_edit} class="btn-sm btn-primary" phx-click="open_action" phx-value-a="create_account" phx-target={@myself}>+ New Account</button>
+            <button :if={@can_edit} class="btn-sm btn-primary" phx-click="debit_new" phx-target={@myself}>+ New Account</button>
           </:actions>
         </.page_header>
       <% end %>
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
-
-      <%= if @active_action == :create_account do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>🏦 New Debit Account</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
-          </div>
-          <form phx-submit="create_account_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">First Name *</label>
-                <input class="input" type="text" name="account[first_name]" required/></div>
-              <div class="form-group"><label class="form-label">Last Name *</label>
-                <input class="input" type="text" name="account[last_name]" required/></div>
-              <div class="form-group"><label class="form-label">SYS ID *</label>
-                <input class="input" type="text" name="account[sys_id]" maxlength="4" required/></div>
-              <div class="form-group"><label class="form-label">Bank ID *</label>
-                <input class="input" type="text" name="account[bank_id]" maxlength="4" required/></div>
-              <div class="form-group"><label class="form-label">Logo ID (DEBIT product) *</label>
-                <input class="input" type="text" name="account[logo_id]" maxlength="4" required/></div>
-              <div class="form-group"><label class="form-label">Block ID *</label>
-                <input class="input" type="text" name="account[block_id]" maxlength="4" required/></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Open Account</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      <% end %>
 
       <form phx-change="search" phx-target={@myself} style="margin-bottom:12px;">
         <input class="input" type="text" name="q" value={@search} placeholder="Search customer name…" style="max-width:320px;"/>
@@ -382,6 +419,51 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
             <% end %>
           </tbody>
         </table>
+      </div>
+    </div>
+    """
+  end
+
+  # Card Products UX Parity Phase 1 (2026-07-28) — wizard-based creation:
+  # Customer (search existing, same as AccountComponent's wizard step 1 —
+  # no more inline-create-a-new-customer, no more hand-typed SYS/BANK IDs)
+  # -> Product (Logo/Block cascading dropdowns, same as AccountComponent's
+  # wizard step 2) -> Review. No "Card & Credit" step: a Debit account has
+  # no credit limit and no card is issued at account-opening time (that's
+  # the separate "Issue Card" action once the account exists).
+  def render(%{mode: :wizard} = assigns) do
+    ~H"""
+    <div class="component-panel">
+      <%= if not @embedded do %>
+        <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
+          <:actions>
+            <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>
+          </:actions>
+        </.page_header>
+      <% end %>
+
+      <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
+
+      <div class="card">
+        <div style="font-size:16px;font-weight:700;margin-bottom:20px;">Open New Debit Account — Step <%= @wizard_step %> of 3</div>
+
+        <div style="display:flex;gap:4px;margin-bottom:24px;">
+          <%= for {s, label} <- [{1, "Customer"}, {2, "Product"}, {3, "Review"}] do %>
+            <div style={"flex:1;padding:6px 8px;text-align:center;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;
+              background:#{if s <= @wizard_step, do: "var(--accent)", else: "var(--bg-canvas)"};
+              color:#{if s <= @wizard_step, do: "#fff", else: "var(--text-secondary)"};"}
+              phx-click={if s < @wizard_step, do: "wizard_step"} phx-value-s={s} phx-target={@myself}>
+              <%= s %>. <%= label %>
+            </div>
+          <% end %>
+        </div>
+
+        <%= case @wizard_step do %>
+          <% 1 -> %> <%= debit_wizard_step1(assigns) %>
+          <% 2 -> %> <%= debit_wizard_step2(assigns) %>
+          <% 3 -> %> <%= debit_wizard_step3(assigns) %>
+          <% _ -> %> <p>Invalid step.</p>
+        <% end %>
       </div>
     </div>
     """
@@ -519,6 +601,124 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
             <% end %>
           </tbody>
         </table>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Wizard step partials (Card Products UX Parity Phase 1, 2026-07-28)
+  # ---------------------------------------------------------------------------
+
+  defp debit_wizard_step1(assigns) do
+    ~H"""
+    <div>
+      <div class="form-pane-section-title">Step 1 — Select Customer</div>
+
+      <%= if @form_data["customer_id"] do %>
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:12px 16px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;"><%= @form_data["customer_name"] %></div>
+            <div style="font-size:12px;color:var(--text-secondary);">
+              Bank: <%= @form_data["bank_id"] %> · KYC: <%= @form_data["kyc_status"] %>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ghost" phx-click="wizard_step" phx-value-s="1" phx-target={@myself}>Change</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button class="btn btn-primary" phx-click="wizard_step" phx-value-s="2" phx-target={@myself}>
+            Next: Select Product →
+          </button>
+        </div>
+      <% else %>
+        <div style="margin-bottom:12px;">
+          <input type="text" class="input" placeholder="Search by name, email, or mobile…"
+            value={@customer_search} phx-keyup="cust_search_wizard" phx-debounce="300"
+            phx-value-q={@customer_search} phx-target={@myself} style="width:100%;max-width:480px;"/>
+        </div>
+
+        <%= if @customer_results != [] do %>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Name</th><th>Email</th><th>Bank</th><th>KYC</th><th></th></tr></thead>
+              <tbody>
+                <%= for c <- @customer_results do %>
+                  <tr>
+                    <td><%= c.first_name %> <%= c.last_name %></td>
+                    <td style="font-size:12px;"><%= c.email %></td>
+                    <td><%= c.bank_id %></td>
+                    <td><span class={"badge #{if c.kyc_status == "VERIFIED", do: "badge-green", else: "badge-yellow"}"}><%= c.kyc_status %></span></td>
+                    <td><button class="btn btn-sm btn-primary" phx-click="select_customer" phx-value-id={c.customer_id} phx-target={@myself}>Select</button></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+
+        <%= if @customer_search != "" && @customer_results == [] do %>
+          <div class="empty-row" style="padding:20px;text-align:center;">No customers found. Try a different search.</div>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp debit_wizard_step2(assigns) do
+    ~H"""
+    <div>
+      <div class="form-pane-section-title">Step 2 — Select Product (LOGO + BLOCK)</div>
+      <form phx-change="wizard_change" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Logo (Product) *</label>
+            <select class="input" name="acc[logo_id]" required>
+              <option value="">— Select Logo —</option>
+              <%= for l <- @logos_for_bank do %>
+                <option value={l.logo_id} selected={@form_data["logo_id"] == l.logo_id}>
+                  <%= l.logo_id %> — <%= l.description || l.logo_id %>
+                </option>
+              <% end %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Block (Sub-product)</label>
+            <select class="input" name="acc[block_id]">
+              <option value="DFLT">DFLT — Default Block</option>
+              <%= for b <- @blocks_for_logo do %>
+                <option value={b.block_id} selected={@form_data["block_id"] == b.block_id}>
+                  <%= b.block_id %> — <%= b.description || b.block_id %>
+                </option>
+              <% end %>
+            </select>
+          </div>
+        </div>
+      </form>
+
+      <div style="display:flex;gap:8px;margin-top:20px;">
+        <button class="btn btn-secondary" phx-click="wizard_step" phx-value-s="1" phx-target={@myself}>← Back</button>
+        <button class="btn btn-primary" phx-click="wizard_step" phx-value-s="3" phx-target={@myself}
+          disabled={is_nil(@form_data["logo_id"]) or @form_data["logo_id"] == ""}>
+          Next: Review →
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp debit_wizard_step3(assigns) do
+    ~H"""
+    <div>
+      <div class="form-pane-section-title">Step 3 — Review</div>
+      <.kv_detail rows={[
+        {"Customer", @form_data["customer_name"]},
+        {"Bank", @form_data["bank_id"]},
+        {"Logo (Product)", @form_data["logo_id"]},
+        {"Block (Sub-product)", @form_data["block_id"] || "DFLT"}
+      ]}/>
+      <div style="display:flex;gap:8px;margin-top:20px;">
+        <button class="btn btn-secondary" phx-click="wizard_step" phx-value-s="2" phx-target={@myself}>← Back</button>
+        <button class="btn btn-primary" phx-click="wizard_save" phx-target={@myself}>Open Account</button>
       </div>
     </div>
     """

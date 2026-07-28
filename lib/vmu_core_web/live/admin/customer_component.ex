@@ -22,6 +22,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   alias VmuCore.Shared.{Customer, BankParameter, SysParameter}
   alias VmuCore.Shared.ModuleConfigEngine
   alias VmuCore.ASM.Authz
+  alias VmuCore.CMS.Arrangements
 
   @id_types [
     {"-- Select ID Type --", ""},
@@ -89,6 +90,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
        tier_filter:  "",
        bank_filter:  "",
        linked_accounts: [],
+       arrangements: [],
        current_operator: nil,
        can_edit: false,
        can_create: false
@@ -221,7 +223,9 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
     if cust do
       accounts = Customer.list_accounts_for(cust.customer_id)
-      {:noreply, assign(socket, mode: :detail, viewing: cust, linked_accounts: accounts, result: nil)}
+      arrangements = Arrangements.list_for_customer(cust.customer_id)
+      {:noreply, assign(socket, mode: :detail, viewing: cust, linked_accounts: accounts,
+                         arrangements: arrangements, result: nil)}
     else
       {:noreply, socket}
     end
@@ -268,10 +272,12 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         {:ok, saved} ->
           action = if socket.assigns.editing, do: "updated", else: "created"
           accounts = Customer.list_accounts_for(saved.customer_id)
+          arrangements = Arrangements.list_for_customer(saved.customer_id)
           {:noreply, socket
             |> load_customers()
             |> assign(mode: :detail, editing: nil, viewing: saved,
-                      linked_accounts: accounts, result: {:ok, "Customer #{action}."})}
+                      linked_accounts: accounts, arrangements: arrangements,
+                      result: {:ok, "Customer #{action}."})}
 
         {:error, cs} ->
           msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
@@ -311,9 +317,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       case cust |> Customer.changeset(attrs) |> Repo.update() do
         {:ok, updated} ->
           accounts = Customer.list_accounts_for(updated.customer_id)
+          arrangements = Arrangements.list_for_customer(updated.customer_id)
           {:noreply, socket
             |> load_customers()
-            |> assign(viewing: updated, linked_accounts: accounts,
+            |> assign(viewing: updated, linked_accounts: accounts, arrangements: arrangements,
                       result: {:ok, "KYC status updated to #{status}."})}
         {:error, _} ->
           {:noreply, assign(socket, result: {:error, "Failed to update KYC status."})}
@@ -788,31 +795,54 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
             ]}/>
           </div>
         </div>
-      <% else %>
-        <div class="card">
-          <div class="card-header"><div class="card-title">Linked Accounts</div></div>
-          <div class="card-body">
-            <%= if @linked_accounts == [] do %>
-              <p class="text-sm text-muted">No accounts linked to this customer.</p>
-            <% else %>
-              <%= for acc <- @linked_accounts do %>
-                <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-                  <div>
-                    <span class="mono" style="font-size:12px;"><%= acc.account_id |> to_string() |> String.slice(0,12) %>…</span>
-                    <span class="badge badge-gray" style="margin-left:8px;"><%= acc.logo_id %></span>
-                  </div>
-                  <span class={"badge #{if acc.account_status == "ACTIVE", do: "badge-green", else: "badge-gray"}"}>
-                    <%= acc.account_status %>
-                  </span>
-                </div>
-              <% end %>
-            <% end %>
-          </div>
-        </div>
       <% end %>
+    </div>
+
+    <!-- Arrangements (Koṣa domain-model alignment, 2026-07-28) — every
+         product relationship this customer has, across Credit/Debit/
+         Prepaid/Corporate, in one place. Replaces the old tier-
+         conditional "Linked Accounts" panel (credit-only,
+         Customer.list_accounts_for/1) — this shows regardless of
+         customer tier, since a CORPORATE customer's own
+         CORPORATE_FACILITY arrangement is exactly as real as a RETAIL
+         customer's CREDIT/DEBIT/PREPAID ones. Deliberately thin: no
+         status/balance shown here, since Arrangement never stores
+         them — click through to the owning screen for that. -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div class="card-title">Arrangements (All Products)</div></div>
+      <div class="card-body">
+        <%= if @arrangements == [] do %>
+          <p class="text-sm text-muted">No product relationships for this customer yet.</p>
+        <% else %>
+          <%= for arr <- @arrangements do %>
+            <% {mod, label} = arrangement_target(arr.product_type) %>
+            <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <span class={"badge #{arrangement_badge_cls(arr.product_type)}"}><%= arr.product_type %></span>
+                <span class="mono text-sm text-muted" style="margin-left:8px;">ref: <%= String.slice(arr.account_ref, 0, 12) %>…</span>
+                <span class="text-sm text-muted" style="margin-left:8px;">opened <%= arr.opened_at %></span>
+              </div>
+              <a class="btn btn-xs" href={"/visionplus/admin/#{mod}"}>View in <%= label %> →</a>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
     </div>
     """
   end
+
+  defp arrangement_target("CREDIT"), do: {"account", "Accounts (CMS)"}
+  defp arrangement_target("DEBIT"), do: {"debit", "Debit Cards"}
+  defp arrangement_target("PREPAID"), do: {"prepaid", "Prepaid Cards"}
+  defp arrangement_target("CORPORATE_FACILITY"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_EMPLOYEE"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_FLEET"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target(_), do: {"customer", "Customers (CIF)"}
+
+  defp arrangement_badge_cls("CREDIT"), do: "badge-blue"
+  defp arrangement_badge_cls("DEBIT"), do: "badge-green"
+  defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
+  defp arrangement_badge_cls(_), do: "badge-gray"
 
   # ── Form view (2-pane: section nav + fields) ────────────────────────────────
 

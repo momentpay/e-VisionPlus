@@ -171,6 +171,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='4']") |> render_click()
 
       view |> element("button[phx-click=open_action][phx-value-a=add_vehicle]") |> render_click()
 
@@ -226,6 +227,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='5']") |> render_click()
 
       view |> element("button[phx-click=open_action][phx-value-a=fleet_report]") |> render_click()
 
@@ -251,6 +253,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=emp_wizard_new]") |> render_click()
 
       step2_html =
@@ -290,6 +294,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=emp_wizard_new]") |> render_click()
 
       view
@@ -341,6 +347,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
 
@@ -370,6 +378,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
 
@@ -398,6 +408,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
       view |> element("div[phx-click=employee_detail_tab][phx-value-t='2']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
@@ -436,6 +448,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=change_email]") |> render_click()
 
@@ -457,6 +471,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
       view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
+
       view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
 
       html = view |> element("button[phx-click=emp_kyc][phx-value-status=VERIFIED]") |> render_click()

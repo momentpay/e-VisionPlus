@@ -110,7 +110,11 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
        block_reason_codes: @block_reason_codes,
        unblock_reason_codes: @unblock_reason_codes,
        operator_roles: @operator_roles,
-       tri_state: @tri_state
+       tri_state: @tri_state,
+       # Card Products UX Parity Phase 4 (2026-07-28) — reorganizes the
+       # company detail view (previously one long stacked page) into the
+       # same detail-tabs convention every other product uses.
+       company_detail_tab: 1
      )
      |> load_companies()}
   end
@@ -147,7 +151,11 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   end
 
   def handle_event("view_company", %{"id" => id}, socket) do
-    {:noreply, load_detail(socket, id)}
+    {:noreply, socket |> assign(company_detail_tab: 1) |> load_detail(id)}
+  end
+
+  def handle_event("company_detail_tab", %{"t" => t}, socket) do
+    {:noreply, assign(socket, company_detail_tab: String.to_integer(t), active_action: :none)}
   end
 
   def handle_event("back_to_list", _, socket) do
@@ -309,7 +317,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   end
 
   def handle_event("back_to_company_from_employee", _, socket) do
-    {:noreply, load_detail(socket, socket.assigns.company.id)}
+    {:noreply, socket |> assign(company_detail_tab: 2) |> load_detail(socket.assigns.company.id)}
   end
 
   def handle_event("employee_detail_tab", %{"t" => t}, socket) do
@@ -654,7 +662,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   def handle_event("back_to_company", _, socket) do
     {:noreply, socket
-                |> assign(mode: :detail, active_action: :none, notice: nil, selected_vehicle: nil)
+                |> assign(mode: :detail, active_action: :none, notice: nil, selected_vehicle: nil, company_detail_tab: 4)
                 |> load_vehicles()}
   end
 
@@ -1071,279 +1079,326 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Facility</span>
-        <div :if={@can_edit} style="display:flex;gap:8px;">
-          <button class="btn btn-sm" phx-click="open_action" phx-value-a="edit_company" phx-target={@myself}>Edit</button>
-          <button class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="request_limit" phx-target={@myself}>Request Limit Change</button>
+      <%!-- Card Products UX Parity Phase 4 (2026-07-28) — reorganizes what
+           used to be one long stacked page (Facility/Employee Cards/
+           Spending Controls/Fleet Vehicles/Fleet Report all rendered at
+           once) into the same detail-tabs convention Credit/Debit/
+           Prepaid/Employee Card detail already use. Pure UI
+           reorganization — nothing here was functionally broken. --%>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="detail-tabs">
+          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Employee Cards", "👤"}, {3, "Spending Controls", "🛡️"}, {4, "Fleet", "🚚"}, {5, "Reports", "📊"}] do %>
+            <div class={"detail-tab#{if @company_detail_tab == idx, do: " active"}"}
+              phx-click="company_detail_tab" phx-value-t={idx} phx-target={@myself}>
+              <%= icon %> <%= label %>
+            </div>
+          <% end %>
+        </div>
+        <div style="padding:20px;">
+          <%= case @company_detail_tab do %>
+            <% 1 -> %> <%= company_tab_overview(assigns) %>
+            <% 2 -> %> <%= company_tab_employee_cards(assigns) %>
+            <% 3 -> %> <%= company_tab_spending_controls(assigns) %>
+            <% 4 -> %> <%= company_tab_fleet(assigns) %>
+            <% 5 -> %> <%= company_tab_reports(assigns) %>
+            <% _ -> %> <p>Invalid tab.</p>
+          <% end %>
         </div>
       </div>
+    </div>
+    """
+  end
 
-      <%= if @active_action == :request_limit do %>
-        <div class="action-panel action-panel-warning" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>📈 Request Facility Limit Change</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
-          </div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-            Current limit: <strong class="mono"><%= money(@company.credit_limit) %></strong>
-            — this only <em>requests</em> a change; a different operator must approve it from the Approval Inbox.
-          </div>
-          <form phx-submit="request_limit_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">New Limit *</label>
-                <input class="input" type="text" name="action[requested_limit]" required/></div>
-              <div class="form-group"><label class="form-label">Reason</label>
-                <input class="input" type="text" name="action[reason]"/></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Submit Request</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
+  defp company_tab_overview(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Facility</span>
+      <div :if={@can_edit} style="display:flex;gap:8px;">
+        <button class="btn btn-sm" phx-click="open_action" phx-value-a="edit_company" phx-target={@myself}>Edit</button>
+        <button class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="request_limit" phx-target={@myself}>Request Limit Change</button>
+      </div>
+    </div>
+
+    <%= if @active_action == :request_limit do %>
+      <div class="action-panel action-panel-warning" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>📈 Request Facility Limit Change</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
         </div>
-      <% end %>
-
-      <%= if @active_action == :edit_company do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>✏️ Edit Company</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
-          </div>
-          <form phx-submit="edit_company_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">Company Name</label>
-                <input class="input" type="text" name="company[company_name]" value={@company.company_name}/></div>
-              <div class="form-group"><label class="form-label">Registration No.</label>
-                <input class="input" type="text" name="company[registration_no]" value={@company.registration_no}/></div>
-              <div class="form-group"><label class="form-label">Tax ID</label>
-                <input class="input" type="text" name="company[tax_id]" value={@company.tax_id}/></div>
-              <div class="form-group"><label class="form-label">Industry Code</label>
-                <input class="input" type="text" name="company[industry_code]" value={@company.industry_code}/></div>
-              <div class="form-group"><label class="form-label">Relationship Manager</label>
-                <input class="input" type="text" name="company[relationship_manager]" value={@company.relationship_manager}/></div>
-              <div class="form-group"><label class="form-label">Billing Cycle Day</label>
-                <input class="input" type="text" name="company[billing_cycle_day]" value={@company.billing_cycle_day}/></div>
-              <div class="form-group"><label class="form-label">Max Employee Cards</label>
-                <input class="input" type="text" name="company[max_employee_cards]" value={@company.max_employee_cards}/></div>
-              <div class="form-group"><label class="form-label">Status</label>
-                <select class="input" name="company[status]">
-                  <option value="ACTIVE" selected={@company.status == "ACTIVE"}>ACTIVE</option>
-                  <option value="SUSPENDED" selected={@company.status == "SUSPENDED"}>SUSPENDED</option>
-                  <option value="CLOSED" selected={@company.status == "CLOSED"}>CLOSED</option>
-                </select></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Save</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+          Current limit: <strong class="mono"><%= money(@company.credit_limit) %></strong>
+          — this only <em>requests</em> a change; a different operator must approve it from the Approval Inbox.
         </div>
-      <% end %>
-
-      <div class="table-wrap">
-        <table class="data-table">
-          <tbody>
-            <tr><td>Liability Model</td><td><%= @company.liability_model %></td></tr>
-            <tr><td>Facility Limit</td><td class="mono"><%= money(@company.credit_limit) %></td></tr>
-            <tr><td>Available</td><td class="mono"><%= money(@company.available_limit) %></td></tr>
-            <tr><td>Billing Cycle Day</td><td><%= @company.billing_cycle_day %></td></tr>
-            <tr><td>Max Employee Cards</td><td><%= @company.max_employee_cards %></td></tr>
-            <tr><td>Relationship Manager</td><td><%= @company.relationship_manager || "—" %></td></tr>
-            <tr><td>Status</td><td><span class={"badge #{status_cls(@company.status)}"}><%= @company.status %></span></td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="margin-top:20px;">
-        Pending Facility Limit Requests (<%= length(@pending_limit_changes) %>)
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Requested</th><th>Current → Requested</th><th>Reason</th><th>By</th></tr></thead>
-          <tbody>
-            <%= if @pending_limit_changes == [] do %>
-              <tr><td colspan="4" class="empty-row" style="text-align:center;">None pending.</td></tr>
-            <% end %>
-            <%= for c <- @pending_limit_changes do %>
-              <tr>
-                <td><%= Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><%= c.current_limit %> → <%= c.requested_limit %></td>
-                <td><%= c.reason %></td>
-                <td><code><%= c.requested_by %></code></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-muted" style="font-size:0.8em;">Approve/reject from the Approval Inbox.</p>
-
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
-        <span>Employee Cards (<%= length(@employee_cards) %>)</span>
-        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="emp_wizard_new" phx-target={@myself}>+ Add Employee Card</button>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Name</th><th>Dept</th><th>Individual Limit</th><th>Daily Spend</th><th>Cash?</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            <%= if @employee_cards == [] do %>
-              <tr><td colspan="7" class="empty-row" style="text-align:center;">No employee cards issued.</td></tr>
-            <% end %>
-            <%= for e <- @employee_cards do %>
-              <tr>
-                <td><%= e.employee_name %></td>
-                <td><%= e.department || "—" %></td>
-                <td class="mono"><%= money(e.individual_limit) %></td>
-                <td class="mono"><%= money(e.daily_spend || Decimal.new(0)) %></td>
-                <td><%= if e.can_withdraw_cash, do: "Yes", else: "No" %></td>
-                <td><span class={"badge #{status_cls(e.status)}"}><%= e.status %></span></td>
-                <td><button class="btn btn-xs" phx-click="view_employee" phx-value-id={e.id} phx-target={@myself}>View</button></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="margin-top:20px;">
-        Spending Controls (<%= length(@spending_controls) %>)
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Scope</th><th>Type</th><th>Detail</th><th>Status</th></tr></thead>
-          <tbody>
-            <%= if @spending_controls == [] do %>
-              <tr><td colspan="4" class="empty-row" style="text-align:center;">No spending controls configured.</td></tr>
-            <% end %>
-            <%= for s <- @spending_controls do %>
-              <tr>
-                <td><%= s.scope %></td>
-                <td><%= s.control_type %></td>
-                <td>
-                  <%= cond do %>
-                    <% s.control_type in ["MCC_BLOCK", "MCC_ALLOW"] -> %><%= Enum.join(s.mcc_codes || [], ", ") %>
-                    <% s.control_type == "CHANNEL_BLOCK" -> %><%= Enum.join(s.channels || [], ", ") %>
-                    <% s.control_type == "TXN_CAP" -> %><%= money(s.per_txn_cap) %>
-                    <% s.control_type == "DAILY_CAP" -> %><%= money(s.daily_cap) %>
-                    <% true -> %>—
-                  <% end %>
-                </td>
-                <td><span class={"badge #{status_cls(s.status)}"}><%= s.status %></span></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
-        <span>Fleet Vehicles (<%= length(@vehicles) %>)</span>
-        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="add_vehicle" phx-target={@myself}>+ Add Vehicle</button>
-      </div>
-
-      <%= if @active_action == :add_vehicle do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>🚚 New Vehicle</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        <form phx-submit="request_limit_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">New Limit *</label>
+              <input class="input" type="text" name="action[requested_limit]" required/></div>
+            <div class="form-group"><label class="form-label">Reason</label>
+              <input class="input" type="text" name="action[reason]"/></div>
           </div>
-          <form phx-submit="add_vehicle_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">Plate Number *</label>
-                <input class="input" type="text" name="vehicle[plate_number]" required/></div>
-              <div class="form-group"><label class="form-label">VIN</label>
-                <input class="input" type="text" name="vehicle[vin]" maxlength="17"/></div>
-              <div class="form-group"><label class="form-label">Make</label>
-                <input class="input" type="text" name="vehicle[make]"/></div>
-              <div class="form-group"><label class="form-label">Model</label>
-                <input class="input" type="text" name="vehicle[model]"/></div>
-              <div class="form-group"><label class="form-label">Year</label>
-                <input class="input" type="text" name="vehicle[year]"/></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Add Vehicle</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      <% end %>
-
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Plate</th><th>VIN</th><th>Make/Model</th><th>Current Driver</th><th>Fleet Card</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            <%= if @vehicles == [] do %>
-              <tr><td colspan="7" class="empty-row" style="text-align:center;">No vehicles registered.</td></tr>
-            <% end %>
-            <%= for v <- @vehicles do %>
-              <tr>
-                <td class="mono"><%= v.plate_number %></td>
-                <td class="mono"><%= v.vin || "—" %></td>
-                <td><%= [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" ") %></td>
-                <td><%= v.current_driver || "—" %></td>
-                <td><%= if v.has_card, do: "Issued", else: "None" %></td>
-                <td><span class={"badge #{status_cls(v.status)}"}><%= v.status %></span></td>
-                <td><button class="btn btn-xs" phx-click="view_vehicle" phx-value-id={v.id} phx-target={@myself}>View</button></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
-        <span>Fleet Spend Report</span>
-        <button class="btn btn-sm" phx-click="open_action" phx-value-a="fleet_report" phx-target={@myself}>Run Report</button>
-      </div>
-
-      <%= if @active_action == :fleet_report do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>📊 Fleet Spend Report</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Submit Request</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
           </div>
-          <form phx-submit="generate_report_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">Period From *</label>
-                <input class="input" type="date" name="report[period_from]" required/></div>
-              <div class="form-group"><label class="form-label">Period To *</label>
-                <input class="input" type="date" name="report[period_to]" required/></div>
-              <div class="form-group"><label class="form-label">Group By</label>
-                <select class="input" name="report[kind]">
-                  <option value="vehicle">Vehicle</option>
-                  <option value="driver">Driver (current assignment only)</option>
-                </select></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Generate</button>
-            </div>
-          </form>
-        </div>
-      <% end %>
+        </form>
+      </div>
+    <% end %>
 
-      <div :if={@report_rows != []} class="table-wrap">
-        <p class="text-muted" style="font-size:0.8em;">
-          <%= @report_period_from %> → <%= @report_period_to %> · grouped by <%= @report_kind %>
-          <%= if @report_kind == :driver do %>(spend by driver uses each vehicle's <em>current</em> assignment only — not split across mid-period reassignment)<% end %>
-        </p>
-        <table class="data-table">
-          <thead>
+    <%= if @active_action == :edit_company do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>✏️ Edit Company</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="edit_company_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Company Name</label>
+              <input class="input" type="text" name="company[company_name]" value={@company.company_name}/></div>
+            <div class="form-group"><label class="form-label">Registration No.</label>
+              <input class="input" type="text" name="company[registration_no]" value={@company.registration_no}/></div>
+            <div class="form-group"><label class="form-label">Tax ID</label>
+              <input class="input" type="text" name="company[tax_id]" value={@company.tax_id}/></div>
+            <div class="form-group"><label class="form-label">Industry Code</label>
+              <input class="input" type="text" name="company[industry_code]" value={@company.industry_code}/></div>
+            <div class="form-group"><label class="form-label">Relationship Manager</label>
+              <input class="input" type="text" name="company[relationship_manager]" value={@company.relationship_manager}/></div>
+            <div class="form-group"><label class="form-label">Billing Cycle Day</label>
+              <input class="input" type="text" name="company[billing_cycle_day]" value={@company.billing_cycle_day}/></div>
+            <div class="form-group"><label class="form-label">Max Employee Cards</label>
+              <input class="input" type="text" name="company[max_employee_cards]" value={@company.max_employee_cards}/></div>
+            <div class="form-group"><label class="form-label">Status</label>
+              <select class="input" name="company[status]">
+                <option value="ACTIVE" selected={@company.status == "ACTIVE"}>ACTIVE</option>
+                <option value="SUSPENDED" selected={@company.status == "SUSPENDED"}>SUSPENDED</option>
+                <option value="CLOSED" selected={@company.status == "CLOSED"}>CLOSED</option>
+              </select></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <tbody>
+          <tr><td>Liability Model</td><td><%= @company.liability_model %></td></tr>
+          <tr><td>Facility Limit</td><td class="mono"><%= money(@company.credit_limit) %></td></tr>
+          <tr><td>Available</td><td class="mono"><%= money(@company.available_limit) %></td></tr>
+          <tr><td>Billing Cycle Day</td><td><%= @company.billing_cycle_day %></td></tr>
+          <tr><td>Max Employee Cards</td><td><%= @company.max_employee_cards %></td></tr>
+          <tr><td>Relationship Manager</td><td><%= @company.relationship_manager || "—" %></td></tr>
+          <tr><td>Status</td><td><span class={"badge #{status_cls(@company.status)}"}><%= @company.status %></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-pane-section-title" style="margin-top:20px;">
+      Pending Facility Limit Requests (<%= length(@pending_limit_changes) %>)
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Requested</th><th>Current → Requested</th><th>Reason</th><th>By</th></tr></thead>
+        <tbody>
+          <%= if @pending_limit_changes == [] do %>
+            <tr><td colspan="4" class="empty-row" style="text-align:center;">None pending.</td></tr>
+          <% end %>
+          <%= for c <- @pending_limit_changes do %>
             <tr>
-              <th :if={@report_kind == :vehicle}>Vehicle</th>
-              <th :if={@report_kind == :driver}>Driver</th>
-              <th :if={@report_kind == :driver}>Vehicles</th>
-              <th>Spend</th>
+              <td><%= Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M") %></td>
+              <td><%= c.current_limit %> → <%= c.requested_limit %></td>
+              <td><%= c.reason %></td>
+              <td><code><%= c.requested_by %></code></td>
             </tr>
-          </thead>
-          <tbody>
-            <%= for row <- @report_rows do %>
-              <tr>
-                <td :if={@report_kind == :vehicle} class="mono"><%= row.plate_number %></td>
-                <td :if={@report_kind == :driver}><%= row.driver_name %></td>
-                <td :if={@report_kind == :driver}><%= row.vehicles %></td>
-                <td class="mono"><%= money(row.spend) %></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted" style="font-size:0.8em;">Approve/reject from the Approval Inbox.</p>
+    """
+  end
+
+  defp company_tab_employee_cards(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Employee Cards (<%= length(@employee_cards) %>)</span>
+      <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="emp_wizard_new" phx-target={@myself}>+ Add Employee Card</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Dept</th><th>Individual Limit</th><th>Daily Spend</th><th>Cash?</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <%= if @employee_cards == [] do %>
+            <tr><td colspan="7" class="empty-row" style="text-align:center;">No employee cards issued.</td></tr>
+          <% end %>
+          <%= for e <- @employee_cards do %>
+            <tr>
+              <td><%= e.employee_name %></td>
+              <td><%= e.department || "—" %></td>
+              <td class="mono"><%= money(e.individual_limit) %></td>
+              <td class="mono"><%= money(e.daily_spend || Decimal.new(0)) %></td>
+              <td><%= if e.can_withdraw_cash, do: "Yes", else: "No" %></td>
+              <td><span class={"badge #{status_cls(e.status)}"}><%= e.status %></span></td>
+              <td><button class="btn btn-xs" phx-click="view_employee" phx-value-id={e.id} phx-target={@myself}>View</button></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp company_tab_spending_controls(assigns) do
+    ~H"""
+    <div class="form-pane-section-title">
+      Spending Controls (<%= length(@spending_controls) %>)
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Scope</th><th>Type</th><th>Detail</th><th>Status</th></tr></thead>
+        <tbody>
+          <%= if @spending_controls == [] do %>
+            <tr><td colspan="4" class="empty-row" style="text-align:center;">No spending controls configured.</td></tr>
+          <% end %>
+          <%= for s <- @spending_controls do %>
+            <tr>
+              <td><%= s.scope %></td>
+              <td><%= s.control_type %></td>
+              <td>
+                <%= cond do %>
+                  <% s.control_type in ["MCC_BLOCK", "MCC_ALLOW"] -> %><%= Enum.join(s.mcc_codes || [], ", ") %>
+                  <% s.control_type == "CHANNEL_BLOCK" -> %><%= Enum.join(s.channels || [], ", ") %>
+                  <% s.control_type == "TXN_CAP" -> %><%= money(s.per_txn_cap) %>
+                  <% s.control_type == "DAILY_CAP" -> %><%= money(s.daily_cap) %>
+                  <% true -> %>—
+                <% end %>
+              </td>
+              <td><span class={"badge #{status_cls(s.status)}"}><%= s.status %></span></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp company_tab_fleet(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Fleet Vehicles (<%= length(@vehicles) %>)</span>
+      <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="add_vehicle" phx-target={@myself}>+ Add Vehicle</button>
+    </div>
+
+    <%= if @active_action == :add_vehicle do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>🚚 New Vehicle</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="add_vehicle_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Plate Number *</label>
+              <input class="input" type="text" name="vehicle[plate_number]" required/></div>
+            <div class="form-group"><label class="form-label">VIN</label>
+              <input class="input" type="text" name="vehicle[vin]" maxlength="17"/></div>
+            <div class="form-group"><label class="form-label">Make</label>
+              <input class="input" type="text" name="vehicle[make]"/></div>
+            <div class="form-group"><label class="form-label">Model</label>
+              <input class="input" type="text" name="vehicle[model]"/></div>
+            <div class="form-group"><label class="form-label">Year</label>
+              <input class="input" type="text" name="vehicle[year]"/></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Add Vehicle</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
       </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Plate</th><th>VIN</th><th>Make/Model</th><th>Current Driver</th><th>Fleet Card</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <%= if @vehicles == [] do %>
+            <tr><td colspan="7" class="empty-row" style="text-align:center;">No vehicles registered.</td></tr>
+          <% end %>
+          <%= for v <- @vehicles do %>
+            <tr>
+              <td class="mono"><%= v.plate_number %></td>
+              <td class="mono"><%= v.vin || "—" %></td>
+              <td><%= [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" ") %></td>
+              <td><%= v.current_driver || "—" %></td>
+              <td><%= if v.has_card, do: "Issued", else: "None" %></td>
+              <td><span class={"badge #{status_cls(v.status)}"}><%= v.status %></span></td>
+              <td><button class="btn btn-xs" phx-click="view_vehicle" phx-value-id={v.id} phx-target={@myself}>View</button></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp company_tab_reports(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Fleet Spend Report</span>
+      <button class="btn btn-sm" phx-click="open_action" phx-value-a="fleet_report" phx-target={@myself}>Run Report</button>
+    </div>
+
+    <%= if @active_action == :fleet_report do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>📊 Fleet Spend Report</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="generate_report_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Period From *</label>
+              <input class="input" type="date" name="report[period_from]" required/></div>
+            <div class="form-group"><label class="form-label">Period To *</label>
+              <input class="input" type="date" name="report[period_to]" required/></div>
+            <div class="form-group"><label class="form-label">Group By</label>
+              <select class="input" name="report[kind]">
+                <option value="vehicle">Vehicle</option>
+                <option value="driver">Driver (current assignment only)</option>
+              </select></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Generate</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div :if={@report_rows != []} class="table-wrap">
+      <p class="text-muted" style="font-size:0.8em;">
+        <%= @report_period_from %> → <%= @report_period_to %> · grouped by <%= @report_kind %>
+        <%= if @report_kind == :driver do %>(spend by driver uses each vehicle's <em>current</em> assignment only — not split across mid-period reassignment)<% end %>
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th :if={@report_kind == :vehicle}>Vehicle</th>
+            <th :if={@report_kind == :driver}>Driver</th>
+            <th :if={@report_kind == :driver}>Vehicles</th>
+            <th>Spend</th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for row <- @report_rows do %>
+            <tr>
+              <td :if={@report_kind == :vehicle} class="mono"><%= row.plate_number %></td>
+              <td :if={@report_kind == :driver}><%= row.driver_name %></td>
+              <td :if={@report_kind == :driver}><%= row.vehicles %></td>
+              <td class="mono"><%= money(row.spend) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
     </div>
     """
   end

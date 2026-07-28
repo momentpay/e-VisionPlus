@@ -1,6 +1,33 @@
 # Card Products UX Parity — Debit / Prepaid / HCS Corporate vs. Credit
 
-**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit `8c8a85d`. Phase 2d (Prepaid retrofit) done — commit `7fa5f5d`. Phase 3 (HCS Employee Cards) done — see §7 for the "extend the model" architecture decision and the account_type EOD bug it surfaced. Phase 4 (HCS Corporate polish) next.
+**Status:** Phase 1 (Debit) done — commits `e741e63`/`3c5ec57`/`0a4cd35`. Phase 2 (Prepaid) done — commit `7f83e75`. **Scope corrected 2026-07-28b — see §6.** Phase 1e (Debit retrofit) done — backend commit `84d1156`, UI commit `8c8a85d`. Phase 2d (Prepaid retrofit) done — commit `7fa5f5d`. Phase 3 (HCS Employee Cards) done — commit `5fac222`, see §7. Phase 4 (HCS Corporate polish) done — see §8. **All 4 phases complete.**
+
+## §8 — Phase 4 (HCS Corporate polish)
+
+Pure UI reorganization, nothing here was functionally broken beforehand.
+The company detail view was one long stacked page (Facility info+Edit/
+Request-Limit actions, Pending Facility Limit Requests, Employee Cards
+roster, Spending Controls, Fleet Vehicles+Add Vehicle, Fleet Spend
+Report all rendered at once, unconditionally). Reorganized into the
+same `detail-tabs` convention every other product detail view already
+uses: **Overview** (Facility + pending limit requests), **Employee
+Cards**, **Spending Controls**, **Fleet**, **Reports** — 5 tabs, each
+its own `defp company_tab_*/1` partial, content unchanged.
+
+Applied the same tab-preservation fix Phase 3 needed for
+`load_employee_detail/2` proactively here too: `company_detail_tab`
+is only set explicitly at "fresh navigation" call sites (`view_company`,
+`back_to_company` from a vehicle → Fleet tab, `back_to_company_from_employee`
+→ Employee Cards tab) — never inside `load_detail/2` itself, so
+in-tab actions (adding a vehicle, requesting a limit change, editing
+the company) don't silently bounce the operator back to Overview.
+
+11 existing tests needed their selectors updated to click into the
+correct tab first (buttons like "+ Add Vehicle"/"+ Add Employee Card"/
+"Run Report" are no longer rendered by default outside their own tab)
+— no test assertions or application behavior changed, purely
+navigation-path updates. Full suite 385 tests, same 10 pre-existing
+failures, no regression.
 
 ## §7 — Phase 3 (HCS Employee Cards): "extend the model" decision
 

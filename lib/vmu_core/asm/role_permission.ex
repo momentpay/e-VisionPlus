@@ -65,7 +65,9 @@ defmodule VmuCore.ASM.RolePermission do
       # SUPERVISOR checker role for Debit's new 4-eyes Adjustments action,
       # same convention as "account"'s own approve permission.
       {"SUPERVISOR", "debit",        ~w[view edit approve]},
-      {"SUPERVISOR", "prepaid",      ~w[view edit]},
+      # "approve" added 2026-07-28 (Card Products UX Parity Phase 2c) —
+      # same as Debit's 4-eyes Adjustments checker permission.
+      {"SUPERVISOR", "prepaid",      ~w[view edit approve]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},

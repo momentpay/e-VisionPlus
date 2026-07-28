@@ -235,4 +235,42 @@ defmodule VmuCore.CMS.InternalGlPoster do
       narrative:        "Prepaid card purchase settlement"
     })
   end
+
+  @doc """
+  Post a manual balance adjustment against a prepaid account (Card
+  Products UX Parity Phase 2c, 2026-07-28). Same shape as
+  `post_debit_adjustment/6`: `direction: "CREDIT"` mirrors
+  `post_prepaid_load/5`'s DR/CR (increases the balance);
+  `direction: "DEBIT"` reverses it, same shape as `post_prepaid_spend/5`
+  (decreases the balance).
+  """
+  def post_prepaid_adjustment(prepaid_account_id, amount, "CREDIT", posting_date, narrative, idempotency_key) do
+    post(%{
+      account_id:       prepaid_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "ADJUSTMENT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "1006",
+      gl_account_cr:    "5002",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        narrative
+    })
+  end
+
+  def post_prepaid_adjustment(prepaid_account_id, amount, "DEBIT", posting_date, narrative, idempotency_key) do
+    post(%{
+      account_id:       prepaid_account_id,
+      idempotency_key:  idempotency_key,
+      transaction_code: "ADJUSTMENT",
+      dr_amount:        amount,
+      cr_amount:        amount,
+      gl_account_dr:    "5002",
+      gl_account_cr:    "1006",
+      posting_date:     posting_date,
+      value_date:       posting_date,
+      narrative:        narrative
+    })
+  end
 end

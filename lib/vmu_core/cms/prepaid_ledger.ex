@@ -20,8 +20,12 @@ defmodule VmuCore.CMS.PrepaidLedger do
   # LOAD and REFUND rows are both "consumable value" — a REFUND (from
   # `refund/2`, a generic reversal without a precise spend to reverse)
   # is spendable value the same as an original load, just distinct in
-  # the audit trail for where it came from.
-  @consumable_entry_types ["LOAD", "REFUND"]
+  # the audit trail for where it came from. ADJUSTMENT added 2026-07-28
+  # (Card Products UX Parity Phase 2c) — a CREDIT-direction manual
+  # adjustment (`PrepaidAdjustmentCommand`) inserts an ACTIVE ADJUSTMENT
+  # row exactly like a LOAD; it must count toward balance and be
+  # spendable the same way.
+  @consumable_entry_types ["LOAD", "REFUND", "ADJUSTMENT"]
 
   @doc "Sum of remaining_amount across ACTIVE, unexpired LOAD/REFUND rows."
   @spec balance(Ecto.UUID.t()) :: Decimal.t()
@@ -90,25 +94,8 @@ defmodule VmuCore.CMS.PrepaidLedger do
           {:error, :not_active}
         else
           Repo.transaction(fn ->
-            loads =
-              Repo.all(
-                from l in PrepaidLedgerEntry,
-                  where: l.prepaid_account_id == ^prepaid_account_id
-                    and l.entry_type in ^@consumable_entry_types
-                    and l.status == "ACTIVE" and l.remaining_amount > 0,
-                  order_by: [asc_nulls_last: l.expiry_date, asc: l.inserted_at],
-                  lock: "FOR UPDATE"
-              )
-
-            case consume_loads(loads, amount) do
+            case consume_active_loads(prepaid_account_id, amount) do
               {:ok, consumed} ->
-                Enum.each(consumed, fn %{load_entry_id: id, amount: amt} ->
-                  Repo.update_all(
-                    from(l in PrepaidLedgerEntry, where: l.id == ^id),
-                    inc: [remaining_amount: D.negate(amt)]
-                  )
-                end)
-
                 %PrepaidLedgerEntry{}
                 |> PrepaidLedgerEntry.changeset(%{
                   prepaid_account_id: prepaid_account_id, entry_type: "SPEND", amount: amount,
@@ -189,6 +176,45 @@ defmodule VmuCore.CMS.PrepaidLedger do
       posted_by: "system", posting_date: Date.utc_today()
     })
     |> Repo.insert()
+  end
+
+  @doc """
+  Selects and decrements `amount` worth of ACTIVE, unexpired loads
+  (soonest-expiring first, `FOR UPDATE` locked) — the shared consumption
+  step both `spend/3` and `PrepaidAdjustmentCommand`'s DEBIT direction
+  use, each inserting their own ledger row (`SPEND` vs. `ADJUSTMENT`)
+  with the returned `consumed_from` breakdown. Must be called inside an
+  existing `Repo.transaction/1`. Returns `{:ok, consumed}` (a list of
+  `%{load_entry_id:, amount:}`) or `{:error, :insufficient_funds}` — on
+  the error path nothing is decremented.
+  """
+  @spec consume_active_loads(Ecto.UUID.t(), Decimal.t()) ::
+          {:ok, [%{load_entry_id: Ecto.UUID.t(), amount: Decimal.t()}]} | {:error, :insufficient_funds}
+  def consume_active_loads(prepaid_account_id, amount) do
+    loads =
+      Repo.all(
+        from l in PrepaidLedgerEntry,
+          where: l.prepaid_account_id == ^prepaid_account_id
+            and l.entry_type in ^@consumable_entry_types
+            and l.status == "ACTIVE" and l.remaining_amount > 0,
+          order_by: [asc_nulls_last: l.expiry_date, asc: l.inserted_at],
+          lock: "FOR UPDATE"
+      )
+
+    case consume_loads(loads, amount) do
+      {:ok, consumed} ->
+        Enum.each(consumed, fn %{load_entry_id: id, amount: amt} ->
+          Repo.update_all(
+            from(l in PrepaidLedgerEntry, where: l.id == ^id),
+            inc: [remaining_amount: D.negate(amt)]
+          )
+        end)
+
+        {:ok, consumed}
+
+      {:error, :insufficient_funds} ->
+        {:error, :insufficient_funds}
+    end
   end
 
   # ---------------------------------------------------------------------------

@@ -114,7 +114,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponentAllProductsTest do
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/account")
 
     view |> element("button[phx-click=acc_scope][phx-value-scope=all]") |> render_click()
-    view |> element("input[phx-keyup=acc_search]") |> render_keyup(%{"q" => "AllProdFilter"})
+    view |> element("input[phx-keyup=acc_search]") |> render_keyup(%{"value" => "AllProdFilter"})
     html = view |> element("select[phx-change=all_product_filter]") |> render_change(%{"product_type" => "PREPAID"})
 
     assert html =~ "PREPAID"

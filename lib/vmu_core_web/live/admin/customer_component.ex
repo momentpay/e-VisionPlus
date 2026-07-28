@@ -165,8 +165,12 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   # ── Events ─────────────────────────────────────────────────────────────────
 
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @search assign from the last render.
+  # This main customer list search never actually worked as a result.
   @impl true
-  def handle_event("cust_search", %{"q" => q}, socket) do
+  def handle_event("cust_search", %{"value" => q}, socket) do
     {:noreply, socket |> assign(search: q) |> load_customers()}
   end
 
@@ -562,7 +566,6 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
               placeholder="Search by name, email, mobile or ID number…"
               value={@search}
               phx-keyup="cust_search"
-              phx-value-q={@search}
               phx-target={@myself}
               phx-debounce="300"
               style="padding-left:32px;width:100%;"

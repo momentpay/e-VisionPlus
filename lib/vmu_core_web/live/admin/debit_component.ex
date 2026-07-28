@@ -129,7 +129,13 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     )}
   end
 
-  def handle_event("cust_search_wizard", %{"q" => q}, socket) do
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent last render's @customer_search (stale, always
+  # one keystroke behind, empty on the very first character), and this
+  # handler was reading that stale key instead of the live one. Search
+  # silently never worked as a result.
+  def handle_event("cust_search_wizard", %{"value" => q}, socket) do
     results =
       if String.length(q || "") >= 2 do
         term = "%#{q}%"
@@ -832,7 +838,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
         <div style="margin-bottom:12px;">
           <input type="text" class="input" placeholder="Search by name, email, or mobile…"
             value={@customer_search} phx-keyup="cust_search_wizard" phx-debounce="300"
-            phx-value-q={@customer_search} phx-target={@myself} style="width:100%;max-width:480px;"/>
+            phx-target={@myself} style="width:100%;max-width:480px;"/>
         </div>
 
         <%= if @customer_results != [] do %>

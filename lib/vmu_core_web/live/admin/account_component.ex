@@ -276,8 +276,13 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   # ── Events: List ─────────────────────────────────────────────────────────────
 
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @acc_search assign from the last
+  # render. Both the Credit account list search and the "All Products"
+  # tab's search never actually worked as a result.
   @impl true
-  def handle_event("acc_search", %{"q" => q}, socket) do
+  def handle_event("acc_search", %{"value" => q}, socket) do
     socket = assign(socket, acc_search: q)
     socket = if socket.assigns.list_scope == "all", do: load_all_accounts(socket), else: load_accounts(socket)
     {:noreply, socket}
@@ -610,7 +615,14 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   # ── Events: Wizard ───────────────────────────────────────────────────────────
 
-  def handle_event("cust_search_wizard", %{"q" => q}, socket) do
+  # Real bug found live (2026-07-28, testing Debit's copy of this same
+  # pattern): phx-keyup always sends the input's live-typed text under
+  # "value" automatically — the old phx-value-q binding just re-sent
+  # last render's @customer_search (stale, always one keystroke behind,
+  # empty on the very first character), and this handler read that
+  # stale key instead of the live one. This wizard's customer search
+  # never actually worked as a result.
+  def handle_event("cust_search_wizard", %{"value" => q}, socket) do
     results =
       if String.length(q || "") >= 2 do
         term    = "%#{q}%"
@@ -741,7 +753,11 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   # ── Events: Phase 4B Financial Operations ────────────────────────────────────
 
   # Supplementary card account search
-  def handle_event("supp_search", %{"q" => q}, socket) do
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @supp_search assign. This search
+  # never actually worked as a result.
+  def handle_event("supp_search", %{"value" => q}, socket) do
     acc = socket.assigns.account
     results =
       if String.length(q || "") >= 2 do
@@ -1336,7 +1352,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
             value={@acc_search}
             phx-keyup="acc_search" phx-key="Enter"
             phx-debounce="300"
-            phx-value-q={@acc_search}
             phx-target={@myself}
           />
           <select class="input" style="width:150px;"
@@ -1457,7 +1472,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           value={@acc_search}
           phx-keyup="acc_search" phx-key="Enter"
           phx-debounce="300"
-          phx-value-q={@acc_search}
           phx-target={@myself}
         />
         <select class="input" style="width:220px;"
@@ -2168,7 +2182,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           placeholder="Search by last 4 digits or cardholder name…"
           value={@supp_search}
           phx-keyup="supp_search" phx-debounce="300"
-          phx-value-q={@supp_search} phx-target={@myself}/>
+          phx-target={@myself}/>
       </div>
       <%= if @supp_search_results != [] do %>
         <div class="table-wrap" style="margin-bottom:12px;">
@@ -3009,7 +3023,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
             value={@customer_search}
             phx-keyup="cust_search_wizard"
             phx-debounce="300"
-            phx-value-q={@customer_search}
             phx-target={@myself}
             style="width:100%;max-width:480px;"
           />

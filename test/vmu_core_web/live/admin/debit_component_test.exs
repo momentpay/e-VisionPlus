@@ -99,7 +99,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     html =
       view
       |> element("input[phx-keyup=cust_search_wizard]")
-      |> render_keyup(%{"q" => "FullName SearchTest#{n}"})
+      |> render_keyup(%{"value" => "FullName SearchTest#{n}"})
 
     assert html =~ "FullName"
     assert html =~ "SearchTest#{n}"
@@ -125,7 +125,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     step1_html =
       view
       |> element("input[phx-keyup=cust_search_wizard]")
-      |> render_keyup(%{"q" => "DebitTest#{n}"})
+      |> render_keyup(%{"value" => "DebitTest#{n}"})
 
     assert step1_html =~ "Wizard"
 

@@ -151,6 +151,9 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     assert fund_html =~ "Account funded: 250.00."
     assert fund_html =~ "250.00"
 
+    # Issue Card lives under the Cards tab (Card Products UX Parity Phase
+    # 1b, 2026-07-28) — not visible from the default Overview tab.
+    view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
     view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 
     card_html =

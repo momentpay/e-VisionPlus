@@ -60,7 +60,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        customer_search: "",
        customer_results: [],
        logos_for_bank: [],
-       blocks_for_logo: []
+       blocks_for_logo: [],
+       detail_tab: 1
      )
      |> load_accounts()}
   end
@@ -77,7 +78,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     socket =
       case assigns[:deep_link_id] do
         id when is_binary(id) and id != "" and id != socket.assigns.loaded_deep_link_id ->
-          socket |> load_detail(id) |> assign(loaded_deep_link_id: id)
+          socket |> assign(detail_tab: 1) |> load_detail(id) |> assign(loaded_deep_link_id: id)
 
         _ ->
           socket
@@ -96,7 +97,11 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   end
 
   def handle_event("view_account", %{"id" => id}, socket) do
-    {:noreply, load_detail(socket, id)}
+    {:noreply, socket |> assign(detail_tab: 1) |> load_detail(id)}
+  end
+
+  def handle_event("detail_tab", %{"t" => t}, socket) do
+    {:noreply, assign(socket, detail_tab: String.to_integer(t), active_action: :none)}
   end
 
   def handle_event("back_to_list", _, socket) do
@@ -193,7 +198,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
            }) do
         {:ok, account} ->
           {:noreply, socket
-                      |> assign(mode: :list, notice: "Debit account opened for #{fd["customer_name"]}.", notice_kind: :success)
+                      |> assign(mode: :list, detail_tab: 1, notice: "Debit account opened for #{fd["customer_name"]}.", notice_kind: :success)
                       |> load_accounts()
                       |> then(&load_detail(&1, account.debit_account_id))}
 
@@ -484,124 +489,165 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
       <%= if @notice do %><.alert kind={@notice_kind} message={@notice} /><% end %>
 
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Balance</span>
-        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="fund_account" phx-target={@myself}>+ Fund Account</button>
-      </div>
-
-      <%= if @active_action == :fund_account do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>💰 Fund Debit Account</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
-          </div>
-          <form phx-submit="fund_account_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">Amount *</label>
-                <input class="input" type="text" name="funding[amount]" placeholder="100.00" required/></div>
-              <div class="form-group"><label class="form-label">Channel</label>
-                <select class="input" name="funding[channel]">
-                  <option value="INTERNAL_TRANSFER">Internal Transfer</option>
-                  <option value="ADMIN_MANUAL">Admin Manual</option>
-                  <option value="EXTERNAL_BANK_TRANSFER">External Bank Transfer</option>
-                  <option value="CASH_DEPOSIT">Cash Deposit</option>
-                </select></div>
-              <div class="form-group"><label class="form-label">Reference (required for external channels)</label>
-                <input class="input" type="text" name="funding[external_reference]"/></div>
+      <%!-- Card Products UX Parity Phase 1b (2026-07-28) — Overview/
+           Funding History/Cards tabs, replacing the flat stacked-section
+           page. Deliberately NOT copying Credit's 6-tab set (no
+           Statements/History/Plans concept applies to a single-balance
+           Debit account, no billing cycle, no installment plans — see
+           docs/compare/Card_Products_UX_Parity_Tracker.md). --%>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="detail-tabs">
+          <%= for {idx, label, icon} <- [{1, "Overview", "📋"}, {2, "Funding History", "💰"}, {3, "Cards", "💳"}] do %>
+            <div class={"detail-tab#{if @detail_tab == idx, do: " active"}"}
+              phx-click="detail_tab" phx-value-t={idx} phx-target={@myself}>
+              <%= icon %> <%= label %>
             </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Fund</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
+          <% end %>
         </div>
-      <% end %>
-
-      <div class="table-wrap">
-        <table class="data-table">
-          <tbody>
-            <tr><td>Available Balance</td><td class="mono"><%= money(@account.available_balance) %> <%= @account.currency %></td></tr>
-            <tr><td>Status</td><td><span class={"badge #{status_cls(@account.status)}"}><%= @account.status %></span></td></tr>
-            <tr><td>Opened</td><td><%= @account.opened_at %></td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="margin-top:20px;">
-        Funding History (<%= length(@fundings) %>)
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Date</th><th>Amount</th><th>Channel</th><th>Reference</th><th>By</th></tr></thead>
-          <tbody>
-            <%= if @fundings == [] do %>
-              <tr><td colspan="5" class="empty-row" style="text-align:center;">No funding yet.</td></tr>
-            <% end %>
-            <%= for f <- @fundings do %>
-              <tr>
-                <td><%= Calendar.strftime(f.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td class="mono"><%= money(f.amount) %></td>
-                <td><%= f.channel %></td>
-                <td><%= f.external_reference || "—" %></td>
-                <td><code><%= f.posted_by %></code></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
-        <span>Cards (<%= length(@cards) %>)</span>
-        <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="issue_card" phx-target={@myself}>+ Issue Card</button>
-      </div>
-
-      <%= if @active_action == :issue_card do %>
-        <div class="action-panel" style="margin-bottom:16px;">
-          <div class="action-panel-title">
-            <span>💳 Issue Card</span>
-            <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
-          </div>
-          <form phx-submit="issue_card_save" phx-target={@myself}>
-            <div class="form-grid-2">
-              <div class="form-group"><label class="form-label">Card Type</label>
-                <select class="input" name="card[card_type]">
-                  <option value="PRIMARY">Primary</option>
-                  <option value="VIRTUAL">Virtual</option>
-                </select></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button type="submit" class="btn btn-primary">Issue Card</button>
-              <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
-            </div>
-          </form>
+        <div style="padding:20px;">
+          <%= case @detail_tab do %>
+            <% 1 -> %> <%= debit_tab_overview(assigns) %>
+            <% 2 -> %> <%= debit_tab_funding_history(assigns) %>
+            <% 3 -> %> <%= debit_tab_cards(assigns) %>
+            <% _ -> %> <p>Invalid tab.</p>
+          <% end %>
         </div>
-      <% end %>
-
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>PAN (last 4)</th><th>Type</th><th>Status</th><th>Expiry</th><th></th></tr></thead>
-          <tbody>
-            <%= if @cards == [] do %>
-              <tr><td colspan="5" class="empty-row" style="text-align:center;">No cards issued.</td></tr>
-            <% end %>
-            <%= for c <- @cards do %>
-              <tr>
-                <td class="mono">•••• <%= c.last_four %></td>
-                <td><%= c.card_type %></td>
-                <td><span class={"badge #{status_cls(c.status)}"}><%= c.status %></span></td>
-                <td><%= c.expiry %></td>
-                <td>
-                  <div :if={@can_edit} style="display:flex;gap:6px;">
-                    <button :if={c.status == "INACTIVE"} class="btn btn-xs" phx-click="card_activate" phx-value-id={c.card_id} phx-target={@myself}>Activate</button>
-                    <button :if={c.status == "ACTIVE"} class="btn btn-xs" phx-click="card_block" phx-value-id={c.card_id} phx-target={@myself}>Block</button>
-                    <button :if={c.status == "BLOCKED"} class="btn btn-xs" phx-click="card_unblock" phx-value-id={c.card_id} phx-target={@myself}>Unblock</button>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
       </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Detail tab partials (Card Products UX Parity Phase 1b, 2026-07-28)
+  # ---------------------------------------------------------------------------
+
+  defp debit_tab_overview(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Balance</span>
+      <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="fund_account" phx-target={@myself}>+ Fund Account</button>
+    </div>
+
+    <%= if @active_action == :fund_account do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>💰 Fund Debit Account</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="fund_account_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Amount *</label>
+              <input class="input" type="text" name="funding[amount]" placeholder="100.00" required/></div>
+            <div class="form-group"><label class="form-label">Channel</label>
+              <select class="input" name="funding[channel]">
+                <option value="INTERNAL_TRANSFER">Internal Transfer</option>
+                <option value="ADMIN_MANUAL">Admin Manual</option>
+                <option value="EXTERNAL_BANK_TRANSFER">External Bank Transfer</option>
+                <option value="CASH_DEPOSIT">Cash Deposit</option>
+              </select></div>
+            <div class="form-group"><label class="form-label">Reference (required for external channels)</label>
+              <input class="input" type="text" name="funding[external_reference]"/></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Fund</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <tbody>
+          <tr><td>Available Balance</td><td class="mono"><%= money(@account.available_balance) %> <%= @account.currency %></td></tr>
+          <tr><td>Status</td><td><span class={"badge #{status_cls(@account.status)}"}><%= @account.status %></span></td></tr>
+          <tr><td>Opened</td><td><%= @account.opened_at %></td></tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp debit_tab_funding_history(assigns) do
+    ~H"""
+    <div class="form-pane-section-title">
+      Funding History (<%= length(@fundings) %>)
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Amount</th><th>Channel</th><th>Reference</th><th>By</th></tr></thead>
+        <tbody>
+          <%= if @fundings == [] do %>
+            <tr><td colspan="5" class="empty-row" style="text-align:center;">No funding yet.</td></tr>
+          <% end %>
+          <%= for f <- @fundings do %>
+            <tr>
+              <td><%= Calendar.strftime(f.inserted_at, "%Y-%m-%d %H:%M") %></td>
+              <td class="mono"><%= money(f.amount) %></td>
+              <td><%= f.channel %></td>
+              <td><%= f.external_reference || "—" %></td>
+              <td><code><%= f.posted_by %></code></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp debit_tab_cards(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Cards (<%= length(@cards) %>)</span>
+      <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="open_action" phx-value-a="issue_card" phx-target={@myself}>+ Issue Card</button>
+    </div>
+
+    <%= if @active_action == :issue_card do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>💳 Issue Card</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <form phx-submit="issue_card_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Card Type</label>
+              <select class="input" name="card[card_type]">
+                <option value="PRIMARY">Primary</option>
+                <option value="VIRTUAL">Virtual</option>
+              </select></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Issue Card</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>PAN (last 4)</th><th>Type</th><th>Status</th><th>Expiry</th><th></th></tr></thead>
+        <tbody>
+          <%= if @cards == [] do %>
+            <tr><td colspan="5" class="empty-row" style="text-align:center;">No cards issued.</td></tr>
+          <% end %>
+          <%= for c <- @cards do %>
+            <tr>
+              <td class="mono">•••• <%= c.last_four %></td>
+              <td><%= c.card_type %></td>
+              <td><span class={"badge #{status_cls(c.status)}"}><%= c.status %></span></td>
+              <td><%= c.expiry %></td>
+              <td>
+                <div :if={@can_edit} style="display:flex;gap:6px;">
+                  <button :if={c.status == "INACTIVE"} class="btn btn-xs" phx-click="card_activate" phx-value-id={c.card_id} phx-target={@myself}>Activate</button>
+                  <button :if={c.status == "ACTIVE"} class="btn btn-xs" phx-click="card_block" phx-value-id={c.card_id} phx-target={@myself}>Block</button>
+                  <button :if={c.status == "BLOCKED"} class="btn btn-xs" phx-click="card_unblock" phx-value-id={c.card_id} phx-target={@myself}>Unblock</button>
+                </div>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
     </div>
     """
   end

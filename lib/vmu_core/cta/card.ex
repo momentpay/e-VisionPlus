@@ -12,6 +12,20 @@ defmodule VmuCore.CTA.Card do
 
   Per ADR-CTA1 the account row keeps denormalized current-card fields for the
   auth hot path; `Cards` keeps them in sync for the ACTIVE card.
+
+  ## Koṣa domain-model alignment (2026-07-28)
+
+  This schema is already the concrete "Card" branch of Koṣa's Payment
+  Instrument layer (`docs/cms/core-domain-new-docs.md`) — the
+  `account_id`/`debit_account_id`/`prepaid_account_id` three-way
+  polymorphism *is* "Payment Instrument → Card → (Credit, Debit,
+  Prepaid, others)". No new table needed for that: a `PaymentInstrument`
+  umbrella above `cta_cards` is deliberately deferred until a second
+  real instrument type (QR/UPI/wallet token) actually exists to
+  justify it — see the architecture doc's decision log. This module's
+  `instrument_product_type/1` is the one small, real piece added now:
+  a named, reusable way to ask "which product does this card belong
+  to" instead of every caller re-deriving it.
   """
 
   use Ecto.Schema
@@ -20,6 +34,8 @@ defmodule VmuCore.CTA.Card do
   alias VmuCore.CTA.CardStateMachine
 
   @primary_key {:card_id, :binary_id, autogenerate: true}
+
+  @type t :: %__MODULE__{}
 
   @card_types    ~w[PRIMARY SUPPLEMENTARY VIRTUAL]
   @block_reasons ~w[LOST STOLEN FRAUD DAMAGED ADMIN]
@@ -103,4 +119,14 @@ defmodule VmuCore.CTA.Card do
 
   def card_types,    do: @card_types
   def block_reasons, do: @block_reasons
+
+  @doc """
+  Which product this card belongs to, derived from which of the three
+  polymorphic refs is set (Koṣa domain-model alignment, 2026-07-28) —
+  no separate field to keep in sync, no separate query.
+  """
+  @spec instrument_product_type(t()) :: :CREDIT | :DEBIT | :PREPAID
+  def instrument_product_type(%__MODULE__{account_id: id}) when not is_nil(id), do: :CREDIT
+  def instrument_product_type(%__MODULE__{debit_account_id: id}) when not is_nil(id), do: :DEBIT
+  def instrument_product_type(%__MODULE__{prepaid_account_id: id}) when not is_nil(id), do: :PREPAID
 end

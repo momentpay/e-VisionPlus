@@ -302,8 +302,16 @@ no error anywhere.
    the July-14 `KYC_Module_Design_Tracker.md` schema design (§3 there), or does that
    design need revisiting now that this document surfaces the risk-scoring/
    annotation/multi-provider layers it explicitly parked?
+   >> Answer: We can follow the design tracker.md and need to add new finding risk-scoring/annotation/multi-provider also.
 2. Is `AdvancedOCRService` (item #8 above) a deliberate future direction the MMS
    team intends to finish wiring, or dead code safe to ignore as a reference?
+   >> Answer: I think, we should keep the services option available as architecture so that later, it will be easier to add. Use one of the API service give below for oct as the place local tesseract over 
+```
+POST http://localhost:4000/api/detect_text
+  -F "image=@<file>" [-F "model_type=tesseract_ocr|paddle_ocr|keras_ocr"]
+  → 200 %{filename:, simplified_text: %{groupings:, raw_text:}}
+
 3. Should a rebuilt version consolidate the four validation systems (§4.1–4.4) into
    one, or is the layering (admin-configurable mapping vs. hard-coded production
    integration) intentional and just under-documented?
+  >> Answer: Let me put down in ths way the other then local validation , we might need to depend on 3rd party parovider for validation of document and so we need to keep multiple option open as per architecture , so that we can add other provider later as per need

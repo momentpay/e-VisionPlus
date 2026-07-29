@@ -1,13 +1,16 @@
 # KYC Module — Design & Implementation Tracker
 
-> ## 📖 See `MMS_KYC_Feature_Reference.md` first (added 2026-07-29)
-> That document is the current, complete reference on the same MMS system this
-> tracker researched — it also covers the risk-scoring, document-annotation, and
-> multi-provider-validation layers this tracker explicitly parked (§1, §9.2 below).
-> The wallet-app redirect immediately below is itself now stale: platform-of-record
-> reversed back to standalone vmu_core on 2026-07-23
-> (`project_platform_of_record_vmu_core`). Placement is an open question again —
-> see the new doc's §8 — not silently resolved by re-reading this note.
+> ## 📖 See `MMS_KYC_Feature_Reference.md` and `KYC_Implementation_Tracker.md` (added 2026-07-29)
+> `MMS_KYC_Feature_Reference.md` is the current, complete reference on the same MMS
+> system this tracker researched — it also covers the risk-scoring, document-
+> annotation, and multi-provider-validation layers this tracker explicitly parked
+> (§1, §9.2 below). The wallet-app redirect immediately below is now stale:
+> platform-of-record reversed back to standalone vmu_core on 2026-07-23
+> (`project_platform_of_record_vmu_core`), and Avenza's `wallet_kyc` build (real,
+> but scoped only to wallet-app's own products, no vmu_core card-product concept)
+> is not being ported either — see `KYC_Implementation_Tracker.md` §0. Placement
+> is answered: building natively in vmu_core. `KYC_Implementation_Tracker.md` is
+> the live, in-progress plan — this doc is history only from here on.
 
 > ## ⚠️ SUPERSEDED (2026-07-14) — kept for the reasoning trail, not deleted
 > **This vmu_core-side design was reversed the same day it was written.**

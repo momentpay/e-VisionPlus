@@ -10,9 +10,11 @@ receive+pay, `WalletQrIdentity`/`WalletQrPaymentCommand`, 12/12 new
 tests). **Phase W4 done 2026-07-28** (admin ops UI — `WalletComponent`,
 wizard + Overview/Transfers/QR/History tabs + the Block/Address-Phone-
 Email/Limits/KYC parity toolbar, 9/9 new tests — first phase with
-anything visible in the browser). Full suite 419 tests / same 10
-pre-existing failures, no regression. This is the Way4 parity plan's
-**Phase 2** requirements
+anything visible in the browser). **Phase W5 partially done 2026-07-29**
+(velocity-limit enforcement + step-up KYC trigger — `WalletVelocityLimits`
++ `Kyc.WalletStepUp`, 10/10 new tests; W006/W011/W012 remain out of
+scope, see below). Full suite 498 tests / same 10 pre-existing failures,
+no regression. This is the Way4 parity plan's **Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -121,8 +123,8 @@ reference**, not code to port.
 | QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all. **✅ Done, Phase W3** (personal QR only — merchant-presented QR stays v2). |
 | A2A (wallet→bank) | **Design together, build later** — `P2aTransfer`'s domain shape (destination IBAN/BIC/account/bank-code fields, `:initiated→:submitted→:completed/:failed→:compensated`, compensation-on-failure) is worth adopting directly since it's genuinely well-designed and rail-agnostic; the actual bank-rail integration is unbuilt in *both* repos (`provider` is a bare atom, no concrete adapter anywhere) | Not blocked on a port-vs-rebuild question — blocked on the same kind of external vendor/rail decision as Instant Payments, just less totally-absent (the domain model exists) |
 | Instant Payments | **Not scoped yet** | See §3 — needs a rail decision first, unrelated to anything else in this table |
-| Step-up KYC on limit breach | **Rebuild native, adopt the pattern** — a new event type on `CMS.NonMonetaryEvent` (`wallet_limit_step_up_triggered`) firing when a wallet transfer/load would breach the current tier's cap, routed into a step-up KYC flow on `Shared.Customer` | `Shared.Customer.kyc_status` already exists; this needs a *trigger*, not a new customer model — the `wallet_kyc` step-up linkage is the piece genuinely missing here |
-| Limits & fees | **No build needed — this repo's existing mechanism already wins** | `wallet_limits_fees`' flat `{tier, currency}` lookup is *simpler* than the SYS→BANK→LOGO→BLOCK cascade this repo already has; add a WALLET-appropriate LOGO/BLOCK config level and reuse `ParameterEngine` unchanged, consistent with the Way4 plan's own explicit instruction not to reintroduce a `DebitAccountConfig`/`PrepaidProgram`-style parallel config object |
+| Step-up KYC on limit breach | ✅ **Done, Phase W5 (2026-07-29), corrected plan** — not a new `NonMonetaryEvent` type triggering a `Shared.Customer`-level flow as originally proposed. Built as `Kyc.WalletStepUp.trigger/1`, called from `WalletFundingCommand.fund/1` on a `WalletVelocityLimits` breach: auto-submits a request against the general KYC module's WALLET method (the native KYC build that landed between W4 and W5 — see `docs/kyc/KYC_Implementation_Tracker.md`), deduped so a retried breach doesn't spawn duplicate pending requests | The general KYC module didn't exist when this row was first written; it's now the natural landing spot for a step-up trigger instead of a bespoke `Shared.Customer` flag |
+| Limits & fees | ✅ **Done, Phase W5 (2026-07-29), corrected mechanism** — not a new WALLET LOGO/BLOCK config row. `CMS.WalletAccount.velocity_limits` (a `:map`, `{"DAILY" => {"count","amount"}, "MONTHLY" => {"amount"}}`) already existed and was admin-editable since Phase W4's "Change Limits" action — it was just never read anywhere. `CMS.WalletVelocityLimits.check/2` is the read side, wired into `WalletFundingCommand.fund/1` (covers both external loads and the receiver leg of an internal transfer) | A LOGO/BLOCK cascade row was investigated and rejected: `LogoParameter`/`BlockParameter` are credit-card-shaped (`purchase_apr`, `cash_limit_pct`, `annual_fee`, …), no tier-cap-appropriate columns, wrong fit for a stored-value product. `velocity_limits` was simpler and already built — closing this row needed zero new schema |
 | Cardholder-facing UX (`wallet_web`'s 30+ LiveViews) | **Rebuild native, do not port Phoenix code as-is** | This repo's admin console (`VmuCoreWeb.Live.Admin.*`) and any future cardholder-facing surface would need their own UI conventions/auth model (this session's own ASM/session work, not `wallet_web`'s); the LiveView *feature list* (dashboard, transfer, QR receive, statements, sub-wallets) is the useful artifact, not the markup |
 
 ## 5. Net-New Build Required (net of §4's "no build needed" rows)
@@ -134,8 +136,8 @@ reference**, not code to port.
 | `InternalGlPoster` extension | ✅ `post_wallet_load/5` + `post_wallet_withdrawal/5` done (GL 1006/5003). `post_wallet_transfer_out`/`_in` not built separately — Phase W2's transfer reuses these two (a transfer is a withdrawal from sender + a load into receiver, atomic in one `Repo.transaction`). `post_wallet_fee/*` deferred to whichever phase actually needs a fee (none yet). |
 | Transfer command | ✅ Done — `WalletTransferCommand.transfer/1`, atomic dual-posting (`WalletWithdrawalCommand.withdraw/4` on sender + `WalletFundingCommand.fund/1` with `channel: "INTERNAL_TRANSFER"` on receiver) inside one `Repo.transaction`, wallet-to-wallet only for v1. New `CMS.WalletTransfer` table is the single authoritative record, inserted first so its own id links the receiver's funding row via `external_reference`. |
 | QR identity | New module implementing `wallet_transfers.QrIdentity`'s wire-format pattern, generate + parse + checksum validate, targeting `cms_accounts`-backed wallet accounts |
-| Step-up KYC trigger | New `NonMonetaryEvent` type + a check in the transfer/load command path comparing against the wallet's tier cap |
-| Wallet-appropriate LOGO/BLOCK config | New `product_type: "WALLET"` LOGO row(s), no `ParameterEngine` code changes |
+| ~~Step-up KYC trigger~~ | ✅ Done — `Kyc.WalletStepUp.trigger/1` (calls into the general KYC module, not a bespoke customer flag) |
+| ~~Wallet-appropriate LOGO/BLOCK config~~ `WalletVelocityLimits` (activates the existing `velocity_limits` field instead) | ✅ Done — `CMS.WalletVelocityLimits.check/2`, no `ParameterEngine`/LOGO/BLOCK changes needed |
 | Admin UI | Wallet account list/detail in the admin console, same wizard+tabs convention as Debit/Prepaid (`docs/compare/Card_Products_UX_Parity_Tracker.md`) — Overview/Ledger History/Transfers/QR/History tabs is the natural shape |
 
 ## 6. Feature Inventory (draft — validate with product before build)
@@ -149,8 +151,8 @@ reference**, not code to port.
 | W005 | QR payment (scan-and-pay, resolves to a wallet-to-wallet transfer) |
 | W006 | Merchant-presented QR (fixed/variable amount, revoke/expire) — v2, after personal QR is proven |
 | W007 | Load channels (cash/agent, bank transfer, card-to-wallet) |
-| W008 | Step-up KYC trigger on tier-cap breach |
-| W009 | Wallet-appropriate LOGO/BLOCK parameter config (limits, fees) |
+| W008 | Step-up KYC trigger on tier-cap breach — ✅ Done, Phase W5 |
+| W009 | Velocity-limit enforcement (limits, fees) — ✅ Done, Phase W5 |
 | W010 | Admin ops UI (wizard + tabs, matching Debit/Prepaid convention) |
 | W011 | A2A (wallet→bank) — domain model only until a rail is chosen |
 | W012 | Instant Payments — blocked entirely on rail/vendor decision |
@@ -212,31 +214,28 @@ reference**, not code to port.
    pay, tamper detection, and the nonexistent-account graceful-failure
    case). Full suite 410 tests / same 10 pre-existing failures, no
    regression.
-4. ~~**Phase W4 — Admin ops UI.**~~ ✅ **Done 2026-07-28.**
-   `WalletComponent` — 3-step wizard (Customer/Product/Review, same
-   shape as Debit/Prepaid/HCS), detail view with an account-level
-   toolbar (Apply/Remove Block, Address/Phone/Email change, Change
-   Limits, KYC Verify/Reject/Reset — same 4 parity items Debit/Prepaid's
-   own Phase 1e/2d shipped; Channel Controls/Supplementary Card
-   deliberately NOT included, since Wallet has no `CTA.Card` in this
-   scope at all — an honest gap, not an invented one) and 4 tabs:
-   Overview (balance + Load), Transfers (search-a-recipient send-money
-   form + combined sent/received history), QR (generate a receive code
-   + paste-and-pay), History (combined block/non-monetary-event audit
-   trail). Registered as a new `wallet` module end-to-end: `ASM.
-   RolePermission` grants (SUPERVISOR/OPS/RISK/COMPLIANCE, mirroring
-   Debit/Prepaid's own matrix — no `approve` grant, since Wallet has no
-   4-eyes action yet, unlike Debit/Prepaid's Adjustments), sidebar nav,
-   and Customer 360's own Arrangements sub-tabs (`CMS.Arrangements.
-   enrich_group/2` gained a `"WALLET"` clause — `account_ref` here is a
-   `wallet_product_id`, not an individual currency account, so the
-   summary shows the product's earliest-opened account's balance, one
-   batched query across all matching products, not N+1). 9/9 new tests
-   (`test/vmu_core_web/live/admin/wallet_component_test.exs`), including
-   a real two-LiveView-process QR handoff (generate in one browser
-   session, pay in a separate one, exactly like a real scan would work).
-   Full suite 419 tests / same 10 pre-existing failures, no regression.
-5. **Phase W5 — Step-up KYC + limits/fees config.**
+4. **Phase W4 — Admin ops UI.** Wizard + tabs, same convention as Debit/
+   Prepaid/HCS from this session's Card Products UX Parity work.
+5. ~~**Phase W5 — Step-up KYC + limits/fees config.**~~ ✅ **Partially
+   done 2026-07-29.** By the time this phase started, the general native
+   KYC module (`docs/kyc/KYC_Implementation_Tracker.md`) had already
+   landed, covering manual WALLET KYC submission/review — this phase
+   closed the piece that was still missing: an *automatic* trigger.
+   `CMS.WalletVelocityLimits.check/2` reads the `velocity_limits` field
+   that Phase W4's "Change Limits" admin action already wrote but nothing
+   ever enforced (DAILY count/amount, MONTHLY amount — an unconfigured
+   `%{}` means unlimited, not zero). Wired into `WalletFundingCommand.
+   fund/1`, the single call site both external loads and the receiver leg
+   of an internal transfer go through. A breach declines the funding,
+   records a `limit_step_up_triggered` `WalletNonMonetaryEvent`, and calls
+   `Kyc.WalletStepUp.trigger/1` — auto-submits a step-up request against
+   the product's active WALLET KYC method, deduped against an
+   already-pending request so a retried breach doesn't spawn duplicates.
+   No new LOGO/BLOCK config row (investigated and rejected — wrong shape
+   for a tier cap; see §4/§5). 10/10 new tests (`wallet_velocity_limits_
+   test.exs`, `wallet_funding_command_test.exs`). Full suite 498 tests /
+   same 10 pre-existing failures, no regression. Merchant-presented QR
+   (W006) was NOT part of this phase — still v2, deliberately deferred.
 6. **Phase W6+ — A2A and Instant Payments**, each gated on its own
    external rail/vendor decision, not started until that decision lands.
    Merchant-presented QR (W006) also fits here — genuinely v2 relative to

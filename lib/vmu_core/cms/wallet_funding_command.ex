@@ -2,10 +2,21 @@ defmodule VmuCore.CMS.WalletFundingCommand do
   @moduledoc """
   Loads a `WalletAccount` (Digital Wallet Phase W1, 2026-07-28). Mirrors
   `CMS.DebitFundingCommand` exactly.
+
+  Also the single enforcement point for `WalletVelocityLimits` (Phase W5
+  follow-up, 2026-07-29) — it covers both external loads and the receiver
+  leg of an internal wallet-to-wallet transfer (`WalletTransferCommand`
+  posts its credit side through here with `channel: "INTERNAL_TRANSFER"`).
+  A breach declines the funding, records a `limit_step_up_triggered`
+  non-monetary event, and auto-creates a step-up WALLET KYC request
+  (`Kyc.WalletStepUp`) — money doesn't move until that's resolved.
   """
 
   import Ecto.Query
-  alias VmuCore.{Repo, CMS.WalletAccount, CMS.WalletFunding, CMS.InternalGlPoster}
+  alias VmuCore.{Repo, CMS.WalletAccount, CMS.WalletFunding, CMS.InternalGlPoster, CMS.WalletVelocityLimits, CMS.WalletNonMonetaryEvent}
+  alias VmuCore.Kyc.WalletStepUp
+
+  @system_operator_id "00000000-0000-0000-0000-000000000001"
 
   @doc """
   attrs = %{wallet_account_id:, amount:, channel:, posted_by:,
@@ -17,30 +28,59 @@ defmodule VmuCore.CMS.WalletFundingCommand do
     if not WalletAccount.active?(account) do
       {:error, :wallet_account_not_active}
     else
-      idempotency_key = "wallet_load:#{attrs.wallet_account_id}:#{System.unique_integer([:positive])}"
-
-      Repo.transaction(fn ->
-        with {:ok, ledger_entry} <-
-               InternalGlPoster.post_wallet_load(
-                 attrs.wallet_account_id, attrs.amount, Date.utc_today(),
-                 attrs.channel, idempotency_key
-               ),
-             {:ok, funding} <-
-               %WalletFunding{}
-               |> WalletFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.entry_id))
-               |> Repo.insert() do
-          {1, _} =
-            Repo.update_all(
-              from(w in WalletAccount, where: w.wallet_account_id == ^account.wallet_account_id),
-              inc: [available_balance: attrs.amount]
-            )
-
-          %{funding: funding, ledger_entry: ledger_entry}
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      case WalletVelocityLimits.check(account, attrs.amount) do
+        :ok -> do_fund(account, attrs)
+        {:error, violation} -> handle_breach(account, attrs, violation)
+      end
     end
+  end
+
+  defp handle_breach(account, attrs, violation) do
+    WalletNonMonetaryEvent.record(
+      wallet_account_id: account.wallet_account_id,
+      event_type: "limit_step_up_triggered",
+      old_value: %{},
+      new_value: %{
+        "limit_type" => violation.type,
+        "limit" => to_string(violation.limit),
+        "attempted" => to_string(violation.attempted),
+        "amount" => Decimal.to_string(attrs.amount),
+        "channel" => attrs.channel
+      },
+      reason: "velocity limit breach (#{violation.type})",
+      operator_id: @system_operator_id,
+      operator_role: "SYSTEM"
+    )
+
+    WalletStepUp.trigger(account.customer_id)
+
+    {:error, {:step_up_required, violation}}
+  end
+
+  defp do_fund(account, attrs) do
+    idempotency_key = "wallet_load:#{attrs.wallet_account_id}:#{System.unique_integer([:positive])}"
+
+    Repo.transaction(fn ->
+      with {:ok, ledger_entry} <-
+             InternalGlPoster.post_wallet_load(
+               attrs.wallet_account_id, attrs.amount, Date.utc_today(),
+               attrs.channel, idempotency_key
+             ),
+           {:ok, funding} <-
+             %WalletFunding{}
+             |> WalletFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.entry_id))
+             |> Repo.insert() do
+        {1, _} =
+          Repo.update_all(
+            from(w in WalletAccount, where: w.wallet_account_id == ^account.wallet_account_id),
+            inc: [available_balance: attrs.amount]
+          )
+
+        %{funding: funding, ledger_entry: ledger_entry}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   def balance(wallet_account_id) do

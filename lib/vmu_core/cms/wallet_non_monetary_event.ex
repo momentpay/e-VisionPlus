@@ -14,7 +14,7 @@ defmodule VmuCore.CMS.WalletNonMonetaryEvent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @valid_event_types ~w[address_change phone_change email_change name_change limit_change]
+  @valid_event_types ~w[address_change phone_change email_change name_change limit_change limit_step_up_triggered]
   @valid_operator_roles ~w[AGENT SUPERVISOR SYSTEM]
 
   schema "cms_wallet_non_monetary_events" do

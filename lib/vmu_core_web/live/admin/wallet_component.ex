@@ -1020,9 +1020,9 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
         <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
       </div>
       <div class="text-sm text-muted" style="margin-bottom:8px;">
-        Stored and admin-editable only in this pass — not yet enforced on
-        the live transfer/QR path (see the Digital Wallet requirements
-        doc's Phase W4 scope note).
+        Enforced on every load and incoming transfer (`WalletVelocityLimits`).
+        A breach declines the transaction and auto-triggers a step-up WALLET
+        KYC request for this customer. Leave a field blank for no cap.
       </div>
       <form phx-submit="wallet_limits_save" phx-target={@myself}>
         <div class="form-grid-2">

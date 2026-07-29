@@ -67,6 +67,18 @@ defmodule VmuCoreWeb.Router do
     post "/requests/:id/documents",  KycController, :upload_document
   end
 
+  # External wallet-out payment API (A2A/Instant Payments, Digital Wallet
+  # Phase W6, 2026-07-29) — see the :api_v1 pipeline above for the
+  # trust-boundary note. Which rail actually moves money is still an
+  # external vendor decision (CMS.RailProvider); this contract exists
+  # regardless of that.
+  scope "/api/v1/wallet", VmuCoreWeb.Api.V1 do
+    pipe_through :api_v1
+
+    post "/payments",     ExternalPaymentController, :create
+    get  "/payments/:id", ExternalPaymentController, :show
+  end
+
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard
   pipeline :operator do
     plug VmuCoreWeb.OperatorAuth

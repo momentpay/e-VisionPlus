@@ -30,7 +30,7 @@ defmodule VmuCore.ASM.ServiceAccount do
   @type t :: %__MODULE__{}
 
   @statuses ~w[ACTIVE REVOKED]
-  @scopes ~w[kyc:read kyc:write]
+  @scopes ~w[kyc:read kyc:write wallet:read wallet:write]
 
   schema "asm_service_accounts" do
     field :name, :string

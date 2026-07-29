@@ -12,9 +12,14 @@ wizard + Overview/Transfers/QR/History tabs + the Block/Address-Phone-
 Email/Limits/KYC parity toolbar, 9/9 new tests — first phase with
 anything visible in the browser). **Phase W5 partially done 2026-07-29**
 (velocity-limit enforcement + step-up KYC trigger — `WalletVelocityLimits`
-+ `Kyc.WalletStepUp`, 10/10 new tests; W006/W011/W012 remain out of
-scope, see below). Full suite 498 tests / same 10 pre-existing failures,
-no regression. This is the Way4 parity plan's **Phase 2** requirements
++ `Kyc.WalletStepUp`, 10/10 new tests). **Phase W6 done 2026-07-29**
+(A2A/Instant Payments domain model + risk gate + pluggable rail adapter +
+external API — `CMS.ExternalPayment`/`ExternalPaymentCommand`/
+`RailProvider`, `/api/v1/wallet/payments`, 13/13 new tests; the rail
+vendor itself is still an open decision for both W011 and W012, per
+design — see §7 Phase W6). W006 (merchant QR) remains v2, deliberately
+deferred. Full suite 511 tests / same 10 pre-existing failures, no
+regression. This is the Way4 parity plan's **Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -121,8 +126,8 @@ reference**, not code to port.
 | Ledger/balance posting | **Rebuild native on `InternalGlPoster`**, adopt `wallet_ledger.PostingEngine`'s *design* (idempotent by `reference_id`, balanced-debit/credit invariant validated before commit, freeze-aware rejection) as new `post_wallet_*` functions alongside the existing `post_debit_*`/`post_prepaid_*` ones | `InternalGlPoster`/`cms_ledger_entries` is already this repo's real ledger of record, integrated with TRAMS clearing for every other product. A second, parallel double-entry engine (`wallet_ledger`) would recreate exactly the "two ledgers, which one is real" split-brain this session's own CU-1 work (Unified Card Master) and the Phase 1 research note ("`cms_ledger_entries`/`InternalGlPoster` IS the real TRAMS ledger of record, not `WalletLedger`") already closed once |
 | Wallet-to-wallet transfer | **Rebuild native**, `Transfer`'s state shape (`:initiated→:reserved→:completed/:failed`, idempotency key) is a good reference; the actual move is two `InternalGlPoster` postings (debit sender, credit receiver) inside one `Repo.transaction`, same shape `PrepaidLedger.consume_active_loads/2`/Debit's own adjustment posting already use | No new balance-movement primitive needed — this repo already has the atomic dual-posting pattern proven twice today (Debit/Prepaid Adjustments). **✅ Done, Phase W2.** |
 | QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all. **✅ Done, Phase W3** (personal QR only — merchant-presented QR stays v2). |
-| A2A (wallet→bank) | **Design together, build later** — `P2aTransfer`'s domain shape (destination IBAN/BIC/account/bank-code fields, `:initiated→:submitted→:completed/:failed→:compensated`, compensation-on-failure) is worth adopting directly since it's genuinely well-designed and rail-agnostic; the actual bank-rail integration is unbuilt in *both* repos (`provider` is a bare atom, no concrete adapter anywhere) | Not blocked on a port-vs-rebuild question — blocked on the same kind of external vendor/rail decision as Instant Payments, just less totally-absent (the domain model exists) |
-| Instant Payments | **Not scoped yet** | See §3 — needs a rail decision first, unrelated to anything else in this table |
+| A2A (wallet→bank) | ✅ **Domain model + risk gate + pluggable rail + external API done, Phase W6 (2026-07-29)**. `P2aTransfer`'s `:initiated→:submitted→:completed/:failed→:compensated` shape adopted as `CMS.ExternalPayment`'s state machine. Same underlying build as Instant Payments — see that row and §5/§7 Phase W6 for the shared design (unified on `rail_type`, not two separate builds) | The actual rail vendor is still unbuilt/unchosen (`CMS.RailProvider` behaviour, `CMS.RailProviders.Stub` is the only implementation and always honestly declines) — that part of this row is genuinely still blocked, per the user's explicit direction (2026-07-29) not to let the vendor gap block the domain model, risk gate, or mobile-facing API contract from existing now |
+| Instant Payments | ✅ **Same build as A2A, Phase W6 (2026-07-29)** — `CMS.ExternalPayment.rail_type: "INSTANT"` vs `"A2A"` is the only distinction; same risk gate, same pluggable `CMS.RailProvider`, same `/api/v1/wallet/payments` endpoint | Still genuinely blocked on its own rail/vendor choice (instant-settlement rails are typically a different vendor/integration than a batch A2A rail) — only the vendor-specific `RailProvider` adapter is missing, not the surrounding pipeline |
 | Step-up KYC on limit breach | ✅ **Done, Phase W5 (2026-07-29), corrected plan** — not a new `NonMonetaryEvent` type triggering a `Shared.Customer`-level flow as originally proposed. Built as `Kyc.WalletStepUp.trigger/1`, called from `WalletFundingCommand.fund/1` on a `WalletVelocityLimits` breach: auto-submits a request against the general KYC module's WALLET method (the native KYC build that landed between W4 and W5 — see `docs/kyc/KYC_Implementation_Tracker.md`), deduped so a retried breach doesn't spawn duplicate pending requests | The general KYC module didn't exist when this row was first written; it's now the natural landing spot for a step-up trigger instead of a bespoke `Shared.Customer` flag |
 | Limits & fees | ✅ **Done, Phase W5 (2026-07-29), corrected mechanism** — not a new WALLET LOGO/BLOCK config row. `CMS.WalletAccount.velocity_limits` (a `:map`, `{"DAILY" => {"count","amount"}, "MONTHLY" => {"amount"}}`) already existed and was admin-editable since Phase W4's "Change Limits" action — it was just never read anywhere. `CMS.WalletVelocityLimits.check/2` is the read side, wired into `WalletFundingCommand.fund/1` (covers both external loads and the receiver leg of an internal transfer) | A LOGO/BLOCK cascade row was investigated and rejected: `LogoParameter`/`BlockParameter` are credit-card-shaped (`purchase_apr`, `cash_limit_pct`, `annual_fee`, …), no tier-cap-appropriate columns, wrong fit for a stored-value product. `velocity_limits` was simpler and already built — closing this row needed zero new schema |
 | Cardholder-facing UX (`wallet_web`'s 30+ LiveViews) | **Rebuild native, do not port Phoenix code as-is** | This repo's admin console (`VmuCoreWeb.Live.Admin.*`) and any future cardholder-facing surface would need their own UI conventions/auth model (this session's own ASM/session work, not `wallet_web`'s); the LiveView *feature list* (dashboard, transfer, QR receive, statements, sub-wallets) is the useful artifact, not the markup |
@@ -139,6 +144,7 @@ reference**, not code to port.
 | ~~Step-up KYC trigger~~ | ✅ Done — `Kyc.WalletStepUp.trigger/1` (calls into the general KYC module, not a bespoke customer flag) |
 | ~~Wallet-appropriate LOGO/BLOCK config~~ `WalletVelocityLimits` (activates the existing `velocity_limits` field instead) | ✅ Done — `CMS.WalletVelocityLimits.check/2`, no `ParameterEngine`/LOGO/BLOCK changes needed |
 | Admin UI | Wallet account list/detail in the admin console, same wizard+tabs convention as Debit/Prepaid (`docs/compare/Card_Products_UX_Parity_Tracker.md`) — Overview/Ledger History/Transfers/QR/History tabs is the natural shape |
+| A2A/Instant Payments domain model + risk gate + rail adapter + external API | ✅ Done, Phase W6 — `CMS.ExternalPayment` (`cms_external_payments`), `CMS.ExternalPaymentCommand.initiate/1` (risk gate via `FAS.RiskAdapter.evaluate/1` reusing the same `mw_risk` fraud pipeline FAS's card-authorization path uses; balance debit via the existing `WalletWithdrawalCommand`; compensating credit — not a transaction rollback — if the rail declines after the debit, deliberately bypassing `WalletVelocityLimits` since a reversal isn't new money in), `CMS.RailProvider` behaviour + `CMS.RailProviders.Stub` (the only implementation until a rail vendor is chosen; honestly returns `:rail_not_configured` rather than faking success), `Api.V1.ExternalPaymentController` (`POST`/`GET /api/v1/wallet/payments`, new `wallet:read`/`wallet:write` `ServiceAccount` scopes) |
 
 ## 6. Feature Inventory (draft — validate with product before build)
 
@@ -154,8 +160,8 @@ reference**, not code to port.
 | W008 | Step-up KYC trigger on tier-cap breach — ✅ Done, Phase W5 |
 | W009 | Velocity-limit enforcement (limits, fees) — ✅ Done, Phase W5 |
 | W010 | Admin ops UI (wizard + tabs, matching Debit/Prepaid convention) |
-| W011 | A2A (wallet→bank) — domain model only until a rail is chosen |
-| W012 | Instant Payments — blocked entirely on rail/vendor decision |
+| W011 | A2A (wallet→bank) — domain model + risk gate + external API done, Phase W6; only the rail vendor adapter is still blocked |
+| W012 | Instant Payments — same build as W011 (shared pipeline, `rail_type: "INSTANT"`), Phase W6; only its own rail vendor adapter is still blocked |
 
 ## 7. Phased Implementation Plan (high-level — refine before starting)
 
@@ -236,10 +242,57 @@ reference**, not code to port.
    test.exs`, `wallet_funding_command_test.exs`). Full suite 498 tests /
    same 10 pre-existing failures, no regression. Merchant-presented QR
    (W006) was NOT part of this phase — still v2, deliberately deferred.
-6. **Phase W6+ — A2A and Instant Payments**, each gated on its own
-   external rail/vendor decision, not started until that decision lands.
-   Merchant-presented QR (W006) also fits here — genuinely v2 relative to
-   personal QR.
+6. ~~**Phase W6+ — A2A and Instant Payments**, each gated on its own
+   external rail/vendor decision, not started until that decision
+   lands.~~ ✅ **Domain model + risk gate + external API done 2026-07-29,
+   rail vendor still pending — user-directed scope split.** The user
+   pushed back on leaving W011/W012 entirely blocked: the rail *vendor*
+   is genuinely still an open decision, but the domain model, risk
+   screening, and mobile-facing API contract don't need to wait for it.
+   Built as one shared pipeline (`CMS.ExternalPayment`, `rail_type: "A2A"
+   | "INSTANT"` is the only distinction — a batch bank-transfer rail and
+   an instant-settlement rail are typically different vendors/
+   integrations, but identical from the domain/risk/API's point of view).
+
+   `CMS.ExternalPaymentCommand.initiate/1` — two gates before money
+   leaves the wallet: (1) **risk**, `FAS.RiskAdapter.evaluate/1`, the
+   same real `mw_risk` fraud-scoring pipeline FAS's card-authorization
+   path already uses (confirmed live in tests, ~11ms, fail-safe
+   passthrough on `mw_risk` unavailability — same pipeline, not a new
+   one); `:decline`/`:review` blocks before any balance movement
+   (`:review` has no manual-release queue yet — a known gap, same
+   posture as KYC-P4's flagged sanctions-hit-override gap); (2) **rail**,
+   `CMS.RailProvider` behaviour — pluggable, config-swappable
+   (`config :vmu_core, :rail_provider`), mirrors `Kyc.ProviderAdapter`'s
+   shape. `CMS.RailProviders.Stub` is the only implementation until a
+   vendor is chosen for either rail type — it always honestly returns
+   `:rail_not_configured` rather than faking success, so the whole
+   pipeline is provably wired end-to-end while the one piece that's
+   genuinely blocked stays honestly unbuilt (same posture as Way4's FAS
+   HSM/Veriscent work — real commands built, live connectivity pending a
+   cert).
+
+   The `ExternalPayment` row is always persisted first, before either
+   gate runs, so every attempt gets a permanent audit id regardless of
+   outcome. If the rail declines *after* the wallet was already debited
+   (via the existing `WalletWithdrawalCommand`), the debit is reversed
+   with an explicit compensating credit — not a transaction rollback,
+   matching how a real async settlement rail actually behaves (you don't
+   know the outcome until after the debit is committed). That reversal
+   deliberately bypasses `WalletVelocityLimits` — it isn't new money in,
+   it's undoing money that should never have left.
+
+   External surface: `POST`/`GET /api/v1/wallet/payments`
+   (`Api.V1.ExternalPaymentController`), new `wallet:read`/`wallet:write`
+   `ASM.ServiceAccount` scopes — same bearer-token/scope/`ErrorEnvelope`
+   convention as the KYC external API, confirmed as the right shape by
+   the user (external API within vmu_core, not a separate service,
+   not admin-console-only).
+
+   13/13 new tests (`external_payment_command_test.exs`,
+   `external_payment_controller_test.exs`). Full suite 511 tests / same
+   10 pre-existing failures, no regression. Merchant-presented QR (W006)
+   was NOT part of this phase — still v2, deliberately deferred.
 
 ## 8. Open Questions (need product/business input before W1 starts)
 

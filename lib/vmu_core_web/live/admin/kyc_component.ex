@@ -1,34 +1,45 @@
 defmodule VmuCoreWeb.Live.Admin.KycComponent do
   @moduledoc """
-  Admin LiveComponent: KYC method builder (KYC-P1,
+  Admin LiveComponent: KYC methods + requests (KYC-P1/P2,
   `docs/kyc/KYC_Implementation_Tracker.md`).
 
-  List every `KycMethod` (filterable by product + status), and a dynamic
-  field builder to create/edit one: add/remove/reorder fields, pick a type
-  from the fixed `VmuCore.Kyc.FieldTypes` catalog, set label/required/
-  options. "Clone to product" copies an existing method's field set into a
-  new product scope as an independent, inactive starting point — never a
-  live shared reference between products (`docs/kyc/
-  KYC_Implementation_Tracker.md` §2).
+  Two tabs:
+  - **Methods** — list every `KycMethod` (filterable by product + status),
+    and a dynamic field builder to create/edit one: add/remove/reorder
+    fields, pick a type from the fixed `VmuCore.Kyc.FieldTypes` catalog, set
+    label/required/options. "Clone to product" copies an existing method's
+    field set into a new product scope as an independent, inactive starting
+    point — never a live shared reference between products (§2).
+  - **Requests** — admin-initiated submission (search/select customer, pick
+    an active method for a product, fill in the form), a queue filterable by
+    product/status, and detail/Approve/Reject. Approve/Reject fire
+    `Kyc.StatusSync` — the real integration point that keeps the five
+    pre-existing per-product `kyc_status` flags (Customer/Debit/Prepaid/
+    Wallet/HCS.Company) accurate (§5). File-type fields accept a text
+    reference for now — real upload/preview is KYC-P3 scope, not built here.
 
-  Submissions/requests (KYC-P2) are not part of this phase — this screen
-  only manages templates.
-
-  Visibility requires `kyc:view`; create/edit/clone actions require `kyc:edit`.
+  Visibility requires `kyc:view`; create/edit/clone/submit/approve/reject
+  actions require `kyc:edit`.
   """
 
   use Phoenix.LiveComponent
+  import Ecto.Query, except: [update: 2, update: 3]
   import VmuCoreWeb.AdminUI
 
-  alias VmuCore.Kyc.{Method, Methods, FieldTypes}
+  alias VmuCore.Repo
+  alias VmuCore.Kyc.{Method, Methods, FieldTypes, Request, Requests}
   alias VmuCore.CMS.Arrangement
+  alias VmuCore.Shared.Customer
   alias VmuCore.ASM.Authz
+
+  @default_operator_id "00000000-0000-0000-0000-000000000001"
 
   @impl true
   def mount(socket) do
     {:ok,
      socket
      |> assign(
+       section: :methods,
        mode: :list,
        methods: [],
        filter_product: "",
@@ -40,7 +51,22 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
        form_data: %{},
        fields: [],
        clone_target: nil,
-       cloning_method: nil
+       cloning_method: nil,
+
+       req_mode: :list,
+       requests: [],
+       filter_req_product: "",
+       filter_req_status: "",
+       req_step: 1,
+       req_customer_search: "",
+       req_customer_results: [],
+       req_customer: nil,
+       req_product_type: "",
+       req_available_methods: [],
+       req_method: nil,
+       req_data: %{},
+       req_detail: nil,
+       req_detail_method: nil
      )
      |> load_methods()}
   end
@@ -56,20 +82,36 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
   def render(assigns) do
     ~H"""
     <div>
-      <.page_header title="KYC Methods" subtitle="Per-product KYC form templates">
+      <.page_header title="KYC" subtitle="Per-product KYC methods and requests">
         <:actions>
-          <button :if={@can_edit} type="button" phx-click="new_method" phx-target={@myself} class="btn btn-primary">
+          <button :if={@section == :methods && @can_edit} type="button" phx-click="new_method" phx-target={@myself} class="btn btn-primary">
             + New Method
+          </button>
+          <button :if={@section == :requests && @can_edit} type="button" phx-click="req_new" phx-target={@myself} class="btn btn-primary">
+            + New Request
           </button>
         </:actions>
       </.page_header>
 
+      <div style="margin-bottom:12px;">
+        <button type="button" phx-click="section" phx-value-s="methods" phx-target={@myself} class={"btn btn-sm #{if @section == :methods, do: "btn-primary"}"}>Methods</button>
+        <button type="button" phx-click="section" phx-value-s="requests" phx-target={@myself} class={"btn btn-sm #{if @section == :requests, do: "btn-primary"}"}>Requests</button>
+      </div>
+
       <.alert :if={@notice} kind={@notice_kind} message={@notice} />
 
-      <%= if @mode == :list do %>
-        <%= render_list(assigns) %>
+      <%= if @section == :methods do %>
+        <%= if @mode == :list do %>
+          <%= render_list(assigns) %>
+        <% else %>
+          <%= render_editor(assigns) %>
+        <% end %>
       <% else %>
-        <%= render_editor(assigns) %>
+        <%= case @req_mode do %>
+          <% :list -> %><%= render_requests_list(assigns) %>
+          <% :new -> %><%= render_requests_new(assigns) %>
+          <% :detail -> %><%= render_requests_detail(assigns) %>
+        <% end %>
       <% end %>
 
       <%= if @clone_target do %>
@@ -219,11 +261,156 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     """
   end
 
+  defp render_requests_list(assigns) do
+    ~H"""
+    <form phx-change="req_filter" phx-target={@myself} style="margin-bottom:12px; display:flex; gap:12px;">
+      <select name="product_type">
+        <option value="">All products</option>
+        <option :for={pt <- Arrangement.product_types()} value={pt} selected={@filter_req_product == pt}><%= pt %></option>
+      </select>
+      <select name="status">
+        <option value="">All statuses</option>
+        <option :for={s <- Request.statuses()} value={s} selected={@filter_req_status == s}><%= s %></option>
+      </select>
+    </form>
+
+    <%= if @requests == [] do %>
+      <.empty_state icon="📋" title="No KYC requests yet" message="Start one from the Requests tab." />
+    <% else %>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Application #</th>
+            <th>Customer</th>
+            <th>Product</th>
+            <th>Status</th>
+            <th>Submitted</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={r <- @requests}>
+            <td><%= r.application_number %></td>
+            <td><%= customer_name(r.customer_id) %></td>
+            <td><%= r.product_type %></td>
+            <td><.status_badge status={r.status} /></td>
+            <td><%= r.submitted_at %></td>
+            <td><button type="button" phx-click="req_view" phx-value-id={r.request_id} phx-target={@myself} class="btn btn-sm">View</button></td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+    """
+  end
+
+  defp render_requests_new(assigns) do
+    ~H"""
+    <.form_card title="New KYC Request">
+      <:header_actions>
+        <button type="button" phx-click="req_back_to_list" phx-target={@myself} class="btn btn-sm">&larr; Back to list</button>
+      </:header_actions>
+
+      <%= if @req_step == 1 do %>
+        <.field label="Search customer">
+          <input type="text" value={@req_customer_search} phx-keyup="req_cust_search" phx-debounce="300" phx-target={@myself} placeholder="Name, email, or mobile…" />
+        </.field>
+        <table :if={@req_customer_results != []} class="admin-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Bank</th><th></th></tr></thead>
+          <tbody>
+            <tr :for={c <- @req_customer_results}>
+              <td><%= c.first_name %> <%= c.last_name %></td>
+              <td><%= c.email %></td>
+              <td><%= c.bank_id %></td>
+              <td><button type="button" phx-click="req_select_customer" phx-value-id={c.customer_id} phx-target={@myself} class="btn btn-sm">Select</button></td>
+            </tr>
+          </tbody>
+        </table>
+      <% end %>
+
+      <%= if @req_step == 2 do %>
+        <p>Customer: <strong><%= @req_customer.first_name %> <%= @req_customer.last_name %></strong></p>
+        <.field label="Product">
+          <select phx-change="req_select_product" phx-target={@myself}>
+            <option value="">Select product...</option>
+            <option :for={pt <- Arrangement.product_types()} value={pt} selected={@req_product_type == pt}><%= pt %></option>
+          </select>
+        </.field>
+        <.field :if={@req_product_type != ""} label="Method">
+          <select phx-change="req_select_method" phx-target={@myself}>
+            <option value="">Select method...</option>
+            <option :for={m <- @req_available_methods} value={m.method_id} selected={@req_method && @req_method.method_id == m.method_id}><%= m.name %> (v<%= m.version %>)</option>
+          </select>
+        </.field>
+        <.empty_state :if={@req_product_type != "" && @req_available_methods == []} icon="🪪" title="No active method for this product yet" message="Create one on the Methods tab first." />
+      <% end %>
+
+      <%= if @req_step == 3 do %>
+        <p>Customer: <strong><%= @req_customer.first_name %> <%= @req_customer.last_name %></strong> — Product: <strong><%= @req_product_type %></strong> — Method: <strong><%= @req_method.name %></strong></p>
+        <form phx-submit="req_submit" phx-change="req_field_change" phx-target={@myself}>
+          <.field :for={f <- @req_method.fields} label={f["label"] <> if(f["required"], do: " *", else: "")}>
+            <%= render_field_input(f, @req_data[f["key"]]) %>
+          </.field>
+          <button type="submit" class="btn btn-primary" style="margin-top:16px;">Submit Request</button>
+        </form>
+      <% end %>
+    </.form_card>
+    """
+  end
+
+  defp render_requests_detail(assigns) do
+    ~H"""
+    <.form_card title={"Request #{@req_detail.application_number}"}>
+      <:header_actions>
+        <button type="button" phx-click="req_back_to_list" phx-target={@myself} class="btn btn-sm">&larr; Back to list</button>
+      </:header_actions>
+
+      <.kv_detail rows={[
+        {"Customer", customer_name(@req_detail.customer_id)},
+        {"Product", @req_detail.product_type},
+        {"Method", @req_detail_method && @req_detail_method.name},
+        {"Status", @req_detail.status},
+        {"Submitted", to_string(@req_detail.submitted_at)},
+        {"Reviewer", @req_detail.reviewer_id},
+        {"Decision reason", @req_detail.decision_reason}
+      ]} />
+
+      <.form_section title="Submitted Data" />
+      <table class="admin-table">
+        <tbody>
+          <tr :for={f <- @req_detail.fields_snapshot}>
+            <td><%= f["label"] %></td>
+            <td><%= @req_detail.data[f["key"]] %></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <%= if @can_edit && @req_detail.status in ["submitted", "under_review"] do %>
+        <.form_section title="Decision" />
+        <form phx-submit="req_approve" phx-target={@myself} style="display:inline;">
+          <input type="text" name="reason" placeholder="Approval note (optional)" style="width:260px;" />
+          <button type="submit" class="btn btn-primary">Approve</button>
+        </form>
+        <form phx-submit="req_reject" phx-target={@myself} style="display:inline;">
+          <input type="text" name="reason" placeholder="Rejection reason" required style="width:260px;" />
+          <button type="submit" class="btn btn-danger">Reject</button>
+        </form>
+      <% end %>
+    </.form_card>
+    """
+  end
+
   # ---------------------------------------------------------------------------
   # Events
   # ---------------------------------------------------------------------------
 
   @impl true
+  def handle_event("section", %{"s" => s}, socket) do
+    section = String.to_existing_atom(s)
+    socket = assign(socket, section: section)
+    socket = if section == :requests, do: load_requests(socket), else: socket
+    {:noreply, socket}
+  end
+
   def handle_event("filter", params, socket) do
     socket =
       socket
@@ -349,6 +536,138 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     end
   end
 
+  def handle_event("req_filter", params, socket) do
+    socket =
+      socket
+      |> assign(filter_req_product: params["product_type"] || "", filter_req_status: params["status"] || "")
+      |> load_requests()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("req_new", _params, socket) do
+    {:noreply,
+     assign(socket,
+       req_mode: :new,
+       req_step: 1,
+       req_customer_search: "",
+       req_customer_results: [],
+       req_customer: nil,
+       req_product_type: "",
+       req_available_methods: [],
+       req_method: nil,
+       req_data: %{}
+     )}
+  end
+
+  def handle_event("req_back_to_list", _params, socket) do
+    {:noreply, socket |> assign(req_mode: :list) |> load_requests()}
+  end
+
+  def handle_event("req_view", %{"id" => id}, socket) do
+    request = Requests.get!(id)
+    method = Methods.get(request.kyc_method_id)
+    {:noreply, assign(socket, req_mode: :detail, req_detail: request, req_detail_method: method)}
+  end
+
+  def handle_event("req_cust_search", %{"value" => q}, socket) do
+    results =
+      if String.length(q || "") >= 2 do
+        term = "%#{q}%"
+
+        Repo.all(
+          from c in Customer,
+            where:
+              ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
+                ilike(c.email, ^term) or ilike(c.mobile_number, ^term),
+            limit: 10
+        )
+      else
+        []
+      end
+
+    {:noreply, assign(socket, req_customer_search: q, req_customer_results: results)}
+  end
+
+  def handle_event("req_select_customer", %{"id" => id}, socket) do
+    case Repo.get(Customer, id) do
+      nil ->
+        {:noreply, socket}
+
+      customer ->
+        {:noreply,
+         assign(socket,
+           req_customer: customer,
+           req_customer_results: [],
+           req_step: 2
+         )}
+    end
+  end
+
+  def handle_event("req_select_product", %{"value" => product_type}, socket) do
+    methods = Methods.list(%{"product_type" => product_type, "status" => "active"})
+    {:noreply, assign(socket, req_product_type: product_type, req_available_methods: methods, req_method: nil)}
+  end
+
+  def handle_event("req_select_method", %{"value" => ""}, socket) do
+    {:noreply, assign(socket, req_method: nil)}
+  end
+
+  def handle_event("req_select_method", %{"value" => method_id}, socket) do
+    method = Methods.get!(method_id)
+    {:noreply, assign(socket, req_method: method, req_data: %{}, req_step: 3)}
+  end
+
+  def handle_event("req_field_change", params, socket) do
+    data = Map.get(params, "data", %{})
+    {:noreply, update(socket, :req_data, &Map.merge(&1, data))}
+  end
+
+  def handle_event("req_submit", params, socket) do
+    data = Map.get(params, "data", %{})
+
+    attrs = %{
+      "customer_id" => socket.assigns.req_customer.customer_id,
+      "data" => data
+    }
+
+    case Requests.submit(socket.assigns.req_method, attrs) do
+      {:ok, _request} ->
+        {:noreply,
+         socket
+         |> assign(req_mode: :list, notice: "KYC request submitted", notice_kind: :success)
+         |> load_requests()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+    end
+  end
+
+  def handle_event("req_approve", %{"reason" => reason}, socket) do
+    operator_id = operator_id(socket)
+
+    case Requests.approve(socket.assigns.req_detail, operator_id, blank_to_nil(reason)) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, req_detail: updated, notice: "Request approved", notice_kind: :success)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+    end
+  end
+
+  def handle_event("req_reject", %{"reason" => reason}, socket) do
+    operator_id = operator_id(socket)
+
+    case Requests.reject(socket.assigns.req_detail, operator_id, reason) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, req_detail: updated, notice: "Request rejected", notice_kind: :success)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
@@ -385,5 +704,119 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     end)
     |> Enum.map(fn {field, errors} -> "#{field}: #{Enum.join(errors, ", ")}" end)
     |> Enum.join("; ")
+  end
+
+  # ---------------------------------------------------------------------------
+  # Requests — private helpers
+  # ---------------------------------------------------------------------------
+
+  defp load_requests(socket) do
+    filters = %{
+      "product_type" => socket.assigns.filter_req_product,
+      "status" => socket.assigns.filter_req_status
+    }
+
+    assign(socket, requests: Requests.list(filters))
+  end
+
+  defp customer_name(customer_id) do
+    case Repo.get(Customer, customer_id) do
+      nil -> "(unknown)"
+      c -> "#{c.first_name} #{c.last_name}"
+    end
+  end
+
+  defp operator_id(socket) do
+    case socket.assigns[:current_operator] do
+      %{operator_id: id} -> id
+      _ -> @default_operator_id
+    end
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(v), do: v
+
+  # Dynamic form-field renderer for request submission. "group" (repeatable
+  # sub-fields) isn't supported in the admin submission form yet -- v1 scope
+  # limit, not an oversight (docs/kyc/KYC_Implementation_Tracker.md notes
+  # this module's own field builder already supports the type; only the
+  # *submission* renderer here doesn't yet).
+  defp render_field_input(%{"type" => "group"} = field, _value) do
+    assigns = %{field: field}
+
+    ~H"""
+    <em>Repeatable group fields aren't supported in the request form yet.</em>
+    """
+  end
+
+  defp render_field_input(%{"type" => "textarea"} = field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <textarea name={"data[#{@field["key"]}]"} required={@field["required"]}><%= @value %></textarea>
+    """
+  end
+
+  defp render_field_input(%{"type" => "select"} = field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <select name={"data[#{@field["key"]}]"} required={@field["required"]}>
+      <option value="">Select...</option>
+      <option :for={opt <- @field["options"] || []} value={opt} selected={@value == opt}><%= opt %></option>
+    </select>
+    """
+  end
+
+  defp render_field_input(%{"type" => "radio"} = field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <label :for={opt <- @field["options"] || []} style="margin-right:12px;">
+      <input type="radio" name={"data[#{@field["key"]}]"} value={opt} checked={@value == opt} /> <%= opt %>
+    </label>
+    """
+  end
+
+  defp render_field_input(%{"type" => "checkbox", "options" => opts} = field, value) when is_list(opts) and opts != [] do
+    assigns = %{field: field, options: opts, value: value || []}
+
+    ~H"""
+    <label :for={opt <- @options} style="margin-right:12px;">
+      <input type="checkbox" name={"data[#{@field["key"]}][]"} value={opt} checked={opt in @value} /> <%= opt %>
+    </label>
+    """
+  end
+
+  defp render_field_input(%{"type" => "checkbox"} = field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <input type="checkbox" name={"data[#{@field["key"]}]"} value="true" checked={@value == "true"} />
+    """
+  end
+
+  defp render_field_input(%{"type" => "file"} = field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <input type="text" name={"data[#{@field["key"]}]"} value={@value} placeholder="document reference (real upload arrives in KYC-P3)" required={@field["required"]} />
+    """
+  end
+
+  defp render_field_input(%{"type" => type} = field, value) when type in ~w[text number email tel url password date] do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <input type={@field["type"]} name={"data[#{@field["key"]}]"} value={@value} required={@field["required"]} />
+    """
+  end
+
+  defp render_field_input(field, value) do
+    assigns = %{field: field, value: value}
+
+    ~H"""
+    <input type="text" name={"data[#{@field["key"]}]"} value={@value} required={@field["required"]} />
+    """
   end
 end

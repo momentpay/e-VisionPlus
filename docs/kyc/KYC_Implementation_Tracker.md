@@ -131,16 +131,24 @@ function, no persistence of its own.
 
 ## 5. The real integration point — status sync on approval
 
-`VmuCore.Kyc.StatusSync.sync!(request)`, called from `Kyc.Request.approve/2` and
-`reject/2`, dispatches on `request.product_type`:
+`VmuCore.Kyc.StatusSync.sync/1`, called from `Kyc.Requests.approve/2` and
+`reject/2`, dispatches on `request.product_type`. **Corrected during KYC-P2
+implementation** after checking the real schemas — `CORPORATE_EMPLOYEE` is a
+*person* (an employee is a `Shared.Customer` row; `EmployeeCard` has no
+`kyc_status` field of its own), so it syncs `Customer`, not `Company`. Both
+`CORPORATE_FACILITY` and `CORPORATE_FLEET` are company-level (`Arrangement.
+account_ref` resolves straight to `Company.id` for FACILITY, or to
+`FleetCard.id` → `company_id` for FLEET, per `CMS.Arrangements.enrich_group/2`'s
+own real resolution logic) — both sync `HCS.Company`:
 
 | `product_type` | Target row | How resolved |
 |---|---|---|
-| `CREDIT`, `CORPORATE_FACILITY` | `Shared.Customer` | `request.customer_id` |
+| `CREDIT`, `CORPORATE_EMPLOYEE` | `Shared.Customer` | `request.customer_id` |
 | `DEBIT` | `CMS.DebitAccount` | latest account for `request.customer_id` |
 | `PREPAID` | `CMS.PrepaidAccount` | latest account for `request.customer_id` |
 | `WALLET` | `CMS.WalletAccount` | latest account for `request.customer_id` |
-| `CORPORATE_EMPLOYEE`, `CORPORATE_FLEET` | `HCS.Company` | via `request.arrangement_id` → `account_ref` |
+| `CORPORATE_FACILITY` | `HCS.Company` | `request.arrangement_id` → `account_ref` = `Company.id` |
+| `CORPORATE_FLEET` | `HCS.Company` | `request.arrangement_id` → `account_ref` = `FleetCard.id` → `company_id` |
 
 Updates `kyc_status`/`kyc_verified_at` only — does not touch anything else on the
 target row. If no matching row exists yet (KYC done before the account is opened),
@@ -203,8 +211,21 @@ session): sidebar entry, `RolePermission` grants, dispatched as a `live_componen
 | P1.4 | Admin `KycComponent` — Methods list + builder + Clone-to-product, registered into `AdminLive`/`RolePermission` | ✅ |
 | P1.5 | Real-Postgres verification + regression — 8/8 new tests, full suite 427 tests / same 10 pre-existing failures | ✅ |
 
-**Next: KYC-P2** — `kyc_requests`/`kyc_documents` + submit/review/approve/reject
-+ `StatusSync` (§5, the real integration point — syncs the five existing flat
-`kyc_status` fields on approval) + admin Requests queue.
+### KYC-P2 — Submissions + StatusSync ✅ Done 2026-07-29
+| # | Task | Status |
+|---|---|---|
+| P2.1 | Migrations: `kyc_requests` + `kyc_documents` | ✅ |
+| P2.2 | `Kyc.Request`/`Kyc.Document` schemas + `Kyc.Requests` context (submit/start_review/approve/reject) | ✅ |
+| P2.3 | `Kyc.StatusSync` (§5) — corrected mid-implementation after checking real schemas (CORPORATE_EMPLOYEE syncs Customer not Company; CORPORATE_FACILITY/FLEET sync Company via Arrangement.account_ref; Company.kyc_verified_at is :utc_datetime, the other four targets are :naive_datetime) | ✅ |
+| P2.4 | Admin Requests tab — admin-initiated submission wizard (customer search → product → active method → dynamic form), queue, detail + Approve/Reject | ✅ |
+| P2.5 | Real-Postgres + real-browser verification + regression — 12/12 new tests (9 context + 3 LiveView), full suite 439 tests / same 10 pre-existing failures | ✅ |
 
-### KYC-P2..4 — outlined in §7, detailed at the start of each phase
+File-type fields accept a text reference for now (no real upload/preview yet —
+that's KYC-P3 scope, not a gap in this phase). "group" (repeatable sub-fields)
+isn't rendered in the submission form yet either, same reason.
+
+**Next: KYC-P3** — conditional logic engine + `Kyc.ProviderAdapter` behaviour +
+real local-OCR-server adapter + document upload/preview + document-annotation
+review workflow (see §7 for the confirmed real OCR endpoint contract).
+
+### KYC-P3..5 — outlined in §7, detailed at the start of each phase

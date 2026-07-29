@@ -22,7 +22,7 @@ defmodule VmuCore.CTA.CardLifecycle do
 
   alias VmuCore.{Repo, CTA.Card, CTA.Cards, CTA.PanGenerator, CTA.CredentialVault,
                  CMS.Account, CMS.DebitAccount, CMS.PrepaidAccount, CMS.FeeEngine,
-                 FAS.HSM, FAS.HotCardCache, ASM.AuditLog}
+                 FAS.HSM, FAS.HotCardCache, ASM.AuditLog, NTS.TokenLifecycle, NTS.Tokens}
   alias VmuCore.Shared.{ModuleConfigEngine, LogoParameter}
 
   @reason_to_block_code %{"LOST" => "L", "STOLEN" => "S", "FRAUD" => "F"}
@@ -257,6 +257,7 @@ defmodule VmuCore.CTA.CardLifecycle do
   def block(card_id, reason, opts \\ []) when reason in ~w[LOST STOLEN FRAUD DAMAGED ADMIN] do
     with {:ok, card} <- Cards.transition(card_id, "BLOCKED", block_reason: reason) do
       maybe_set_account_block(card, reason)
+      TokenLifecycle.suspend_for_card(card_id, operator: opts[:operator])
       AuditLog.record(opts[:operator], "card_block", card_id, %{reason: reason})
       {:ok, card}
     end
@@ -266,6 +267,7 @@ defmodule VmuCore.CTA.CardLifecycle do
   def unblock(card_id, opts \\ []) do
     with {:ok, card} <- Cards.transition(card_id, "ACTIVE") do
       clear_account_block(card)
+      TokenLifecycle.resume_for_card(card_id, operator: opts[:operator])
       AuditLog.record(opts[:operator], "card_unblock", card_id, %{})
       {:ok, card}
     end
@@ -320,7 +322,18 @@ defmodule VmuCore.CTA.CardLifecycle do
 
       case result do
         {:ok, new} ->
-          if pan_changed?, do: HotCardCache.refresh()
+          if pan_changed? do
+            HotCardCache.refresh()
+            # A genuine PAN change invalidates whatever DPAN<->PAN mapping
+            # the scheme TSP holds for the old plastic — the cardholder
+            # must re-provision under the new card.
+            TokenLifecycle.delete_for_card(old.card_id, operator: opts[:operator])
+          else
+            # Same PAN (e.g. DAMAGED) — the scheme's tokens are still
+            # valid, just re-point them at the new generation's card_id.
+            Tokens.migrate_card_id(old.card_id, new.card_id)
+          end
+
           fee = assess_fee(old, reason, opts)
           AuditLog.record(opts[:operator], "card_replace", card_id,
             %{reason: reason, new_card_id: new.card_id, new_generation: new.generation, fee: fee})
@@ -380,6 +393,10 @@ defmodule VmuCore.CTA.CardLifecycle do
 
       case result do
         {:ok, new} ->
+          # Renewal is always same-PAN by construction — the scheme's
+          # tokens stay valid, just re-point at the new generation.
+          Tokens.migrate_card_id(old.card_id, new.card_id)
+
           AuditLog.record(opts[:operator], "card_renew", card_id,
             %{new_card_id: new.card_id, new_generation: new.generation, new_expiry: new_expiry})
 

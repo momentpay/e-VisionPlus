@@ -328,4 +328,46 @@ known sanctions match into `mw_risk`'s own database (a separate app/DB this
 build doesn't own), an honest gap rather than a fabricated test. Full suite
 471 tests, same 10 pre-existing failures, no regression.
 
-### KYC-P5 — outlined in §7, detailed at the start of the phase
+### KYC-P5 — External API ✅ Done 2026-07-29
+Confirmed in scope by the user ("The KYC process can be external and we need
+to manage via API also some time"). Before building anything, checked what
+API foundation already existed — **`docs/shared/NEW_PRODUCTS_PROGRAM_TRACKER.md`
+claimed a whole `/api/v1/*` layer (`ServiceAccount`, `ErrorEnvelope`, rate
+limiter, several controllers) was "✅ done"; none of that code exists in the
+working tree**, only the `asm_service_accounts` migration (2026-07-12) was
+real. Same "doc says done, code isn't there" pattern that's hit this program
+repeatedly before (`project_platform_of_record_vmu_core`) — did not design
+against that doc's claimed conventions; built from the real migrated schema.
+
+- `ASM.ServiceAccount`/`ASM.ServiceAccounts` — bearer-token machine identity
+  (`asm_service_accounts`, distinct from `ASM.Operator`'s human/password/
+  session login). Token is SHA-256-hashed at rest, shown once at creation.
+  Minimal ADMIN-only admin screen (`ServiceAccountsComponent`, same
+  ADMIN-only-via-no-`RolePermission`-rows convention as `OperatorComponent`)
+  to actually provision one — an API layer nobody can get a credential for
+  isn't real.
+- `VmuCoreWeb.Plugs.ApiV1Auth` — bearer-token auth + `require_scope/2`
+  (`kyc:read`/`kyc:write`), piped through a new `:api_v1` router pipeline —
+  a different trust boundary than the existing `:api` pipeline's internal
+  shared-secret auth (FAS/`settlement_core`).
+- `VmuCoreWeb.Api.V1.ErrorEnvelope` — consistent JSON error shape, `meta.
+  request_id` sourced from `Plug.RequestId` (already in the endpoint
+  pipeline, just unused for JSON responses until now).
+- `VmuCoreWeb.Api.V1.KycController` — `GET /api/v1/kyc/methods`,
+  `POST /api/v1/kyc/requests`, `GET /api/v1/kyc/requests/:id`,
+  `POST /api/v1/kyc/requests/:id/documents` — thin wrappers over the
+  existing `Kyc.Methods`/`Kyc.Requests`/`Kyc.Documents` contexts, no new
+  business logic. No approve/reject endpoint — stays admin-console-only,
+  matching every other approval flow in this program. Every mutation
+  audited via `ASM.AuditLog.record/4` (actor `nil`, service account name
+  in `details` — `AuditLog` is typed around a human `Operator`, not worth
+  widening for one new caller kind).
+
+17/17 new tests (5 `ServiceAccounts` context, 12 real-HTTP-pipeline
+`KycController` tests covering auth/scope/happy-path/error cases for all
+four endpoints, including a real multipart upload through to OCR). Full
+suite 488 tests, same 10 pre-existing failures, no regression.
+
+This closes KYC-P1 through P5 — the full plan from `docs/kyc/
+KYC_Implementation_Tracker.md` §7 as originally scoped, plus the P3.5
+mid-course correction from real user feedback.

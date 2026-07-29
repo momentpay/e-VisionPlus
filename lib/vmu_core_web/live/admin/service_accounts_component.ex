@@ -1,0 +1,182 @@
+defmodule VmuCoreWeb.Live.Admin.ServiceAccountsComponent do
+  @moduledoc """
+  Service-account (API credential) administration (KYC-P5, `docs/kyc/
+  KYC_Implementation_Tracker.md` §7) — ADMIN-only module, same convention as
+  `OperatorComponent`: reachability is already gated twice (sidebar
+  filtering + AdminLive's module guard, since no role rows grant
+  `service_accounts`), and every mutating event re-checks the ADMIN role
+  server-side anyway — defense in depth.
+
+  List / create / revoke bearer-token credentials for external API callers
+  (`/api/v1/kyc/*`). The raw token is shown exactly once, right after
+  creation — only its hash is ever persisted (`ASM.ServiceAccounts.
+  create/1`) — with an explicit warning that it can't be retrieved again.
+  """
+
+  use Phoenix.LiveComponent
+  import VmuCoreWeb.AdminUI
+
+  alias VmuCore.ASM.{ServiceAccount, ServiceAccounts}
+
+  @impl true
+  def mount(socket) do
+    {:ok,
+     socket
+     |> assign(
+       accounts: [],
+       show_create: false,
+       just_created_token: nil,
+       notice: nil,
+       notice_kind: :info,
+       current_operator: nil
+     )}
+  end
+
+  @impl true
+  def update(assigns, socket) do
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> load_accounts()}
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div>
+      <.page_header title="Service Accounts" subtitle="API credentials for external callers (e.g. /api/v1/kyc/*)">
+        <:actions>
+          <button type="button" phx-click="toggle_create" phx-target={@myself} class="btn btn-primary">+ New</button>
+        </:actions>
+      </.page_header>
+
+      <.alert :if={@notice} kind={@notice_kind} message={@notice} />
+
+      <%= if @just_created_token do %>
+        <div class="card" style="border:2px solid #d9822b; padding:12px; margin-bottom:16px;">
+          <strong>⚠ Copy this token now — it will never be shown again.</strong>
+          <pre style="user-select:all; background:#f5f5f5; padding:8px; margin-top:8px;"><%= @just_created_token %></pre>
+          <button type="button" phx-click="dismiss_token" phx-target={@myself} class="btn btn-sm">I've copied it</button>
+        </div>
+      <% end %>
+
+      <%= if @show_create do %>
+        <.form_card title="New Service Account">
+          <form phx-submit="create" phx-target={@myself}>
+            <.field label="Name">
+              <input type="text" name="name" required placeholder="e.g. wallet-app-prod" />
+            </.field>
+            <.field label="Scopes">
+              <label :for={s <- ServiceAccount.scopes()} style="display:block;">
+                <input type="checkbox" name="scopes[]" value={s} /> <%= s %>
+              </label>
+            </.field>
+            <button type="submit" class="btn btn-primary">Create</button>
+            <button type="button" phx-click="toggle_create" phx-target={@myself} class="btn">Cancel</button>
+          </form>
+        </.form_card>
+      <% end %>
+
+      <%= if @accounts == [] do %>
+        <.empty_state icon="🔑" title="No service accounts yet" />
+      <% else %>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Scopes</th>
+              <th>Status</th>
+              <th>Last used</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={a <- @accounts}>
+              <td><%= a.name %></td>
+              <td><%= Enum.join(a.scopes, ", ") %></td>
+              <td><.status_badge status={a.status} /></td>
+              <td><%= a.last_used_at %></td>
+              <td>
+                <button :if={a.status == "ACTIVE"} type="button" phx-click="revoke" phx-value-id={a.service_account_id} phx-target={@myself} class="btn btn-sm btn-danger">Revoke</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Events (each mutation re-checks ADMIN)
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def handle_event("toggle_create", _params, socket) do
+    {:noreply, assign(socket, show_create: !socket.assigns.show_create, notice: nil)}
+  end
+
+  def handle_event("dismiss_token", _params, socket) do
+    {:noreply, assign(socket, just_created_token: nil)}
+  end
+
+  def handle_event("create", %{"name" => name} = params, socket) do
+    if admin?(socket) do
+      scopes = params["scopes"] || []
+
+      case ServiceAccounts.create(%{"name" => name, "scopes" => scopes, "created_by" => operator_username(socket)}) do
+        {:ok, _account, raw_token} ->
+          {:noreply,
+           socket
+           |> assign(show_create: false, just_created_token: raw_token, notice: "Service account created", notice_kind: :success)
+           |> load_accounts()}
+
+        {:error, changeset} ->
+          {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Only ADMIN can manage service accounts", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("revoke", %{"id" => id}, socket) do
+    if admin?(socket) do
+      case ServiceAccounts.get(id) do
+        nil ->
+          {:noreply, socket}
+
+        account ->
+          {:ok, _} = ServiceAccounts.revoke(account)
+          {:noreply, socket |> assign(notice: "Service account revoked", notice_kind: :success) |> load_accounts()}
+      end
+    else
+      {:noreply, assign(socket, notice: "Only ADMIN can manage service accounts", notice_kind: :error)}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  defp load_accounts(socket), do: assign(socket, accounts: ServiceAccounts.list())
+
+  defp admin?(socket), do: socket.assigns.current_operator && socket.assigns.current_operator.role == "ADMIN"
+
+  defp operator_username(socket) do
+    case socket.assigns.current_operator do
+      %{username: username} -> username
+      _ -> nil
+    end
+  end
+
+  defp cs_error_msg(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.map(fn {field, errors} -> "#{field}: #{Enum.join(errors, ", ")}" end)
+    |> Enum.join("; ")
+  end
+end

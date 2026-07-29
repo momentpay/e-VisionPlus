@@ -18,6 +18,15 @@ defmodule VmuCoreWeb.Router do
     plug VmuCoreWeb.Plugs.InternalApiAuth
   end
 
+  # External API (KYC-P5, 2026-07-29) — bearer-token ASM.ServiceAccount
+  # auth, a different trust boundary than :api's internal shared-secret
+  # (FAS/settlement_core): external partners (wallet-app, Kosa App, or a
+  # genuine third party) with scoped tokens, not another in-umbrella app.
+  pipeline :api_v1 do
+    plug :accepts, ["json"]
+    plug VmuCoreWeb.Plugs.ApiV1Auth
+  end
+
   # Way4 parity plan Phase 0 item 6 (2026-07-24) — dev/test-only mock OIDC
   # provider (see VmuCoreWeb.MockIdp's moduledoc for why: no real
   # corporate IdP is available in this environment, so VmuCore.ASM.
@@ -44,6 +53,18 @@ defmodule VmuCoreWeb.Router do
 
     get  "/auth/lookup",        FasApiController, :auth_lookup
     post "/settlement/confirm", FasApiController, :settlement_confirm
+  end
+
+  # External KYC API (KYC-P5) — see the :api_v1 pipeline above for the
+  # trust-boundary note. Review/approve/reject stays admin-console-only,
+  # deliberately no endpoint for it here.
+  scope "/api/v1/kyc", VmuCoreWeb.Api.V1 do
+    pipe_through :api_v1
+
+    get  "/methods",                 KycController, :list_methods
+    post "/requests",                KycController, :create_request
+    get  "/requests/:id",            KycController, :show_request
+    post "/requests/:id/documents",  KycController, :upload_document
   end
 
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard

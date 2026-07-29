@@ -38,7 +38,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     PrepaidComponent,
     WalletComponent,
     KycMethodsComponent,
-    KycRequestsComponent
+    KycRequestsComponent,
+    ServiceAccountsComponent
   }
 
   @modules %{
@@ -64,6 +65,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "kyc_methods"  => %{label: "KYC Methods",               icon: "🪪",  section: :account},
     "kyc_requests" => %{label: "KYC Requests",              icon: "📋",  section: :account},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
+    "service_accounts" => %{label: "Service Accounts",    icon: "🔑",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
   }
@@ -185,6 +187,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"approvals" in @visible_modules} mod="approvals" label="Approval Inbox" icon="✅" active={@active_module} />
           <.sidebar_nav_item :if={"audit_log" in @visible_modules} mod="audit_log" label="Audit Trail" icon="📜" active={@active_module} />
           <.sidebar_nav_item :if={"operators" in @visible_modules} mod="operators" label="Operators" icon="🔐" active={@active_module} />
+          <.sidebar_nav_item :if={"service_accounts" in @visible_modules} mod="service_accounts" label="Service Accounts" icon="🔑" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -297,6 +300,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} />
               <% "operators" -> %>
                 <.live_component module={OperatorComponent} id="operators-component"
+                                 current_operator={@current_operator} />
+              <% "service_accounts" -> %>
+                <.live_component module={ServiceAccountsComponent} id="service-accounts-component"
                                  current_operator={@current_operator} />
               <% "approvals" -> %>
                 <.live_component module={ApprovalInboxComponent} id="approvals-component"

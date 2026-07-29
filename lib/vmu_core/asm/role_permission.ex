@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -156,8 +156,10 @@ defmodule VmuCore.ASM.RolePermission do
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}
 
-      # ADMIN — code short-circuit in Authz; "operators" module is ADMIN-only
-      # precisely because no role rows grant it.
+      # ADMIN — code short-circuit in Authz; "operators" and
+      # "service_accounts" (KYC-P5, 2026-07-29 — API credential
+      # provisioning) are both ADMIN-only precisely because no role rows
+      # grant them.
     ]
   end
 end

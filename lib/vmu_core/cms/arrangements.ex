@@ -11,7 +11,7 @@ defmodule VmuCore.CMS.Arrangements do
 
   import Ecto.Query
   alias VmuCore.{Repo, CMS.Arrangement}
-  alias VmuCore.CMS.{Account, DebitAccount, PrepaidAccount, PrepaidLedger}
+  alias VmuCore.CMS.{Account, DebitAccount, PrepaidAccount, PrepaidLedger, WalletProduct, WalletAccount}
   alias VmuCore.HCS.{Company, EmployeeCard, FleetCard}
   alias VmuCore.Shared.Customer
 
@@ -164,6 +164,36 @@ defmodule VmuCore.CMS.Arrangements do
     |> Enum.map(fn {id, company_id, status, limit, avail} ->
       {{"CORPORATE_FLEET", to_string(id)},
        %{status: status, summary: "Limit #{money(limit)} / Avail #{money(avail)}", view_ref: to_string(company_id)}}
+    end)
+  end
+
+  # Digital Wallet Phase W4 (2026-07-28) — account_ref here is the
+  # `wallet_product_id` (a product may hold N single-currency accounts,
+  # see CMS.WalletProduct's own moduledoc), so the summary shows the
+  # earliest-opened account's balance/currency as the representative
+  # one, not a meaningless cross-currency sum. One batched query for
+  # all accounts across every product in `refs`, not N+1 — `Map.put_new/3`
+  # inside the reduce keeps only the first (earliest `inserted_at`) row
+  # per product since `order_by` runs before the reduce sees the rows.
+  defp enrich_group("WALLET", refs) do
+    statuses =
+      Repo.all(from p in WalletProduct, where: p.wallet_product_id in ^refs,
+        select: {p.wallet_product_id, p.status})
+      |> Map.new()
+
+    primary_accounts =
+      Repo.all(from a in WalletAccount, where: a.wallet_product_id in ^refs,
+        order_by: [asc: a.inserted_at], select: {a.wallet_product_id, a.available_balance, a.currency})
+      |> Enum.reduce(%{}, fn {product_id, bal, ccy}, acc -> Map.put_new(acc, product_id, {bal, ccy}) end)
+
+    Enum.map(statuses, fn {product_id, status} ->
+      summary =
+        case Map.get(primary_accounts, product_id) do
+          {bal, ccy} -> "#{money(bal)} #{ccy}"
+          nil -> "No accounts"
+        end
+
+      {{"WALLET", product_id}, %{status: status, summary: summary, view_ref: product_id}}
     end)
   end
 

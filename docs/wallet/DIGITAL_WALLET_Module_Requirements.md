@@ -7,8 +7,12 @@ new tests). **Phase W2 done 2026-07-28** (wallet-to-wallet transfer,
 `WalletTransferCommand`, 5/5 new tests, atomic-rollback money-conservation
 proven with real data). **Phase W3 done 2026-07-28** (personal QR
 receive+pay, `WalletQrIdentity`/`WalletQrPaymentCommand`, 12/12 new
-tests). Full suite 410 tests / same 10 pre-existing failures, no
-regression. This is the Way4 parity plan's **Phase 2** requirements
+tests). **Phase W4 done 2026-07-28** (admin ops UI — `WalletComponent`,
+wizard + Overview/Transfers/QR/History tabs + the Block/Address-Phone-
+Email/Limits/KYC parity toolbar, 9/9 new tests — first phase with
+anything visible in the browser). Full suite 419 tests / same 10
+pre-existing failures, no regression. This is the Way4 parity plan's
+**Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -208,8 +212,30 @@ reference**, not code to port.
    pay, tamper detection, and the nonexistent-account graceful-failure
    case). Full suite 410 tests / same 10 pre-existing failures, no
    regression.
-4. **Phase W4 — Admin ops UI.** Wizard + tabs, same convention as Debit/
-   Prepaid/HCS from this session's Card Products UX Parity work.
+4. ~~**Phase W4 — Admin ops UI.**~~ ✅ **Done 2026-07-28.**
+   `WalletComponent` — 3-step wizard (Customer/Product/Review, same
+   shape as Debit/Prepaid/HCS), detail view with an account-level
+   toolbar (Apply/Remove Block, Address/Phone/Email change, Change
+   Limits, KYC Verify/Reject/Reset — same 4 parity items Debit/Prepaid's
+   own Phase 1e/2d shipped; Channel Controls/Supplementary Card
+   deliberately NOT included, since Wallet has no `CTA.Card` in this
+   scope at all — an honest gap, not an invented one) and 4 tabs:
+   Overview (balance + Load), Transfers (search-a-recipient send-money
+   form + combined sent/received history), QR (generate a receive code
+   + paste-and-pay), History (combined block/non-monetary-event audit
+   trail). Registered as a new `wallet` module end-to-end: `ASM.
+   RolePermission` grants (SUPERVISOR/OPS/RISK/COMPLIANCE, mirroring
+   Debit/Prepaid's own matrix — no `approve` grant, since Wallet has no
+   4-eyes action yet, unlike Debit/Prepaid's Adjustments), sidebar nav,
+   and Customer 360's own Arrangements sub-tabs (`CMS.Arrangements.
+   enrich_group/2` gained a `"WALLET"` clause — `account_ref` here is a
+   `wallet_product_id`, not an individual currency account, so the
+   summary shows the product's earliest-opened account's balance, one
+   batched query across all matching products, not N+1). 9/9 new tests
+   (`test/vmu_core_web/live/admin/wallet_component_test.exs`), including
+   a real two-LiveView-process QR handoff (generate in one browser
+   session, pay in a separate one, exactly like a real scan would work).
+   Full suite 419 tests / same 10 pre-existing failures, no regression.
 5. **Phase W5 — Step-up KYC + limits/fees config.**
 6. **Phase W6+ — A2A and Instant Payments**, each gated on its own
    external rail/vendor decision, not started until that decision lands.

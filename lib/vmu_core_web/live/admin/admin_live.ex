@@ -35,7 +35,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     CollectionsMiComponent,
     HcsComponent,
     DebitComponent,
-    PrepaidComponent
+    PrepaidComponent,
+    WalletComponent
   }
 
   @modules %{
@@ -57,6 +58,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "hcs"          => %{label: "Corporate Cards (HCS)",   icon: "🏢",  section: :account},
     "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
     "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
+    "wallet"       => %{label: "Digital Wallet",            icon: "👛",  section: :account},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
@@ -154,6 +156,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"hcs" in @visible_modules} mod="hcs" label="Corporate Cards (HCS)" icon="🏢" active={@active_module} />
           <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
           <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
+          <.sidebar_nav_item :if={"wallet" in @visible_modules} mod="wallet" label="Digital Wallet" icon="👛" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -266,6 +269,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "prepaid" -> %>
                 <.live_component module={PrepaidComponent} id="prepaid-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "wallet" -> %>
+                <.live_component module={WalletComponent} id="wallet-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
               <% "exceptions" -> %>
                 <.live_component module={ExceptionQueueComponent} id="exceptions-component"

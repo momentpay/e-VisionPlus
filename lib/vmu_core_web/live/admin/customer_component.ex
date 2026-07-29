@@ -23,7 +23,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   alias VmuCore.Shared.ModuleConfigEngine
   alias VmuCore.ASM.Authz
   alias VmuCore.CMS.Arrangements
-  alias VmuCoreWeb.Live.Admin.{AccountComponent, DebitComponent, PrepaidComponent, HcsComponent}
+  alias VmuCoreWeb.Live.Admin.{AccountComponent, DebitComponent, PrepaidComponent, HcsComponent, WalletComponent}
 
   @id_types [
     {"-- Select ID Type --", ""},
@@ -930,7 +930,8 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       {:debit,     "Debit Card",     "🏦"},
       {:prepaid,   "Prepaid Card",   "💰"},
       {:corporate, "Corporate Card", "🏢"},
-      {:fleet,     "Fleet Card",     "🚚"}
+      {:fleet,     "Fleet Card",     "🚚"},
+      {:wallet,    "Digital Wallet", "👛"}
     ]
   end
 
@@ -940,6 +941,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   defp arrangement_family("CORPORATE_FACILITY"), do: :corporate
   defp arrangement_family("CORPORATE_EMPLOYEE"), do: :corporate
   defp arrangement_family("CORPORATE_FLEET"), do: :fleet
+  defp arrangement_family("WALLET"), do: :wallet
   defp arrangement_family(_), do: :other
 
   defp arrangement_component(:credit), do: AccountComponent
@@ -947,6 +949,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   defp arrangement_component(:prepaid), do: PrepaidComponent
   defp arrangement_component(:corporate), do: HcsComponent
   defp arrangement_component(:fleet), do: HcsComponent
+  defp arrangement_component(:wallet), do: WalletComponent
 
   defp arrangement_counts(arrangements) do
     Enum.reduce(arrangements, %{}, fn row, acc ->
@@ -959,6 +962,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   defp family_label(:prepaid), do: "prepaid cards"
   defp family_label(:corporate), do: "corporate cards"
   defp family_label(:fleet), do: "fleet cards"
+  defp family_label(:wallet), do: "digital wallets"
 
   # First family (in display order) that has at least one arrangement —
   # so opening a Debit-only customer's Arrangements tab doesn't default

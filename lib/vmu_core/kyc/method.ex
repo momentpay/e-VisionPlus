@@ -8,6 +8,16 @@ defmodule VmuCore.Kyc.Method do
   `fields` is a JSON array of field defs (see `VmuCore.Kyc.FieldTypes`) — the
   form is entirely runtime-editable through the admin builder UI, no deploy
   needed to add a new KYC step or change what it asks for.
+
+  `step` + `required` (KYC-P3.5, confirmed with the user 2026-07-29) turn a
+  product's KYC into an ordered, sequentially-gated journey — several methods
+  can share one `product_type` at different `step` numbers (e.g. DEBIT step 1
+  = Business Profile, step 2 = ID Verification, step 3 = Bank Details).
+  `required: false` marks a step skippable when gating checks whether earlier
+  steps are done (mirrors the MMS reference's `StepBypassConfig`, folded onto
+  the method row here instead of a separate global table, since each method
+  is already product+step scoped). Gating itself lives in `VmuCore.Kyc.
+  Journey`, not here — this schema only carries the ordering data.
   """
 
   use Ecto.Schema
@@ -32,12 +42,14 @@ defmodule VmuCore.Kyc.Method do
     field :cloned_from_method_id, :binary_id
     field :sys_id, :string
     field :bank_id, :string
+    field :step, :integer, default: 1
+    field :required, :boolean, default: true
 
     timestamps(type: :utc_datetime)
   end
 
   @required ~w[name title product_type]a
-  @optional ~w[status fields conditional_rules cloned_from_method_id sys_id bank_id]a
+  @optional ~w[status fields conditional_rules cloned_from_method_id sys_id bank_id step required]a
 
   @doc false
   def changeset(method, attrs) do
@@ -46,6 +58,7 @@ defmodule VmuCore.Kyc.Method do
     |> validate_required(@required)
     |> validate_inclusion(:product_type, Arrangement.product_types())
     |> validate_inclusion(:status, @statuses)
+    |> validate_number(:step, greater_than_or_equal_to: 1)
     |> validate_fields()
   end
 

@@ -9,7 +9,7 @@ defmodule VmuCore.Kyc.Requests do
   import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.Kyc.{Request, Method, StatusSync}
+  alias VmuCore.Kyc.{Request, Method, StatusSync, Journey}
 
   @doc "List requests, optionally filtered by product_type/status/customer_id."
   @spec list(map()) :: [Request.t()]
@@ -30,29 +30,42 @@ defmodule VmuCore.Kyc.Requests do
 
   @doc """
   Submit a new KYC request against an active method. Snapshots the method's
-  `fields`/`version` at submission time — a later edit to the method never
-  corrupts how this submission renders (`docs/kyc/
-  KYC_Implementation_Tracker.md` §3.3).
+  `fields`/`version`/`step` at submission time — a later edit to the method
+  never corrupts how this submission renders or which step it counted as
+  (`docs/kyc/KYC_Implementation_Tracker.md` §3.3).
+
+  Returns `{:error, :step_locked}` if an earlier *required* step for this
+  product isn't approved for this customer yet (`Kyc.Journey`, §KYC-P3.5) —
+  a defensive backstop; the submission UI shouldn't offer a locked step as
+  selectable in the first place, but this is checked here too rather than
+  trusted from the caller.
   """
-  @spec submit(Method.t(), map()) :: {:ok, Request.t()} | {:error, Ecto.Changeset.t()}
+  @spec submit(Method.t(), map()) :: {:ok, Request.t()} | {:error, Ecto.Changeset.t() | :step_locked}
   def submit(%Method{} = method, attrs) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    customer_id = attrs["customer_id"] || attrs[:customer_id]
 
-    attrs =
-      attrs
-      |> Map.merge(%{
-        "kyc_method_id" => method.method_id,
-        "method_version" => method.version,
-        "fields_snapshot" => method.fields,
-        "product_type" => method.product_type,
-        "application_number" => generate_application_number(),
-        "status" => "submitted",
-        "submitted_at" => now
-      })
+    if customer_id && not Journey.submittable?(customer_id, method) do
+      {:error, :step_locked}
+    else
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    %Request{}
-    |> Request.changeset(attrs)
-    |> Repo.insert()
+      attrs =
+        attrs
+        |> Map.merge(%{
+          "kyc_method_id" => method.method_id,
+          "method_version" => method.version,
+          "fields_snapshot" => method.fields,
+          "product_type" => method.product_type,
+          "step" => method.step,
+          "application_number" => generate_application_number(),
+          "status" => "submitted",
+          "submitted_at" => now
+        })
+
+      %Request{}
+      |> Request.changeset(attrs)
+      |> Repo.insert()
+    end
   end
 
   @doc "Move a submitted request into review."

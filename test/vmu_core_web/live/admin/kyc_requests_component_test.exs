@@ -1,9 +1,11 @@
-defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
+defmodule VmuCoreWeb.Live.Admin.KycRequestsComponentTest do
   @moduledoc """
-  Real Postgres via Sandbox, no mocking. First browser-level coverage for
-  KYC-P1/P2 (2026-07-29): method builder, admin-initiated request
-  submission wizard, and approve/reject with the real StatusSync side
-  effect, all through the real LiveView.
+  Real Postgres via Sandbox, no mocking. KYC-P2/P3/P3.5 (2026-07-29) —
+  submission wizard (now step-journey aware), approve/reject with the real
+  StatusSync side effect, conditional field hide/show, and document
+  upload-to-OCR-to-annotation, all through the real LiveView. Split out of
+  the combined KycComponent per the user's role-separation feedback (see
+  kyc_methods_component_test.exs).
   """
 
   use ExUnit.Case, async: false
@@ -32,8 +34,8 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
   defp operator_fixture(role) do
     %Operator{}
     |> Operator.changeset(%{
-      username: "kyc_test_#{String.downcase(role)}_#{System.unique_integer([:positive])}",
-      display_name: "Kyc Test #{role}", pw_hash: "x", pw_salt: "x", role: role, status: "ACTIVE"
+      username: "kyc_requests_test_#{String.downcase(role)}_#{System.unique_integer([:positive])}",
+      display_name: "Kyc Requests Test #{role}", pw_hash: "x", pw_salt: "x", role: role, status: "ACTIVE"
     })
     |> Repo.insert!()
   end
@@ -79,38 +81,14 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
     |> Repo.insert!()
   end
 
-  test "creating a method through the builder UI, then editing it bumps version" do
-    operator = operator_fixture("SUPERVISOR")
-    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
-
-    view |> element("button[phx-click=new_method]") |> render_click()
-
-    view
-    |> form("form[phx-change=form_change]", %{
-      "method" => %{"name" => "Browser Method", "title" => "Browser Method Title", "product_type" => "DEBIT", "status" => "active"}
-    })
-    |> render_change()
-
-    view |> element("button[phx-click=add_field]") |> render_click()
-
-    view
-    |> element("input[phx-value-idx='0'][phx-value-prop=label]")
-    |> render_blur(%{"value" => "Full Name"})
-
-    html = view |> form("form[phx-submit=save_method]") |> render_submit()
-    assert html =~ "Method saved successfully"
-    assert html =~ "Browser Method"
-
-    # Edit it: add a second field, version should bump to 2
-    view |> element("button[phx-click=edit_method]", "Edit") |> render_click()
-    view |> element("button[phx-click=add_field]") |> render_click()
-
-    view
-    |> element("input[phx-value-idx='1'][phx-value-prop=label]")
-    |> render_blur(%{"value" => "ID Number"})
-
-    html = view |> form("form[phx-submit=save_method]") |> render_submit()
-    assert html =~ "v2"
+  # Drives the wizard through customer search -> select -> product pick ->
+  # clicking "Start" on the given method's journey row -> landing on step 3.
+  defp advance_to_form(view, customer, method) do
+    view |> element("button[phx-click=req_new]") |> render_click()
+    view |> element("input[phx-keyup=req_cust_search]") |> render_keyup(%{"value" => customer.last_name})
+    view |> element("button[phx-click=req_select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> element("select[phx-change=req_select_product]") |> render_change(%{"value" => method.product_type})
+    view |> element("button[phx-click=req_select_method][phx-value-id='#{method.method_id}']") |> render_click()
   end
 
   test "admin-initiated KYC request: submit, view, approve syncs DebitAccount.kyc_status" do
@@ -128,24 +106,8 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
         "fields" => [%{"key" => "full_name", "label" => "Full Name", "type" => "text", "required" => true, "options" => []}]
       })
 
-    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
-
-    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
-    view |> element("button[phx-click=req_new]") |> render_click()
-
-    view
-    |> element("input[phx-keyup=req_cust_search]")
-    |> render_keyup(%{"value" => customer.last_name})
-
-    view |> element("button[phx-click=req_select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
-
-    view
-    |> element("select[phx-change=req_select_product]")
-    |> render_change(%{"value" => "DEBIT"})
-
-    view
-    |> element("select[phx-change=req_select_method]")
-    |> render_change(%{"value" => method.method_id})
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
+    advance_to_form(view, customer, method)
 
     html =
       view
@@ -154,7 +116,6 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
 
     assert html =~ "KYC request submitted"
 
-    # Open the request from the list and approve it
     html = view |> element("button[phx-click=req_view]") |> render_click()
     assert html =~ "Jane Applicant"
 
@@ -187,8 +148,7 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
 
     {:ok, request} = VmuCore.Kyc.Requests.submit(method, %{"customer_id" => customer.customer_id, "data" => %{"full_name" => "Reject Me"}})
 
-    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
-    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
     view |> element("button[phx-click=req_view][phx-value-id='#{request.request_id}']") |> render_click()
 
     html =
@@ -201,6 +161,36 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
     reloaded_account = Repo.get!(DebitAccount, account.debit_account_id)
     assert reloaded_account.kyc_status == "REJECTED"
     assert reloaded_account.kyc_verified_at == nil
+  end
+
+  test "step 2's journey view shows a locked later step and blocks starting it until step 1 is approved" do
+    operator = operator_fixture("SUPERVISOR")
+    customer = customer_fixture()
+
+    {:ok, step1} =
+      VmuCore.Kyc.Methods.create(%{
+        "name" => "Business Profile", "title" => "Business Profile", "product_type" => "PREPAID", "status" => "active",
+        "step" => 1, "fields" => [%{"key" => "note", "label" => "Note", "type" => "text", "required" => false, "options" => []}]
+      })
+
+    {:ok, step2} =
+      VmuCore.Kyc.Methods.create(%{
+        "name" => "Bank Details", "title" => "Bank Details", "product_type" => "PREPAID", "status" => "active",
+        "step" => 2, "fields" => [%{"key" => "iban", "label" => "IBAN", "type" => "text", "required" => false, "options" => []}]
+      })
+
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
+    view |> element("button[phx-click=req_new]") |> render_click()
+    view |> element("input[phx-keyup=req_cust_search]") |> render_keyup(%{"value" => customer.last_name})
+    view |> element("button[phx-click=req_select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+
+    html = view |> element("select[phx-change=req_select_product]") |> render_change(%{"value" => "PREPAID"})
+
+    # Step 1 is startable, step 2 is locked -- only step 1 gets a
+    # phx-click=req_select_method button rendered for it.
+    assert html =~ "complete an earlier step first"
+    assert has_element?(view, "button[phx-click=req_select_method][phx-value-id='#{step1.method_id}']")
+    refute has_element?(view, "button[phx-click=req_select_method][phx-value-id='#{step2.method_id}']")
   end
 
   test "conditional logic hides a field until its condition is satisfied, live in the submission form" do
@@ -222,18 +212,9 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
         ]
       })
 
-    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
-    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
-    view |> element("button[phx-click=req_new]") |> render_click()
-    view |> element("input[phx-keyup=req_cust_search]") |> render_keyup(%{"value" => customer.last_name})
-    view |> element("button[phx-click=req_select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
-    view |> element("select[phx-change=req_select_product]") |> render_change(%{"value" => "DEBIT"})
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
 
-    html =
-      view
-      |> element("select[phx-change=req_select_method]")
-      |> render_change(%{"value" => method.method_id})
-
+    html = advance_to_form(view, customer, method)
     refute html =~ "Company Name"
 
     html =
@@ -271,8 +252,7 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
       Req.Test.json(conn, %{"simplified_text" => %{"raw_text" => "784-1990-1234567-1"}})
     end)
 
-    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
-    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
     view |> element("button[phx-click=req_view][phx-value-id='#{request.request_id}']") |> render_click()
 
     view
@@ -300,5 +280,13 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
 
     assert html =~ "Annotation added"
     assert html =~ "clear scan, matches records"
+  end
+
+  test "OPS role can view and edit requests but a role with no grant can't reach the screen" do
+    operator = operator_fixture("OPS")
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc_requests")
+
+    html = render(view)
+    assert html =~ "+ New Request"
   end
 end

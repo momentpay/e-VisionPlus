@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -72,9 +72,15 @@ defmodule VmuCore.ASM.RolePermission do
       # for Wallet yet (unlike Debit/Prepaid's Adjustments), so no
       # "approve" grant here — added if/when one is ever built.
       {"SUPERVISOR", "wallet",       ~w[view edit]},
-      # KYC-P1 (2026-07-29) — no 4-eyes action yet (that arrives with
-      # KYC-P2's request approve/reject), so no "approve" grant here.
-      {"SUPERVISOR", "kyc",          ~w[view edit]},
+      # KYC-P3.5 (2026-07-29) split the old single "kyc" module in two, per
+      # the user: method template design and request review are different
+      # roles and shouldn't share one screen/permission. Methods is a
+      # config-design surface (SUPERVISOR edits, same pattern as logo/block);
+      # Requests is operational review (SUPERVISOR/OPS/RISK edit, same
+      # pattern as wallet/debit/prepaid). No "approve" grant on Requests yet
+      # — no 4-eyes action exists for KYC approve/reject.
+      {"SUPERVISOR", "kyc_methods",  ~w[view edit]},
+      {"SUPERVISOR", "kyc_requests", ~w[view edit]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -93,7 +99,8 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "debit",        ~w[view edit]},
       {"OPS", "prepaid",      ~w[view edit]},
       {"OPS", "wallet",       ~w[view edit]},
-      {"OPS", "kyc",          ~w[view edit]},
+      {"OPS", "kyc_methods",  ~w[view]},
+      {"OPS", "kyc_requests", ~w[view edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
@@ -120,7 +127,8 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "debit",        ~w[view edit]},
       {"RISK", "prepaid",      ~w[view edit]},
       {"RISK", "wallet",       ~w[view edit]},
-      {"RISK", "kyc",          ~w[view edit]},
+      {"RISK", "kyc_methods",  ~w[view]},
+      {"RISK", "kyc_requests", ~w[view edit]},
 
       # COMPLIANCE — read everything, change nothing
       {"COMPLIANCE", "system",       ~w[view]},
@@ -142,7 +150,8 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "debit",        ~w[view]},
       {"COMPLIANCE", "prepaid",      ~w[view]},
       {"COMPLIANCE", "wallet",       ~w[view]},
-      {"COMPLIANCE", "kyc",          ~w[view]},
+      {"COMPLIANCE", "kyc_methods",  ~w[view]},
+      {"COMPLIANCE", "kyc_requests", ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}

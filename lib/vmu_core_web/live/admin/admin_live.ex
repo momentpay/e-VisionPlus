@@ -37,7 +37,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     DebitComponent,
     PrepaidComponent,
     WalletComponent,
-    KycComponent
+    KycMethodsComponent,
+    KycRequestsComponent
   }
 
   @modules %{
@@ -60,7 +61,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
     "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
     "wallet"       => %{label: "Digital Wallet",            icon: "👛",  section: :account},
-    "kyc"          => %{label: "KYC Methods",               icon: "🪪",  section: :account},
+    "kyc_methods"  => %{label: "KYC Methods",               icon: "🪪",  section: :account},
+    "kyc_requests" => %{label: "KYC Requests",              icon: "📋",  section: :account},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
@@ -159,7 +161,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
           <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
           <.sidebar_nav_item :if={"wallet" in @visible_modules} mod="wallet" label="Digital Wallet" icon="👛" active={@active_module} />
-          <.sidebar_nav_item :if={"kyc" in @visible_modules} mod="kyc" label="KYC Methods" icon="🪪" active={@active_module} />
+          <.sidebar_nav_item :if={"kyc_methods" in @visible_modules} mod="kyc_methods" label="KYC Methods" icon="🪪" active={@active_module} />
+          <.sidebar_nav_item :if={"kyc_requests" in @visible_modules} mod="kyc_requests" label="KYC Requests" icon="📋" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -276,8 +279,11 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
               <% "wallet" -> %>
                 <.live_component module={WalletComponent} id="wallet-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
-              <% "kyc" -> %>
-                <.live_component module={KycComponent} id="kyc-component"
+              <% "kyc_methods" -> %>
+                <.live_component module={KycMethodsComponent} id="kyc-methods-component"
+                                 current_operator={@current_operator} />
+              <% "kyc_requests" -> %>
+                <.live_component module={KycRequestsComponent} id="kyc-requests-component"
                                  current_operator={@current_operator} />
               <% "exceptions" -> %>
                 <.live_component module={ExceptionQueueComponent} id="exceptions-component"

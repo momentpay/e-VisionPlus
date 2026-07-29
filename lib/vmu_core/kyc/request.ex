@@ -9,6 +9,10 @@ defmodule VmuCore.Kyc.Request do
   `status` reuses the richer state-machine shape proven in both the MMS
   reference and Avenza's `wallet_kyc` (`submitted -> under_review ->
   approved/rejected/expired`), not the reference's flat 0/1/2/3.
+
+  `step` snapshots the method's `step` number at submission time (KYC-P3.5)
+  — same reasoning as `fields_snapshot`/`method_version`: a later edit to the
+  method's step ordering never reclassifies a past submission.
   """
 
   use Ecto.Schema
@@ -29,6 +33,7 @@ defmodule VmuCore.Kyc.Request do
     field :fields_snapshot, {:array, :map}, default: []
     field :customer_id, :binary_id
     field :product_type, :string
+    field :step, :integer, default: 1
     field :arrangement_id, :binary_id
     field :data, :map, default: %{}
     field :status, :string, default: "submitted"
@@ -42,7 +47,7 @@ defmodule VmuCore.Kyc.Request do
   end
 
   @required ~w[kyc_method_id method_version fields_snapshot customer_id product_type]a
-  @optional ~w[application_number arrangement_id data status reviewer_id
+  @optional ~w[application_number step arrangement_id data status reviewer_id
                decision_reason submitted_at reviewed_at expires_at]a
 
   @doc false

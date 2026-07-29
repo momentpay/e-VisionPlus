@@ -252,4 +252,50 @@ architecture: keep it pluggable, add a real provider only when actually needed.
 **Next: KYC-P4** — risk-scoring hook on approval (check CDM for an existing
 engine first). **KYC-P5** — API layer.
 
+### KYC-P3.5 — User feedback after seeing P1-P3 live: role split, step journey, UI ✅ Done 2026-07-29
+Real feedback from the browser, not a planned phase — captured here as its
+own entry rather than folded into P3's "done" line, since it changed shipped
+behavior:
+
+1. **Role separation** — "KYC Method created can be admin role whereas KYC
+   request management is another user role, we should not keep at one
+   place." Split the combined `KycComponent`/`kyc` module into two separate
+   screens/permissions: `KycMethodsComponent` (`kyc_methods` — template
+   design, SUPERVISOR edits, OPS/RISK/COMPLIANCE view-only, same pattern as
+   `logo`/`block`) and `KycRequestsComponent` (`kyc_requests` — operational
+   review, SUPERVISOR/OPS/RISK edit, COMPLIANCE view-only, same pattern as
+   `wallet`/`debit`/`prepaid`). Two sidebar entries, not tabs in one screen.
+2. **Step-based sequencing** — "I do not see Steps based KYC process
+   option." Confirmed via `AskUserQuestion`: **sequential gate**, not just
+   informational ordering. `Method` gained `step`/`required`; `Request`
+   snapshots `step` at submission (same reasoning as `fields_snapshot`).
+   New `VmuCore.Kyc.Journey.progress/2` classifies each of a product's
+   methods as `:done`/`:current`/`:locked` for a customer (a method is
+   locked until every earlier `required: true` step has an **approved**
+   request); `submittable?/2` backs a defensive gate in `Requests.submit/2`
+   (`{:error, :step_locked}`) — the submission UI shouldn't offer a locked
+   step, but this isn't trusted from the caller either. The wizard's step-2
+   screen now renders the ordered journey with Start/Locked/Resubmit
+   instead of a flat method dropdown.
+3. **UI polish** — reworked the Method editor from one long vertical form
+   into a tabbed layout (Form Fields / Conditional Logic) closer to the MMS
+   screenshot's shape. Deliberately **not** matching MMS's Third-Party-
+   Validation/OCR-Configuration tabs — this build's OCR already runs
+   automatically on every file upload with no per-field toggle needed, and
+   third-party validation stays an unimplemented `ProviderAdapter` callback
+   (§P3) with nothing to configure per-field yet.
+4. **External API** — "we need to manage via API also some time." Not new
+   scope; already KYC-P5, re-confirmed as real and not to be dropped.
+5. **Risk engine pointer** — "the risk system mw-core/apps/mw_risk has LSEG
+   implementation and it can be used." Confirmed real, already integrated:
+   `VmuCore.CDM.SanctionsScreening.screen/1` is a direct (non-HTTP) call
+   into `mw_risk`'s `MwRisk.SanctionsChecker`, fail-closed, with a measured
+   real-latency budget against a real 76k-entry sanctions list. KYC-P4
+   reuses this instead of building a new HTTP-based integration.
+
+18/18 new tests (6 `Kyc.Journey` gating on real Postgres, 4 Methods-builder
+browser tests including the tab switch and clone flow, 6 Requests browser
+tests including the journey-locked-step assertion). Full suite 468 tests,
+same 10 pre-existing failures, no regression.
+
 ### KYC-P4..5 — outlined in §7, detailed at the start of each phase

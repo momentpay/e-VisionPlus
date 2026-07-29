@@ -15,8 +15,22 @@ defmodule VmuCore.Kyc.Methods do
     Method
     |> maybe_filter(:product_type, Map.get(filters, "product_type"))
     |> maybe_filter(:status, Map.get(filters, "status"))
-    |> order_by([m], asc: m.product_type, asc: m.name)
+    |> order_by([m], asc: m.product_type, asc: m.step, asc: m.name)
     |> Repo.all()
+  end
+
+  @doc """
+  A product's KYC methods in step order — the journey `Kyc.Journey` walks
+  through. Defaults to `active` only (an inactive step doesn't block or
+  appear in the journey).
+  """
+  @spec ordered_for_product(String.t(), String.t()) :: [Method.t()]
+  def ordered_for_product(product_type, status \\ "active") do
+    Repo.all(
+      from m in Method,
+        where: m.product_type == ^product_type and m.status == ^status,
+        order_by: [asc: m.step, asc: m.name]
+    )
   end
 
   @spec get(binary()) :: Method.t() | nil
@@ -72,7 +86,9 @@ defmodule VmuCore.Kyc.Methods do
       conditional_rules: source.conditional_rules,
       cloned_from_method_id: source.method_id,
       sys_id: source.sys_id,
-      bank_id: source.bank_id
+      bank_id: source.bank_id,
+      step: source.step,
+      required: source.required
     })
   end
 

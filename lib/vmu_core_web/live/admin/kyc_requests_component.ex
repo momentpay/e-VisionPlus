@@ -407,6 +407,14 @@ defmodule VmuCoreWeb.Live.Admin.KycRequestsComponent do
       {:ok, updated} ->
         {:noreply, assign(socket, req_detail: updated, notice: "Request approved", notice_kind: :success)}
 
+      {:error, {:sanctions_hit, hit}} ->
+        notice = "Approval blocked: sanctions screening matched \"#{hit.matched_name}\" (#{hit.list_type}). Escalate to compliance before proceeding."
+        {:noreply, assign(socket, notice: notice, notice_kind: :error)}
+
+      {:error, :screening_unavailable} ->
+        notice = "Approval blocked: sanctions screening could not complete. Try again, or escalate to compliance."
+        {:noreply, assign(socket, notice: notice, notice_kind: :error)}
+
       {:error, changeset} ->
         {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
     end

@@ -298,4 +298,34 @@ browser tests including the tab switch and clone flow, 6 Requests browser
 tests including the journey-locked-step assertion). Full suite 468 tests,
 same 10 pre-existing failures, no regression.
 
-### KYC-P4..5 — outlined in §7, detailed at the start of each phase
+### KYC-P4 — Risk-scoring hook on approval ✅ Done 2026-07-29
+Reused `VmuCore.CDM.SanctionsScreening.screen/1` (per the user's own lead,
+§P3.5 item 5) instead of building a new integration — `VmuCore.Kyc.
+RiskScreening.screen_request/1` resolves the request's `Shared.Customer` and
+screens `full_name`/`company_name`. Wired into `Kyc.Requests.approve/3`,
+**before** the status change: a sanctions hit or an unavailable screen both
+block approval outright (`{:error, {:sanctions_hit, hit}}` /
+`{:error, :screening_unavailable}`) — fail-**closed**, same posture as the
+underlying `CDM.SanctionsScreening`, and the same real gap the MMS reference
+had (§ MMS_KYC_Feature_Reference.md item 10, "sanctions alerts are log-only")
+now actually blocks the workflow instead of just logging.
+
+Deliberately not a `Kyc.ProviderAdapter` implementation — that behaviour's
+per-field shape doesn't fit a customer-level check.
+
+**No override path yet** — a hit or unavailable screen leaves the request
+exactly as it was, with no way for compliance to force an approval through.
+A real gap, flagged for a later phase, not solved here.
+
+Confirmed live before wiring in: `CDM.SanctionsScreening.screen/1` responds
+in ~50ms against the test environment's `mw_risk` sanctions list (not the
+1.3-1.6s measured against the real 76k-entry dev list — the test-env list is
+much smaller), so this doesn't slow down approval meaningfully or break any
+existing test. 3/3 new tests cover the `:clear` path and the missing-
+customer `:error` case with real data; the `{:hit, _}` branch is real code
+but not exercised by an automated test — this repo has no way to seed a
+known sanctions match into `mw_risk`'s own database (a separate app/DB this
+build doesn't own), an honest gap rather than a fabricated test. Full suite
+471 tests, same 10 pre-existing failures, no regression.
+
+### KYC-P5 — outlined in §7, detailed at the start of the phase

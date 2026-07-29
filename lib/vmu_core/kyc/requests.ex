@@ -1,15 +1,18 @@
 defmodule VmuCore.Kyc.Requests do
   @moduledoc """
   Context for `VmuCore.Kyc.Request` — submit/review/approve/reject
-  (`docs/kyc/KYC_Implementation_Tracker.md` §7 KYC-P2). Approve/reject both
-  fire `VmuCore.Kyc.StatusSync` — the real integration point that keeps the
-  five pre-existing per-product `kyc_status` flags accurate.
+  (`docs/kyc/KYC_Implementation_Tracker.md` §7 KYC-P2). Approve first runs
+  `VmuCore.Kyc.RiskScreening` (KYC-P4, sanctions screening via the real
+  `mw_risk` integration) and fails closed on a hit or an unavailable screen;
+  approve/reject both then fire `VmuCore.Kyc.StatusSync` — the real
+  integration point that keeps the five pre-existing per-product
+  `kyc_status` flags accurate.
   """
 
   import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.Kyc.{Request, Method, StatusSync, Journey}
+  alias VmuCore.Kyc.{Request, Method, StatusSync, Journey, RiskScreening}
 
   @doc "List requests, optionally filtered by product_type/status/customer_id."
   @spec list(map()) :: [Request.t()]
@@ -76,10 +79,26 @@ defmodule VmuCore.Kyc.Requests do
     |> Repo.update()
   end
 
-  @doc "Approve a request. Syncs the target product's kyc_status (StatusSync)."
-  @spec approve(Request.t(), binary(), String.t() | nil) :: {:ok, Request.t()} | {:error, Ecto.Changeset.t()}
+  @doc """
+  Approve a request. Screens the customer for sanctions first
+  (`Kyc.RiskScreening`, KYC-P4) — fail-**closed**, same posture as the
+  underlying `CDM.SanctionsScreening`: a match blocks approval
+  (`{:error, {:sanctions_hit, hit}}`) and so does a screen that couldn't
+  complete (`{:error, :screening_unavailable}`), never silently treated as
+  clear. No override path yet — a hit or an unavailable screen leaves the
+  request exactly as it was; escalating past it is a real gap flagged for a
+  later phase, not solved here.
+
+  On a clear screen, syncs the target product's `kyc_status` (`StatusSync`).
+  """
+  @spec approve(Request.t(), binary(), String.t() | nil) ::
+          {:ok, Request.t()} | {:error, Ecto.Changeset.t() | {:sanctions_hit, map()} | :screening_unavailable}
   def approve(%Request{} = request, reviewer_id, reason \\ nil) do
-    decide(request, "approved", reviewer_id, reason)
+    case RiskScreening.screen_request(request) do
+      :clear -> decide(request, "approved", reviewer_id, reason)
+      {:hit, hit} -> {:error, {:sanctions_hit, hit}}
+      :error -> {:error, :screening_unavailable}
+    end
   end
 
   @doc "Reject a request. Syncs the target product's kyc_status (StatusSync)."

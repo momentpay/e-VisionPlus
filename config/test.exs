@@ -35,3 +35,8 @@ config :vmu_core, :oidc_http_plug, {Req.Test, VmuCore.ASM.OidcClient}
 # (Way4 parity plan Phase 0 item 7).
 config :vmu_core, :veriscent_hsm_http_plug,
   {Req.Test, VmuCore.FAS.HSM.ProductionHSM.HttpClient}
+
+# Same reasoning for VmuCore.Kyc.Adapters.OcrHttpAdapter's local OCR server
+# calls (KYC-P3, docs/kyc/KYC_Implementation_Tracker.md §7).
+config :vmu_core, :kyc_ocr_http_plug,
+  {Req.Test, VmuCore.Kyc.Adapters.OcrHttpAdapter}

@@ -1,25 +1,31 @@
 defmodule VmuCoreWeb.Live.Admin.KycComponent do
   @moduledoc """
-  Admin LiveComponent: KYC methods + requests (KYC-P1/P2,
+  Admin LiveComponent: KYC methods + requests (KYC-P1/P2/P3,
   `docs/kyc/KYC_Implementation_Tracker.md`).
 
   Two tabs:
   - **Methods** — list every `KycMethod` (filterable by product + status),
     and a dynamic field builder to create/edit one: add/remove/reorder
     fields, pick a type from the fixed `VmuCore.Kyc.FieldTypes` catalog, set
-    label/required/options. "Clone to product" copies an existing method's
-    field set into a new product scope as an independent, inactive starting
-    point — never a live shared reference between products (§2).
+    label/required/options, and Conditional Logic rules ("show field X when
+    field Y <op> value", `VmuCore.Kyc.ConditionalLogic`). "Clone to product"
+    copies an existing method's field set into a new product scope as an
+    independent, inactive starting point — never a live shared reference
+    between products (§2).
   - **Requests** — admin-initiated submission (search/select customer, pick
-    an active method for a product, fill in the form), a queue filterable by
+    an active method for a product, fill in the form — fields hidden by a
+    conditional rule stay hidden as data is entered), a queue filterable by
     product/status, and detail/Approve/Reject. Approve/Reject fire
     `Kyc.StatusSync` — the real integration point that keeps the five
     pre-existing per-product `kyc_status` flags (Customer/Debit/Prepaid/
-    Wallet/HCS.Company) accurate (§5). File-type fields accept a text
-    reference for now — real upload/preview is KYC-P3 scope, not built here.
+    Wallet/HCS.Company) accurate (§5). Request detail also has a Documents
+    panel: real file upload (one shared upload slot + a field picker, same
+    shape as `DpsComponent`'s evidence panel) triggering OCR extraction via
+    `Kyc.Adapters.OcrHttpAdapter`, plus a comment/approval/rejection
+    annotation trail per document.
 
-  Visibility requires `kyc:view`; create/edit/clone/submit/approve/reject
-  actions require `kyc:edit`.
+  Visibility requires `kyc:view`; create/edit/clone/submit/approve/reject/
+  upload/annotate actions require `kyc:edit`.
   """
 
   use Phoenix.LiveComponent
@@ -27,12 +33,13 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
   import VmuCoreWeb.AdminUI
 
   alias VmuCore.Repo
-  alias VmuCore.Kyc.{Method, Methods, FieldTypes, Request, Requests}
+  alias VmuCore.Kyc.{Method, Methods, FieldTypes, Request, Requests, ConditionalLogic, Documents}
   alias VmuCore.CMS.Arrangement
   alias VmuCore.Shared.Customer
   alias VmuCore.ASM.Authz
 
   @default_operator_id "00000000-0000-0000-0000-000000000001"
+  @max_document_bytes 10_000_000
 
   @impl true
   def mount(socket) do
@@ -50,6 +57,7 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
        editing: nil,
        form_data: %{},
        fields: [],
+       conditional_rules: [],
        clone_target: nil,
        cloning_method: nil,
 
@@ -66,8 +74,12 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
        req_method: nil,
        req_data: %{},
        req_detail: nil,
-       req_detail_method: nil
+       req_detail_method: nil,
+       req_documents: [],
+       req_annotations_by_doc: %{},
+       upload_field_key: ""
      )
+     |> allow_upload(:kyc_document, accept: :any, max_entries: 1, max_file_size: @max_document_bytes)
      |> load_methods()}
   end
 
@@ -236,6 +248,46 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
           <button type="button" phx-click="add_field" phx-target={@myself} class="btn btn-sm">+ Add Field</button>
         </div>
 
+        <.form_section title="Conditional Logic" />
+        <div>
+          <p style="color:#666; font-size:13px;">Show a field only when another field's value satisfies a condition. A field with no rule is always shown.</p>
+          <table :if={@conditional_rules != []} class="admin-table" style="margin-bottom:8px;">
+            <thead>
+              <tr>
+                <th>Show field</th>
+                <th>When field</th>
+                <th>Operator</th>
+                <th>Value</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={{r, idx} <- Enum.with_index(@conditional_rules)}>
+                <td>
+                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="target_field" phx-target={@myself}>
+                    <option :for={f <- @fields} value={f["key"]} selected={r["target_field"] == f["key"]}><%= f["label"] %></option>
+                  </select>
+                </td>
+                <td>
+                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="field" phx-target={@myself}>
+                    <option :for={f <- @fields} value={f["key"]} selected={get_in(r, ["condition", "field"]) == f["key"]}><%= f["label"] %></option>
+                  </select>
+                </td>
+                <td>
+                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="operator" phx-target={@myself}>
+                    <option :for={op <- ConditionalLogic.operators()} value={op} selected={get_in(r, ["condition", "operator"]) == op}><%= op %></option>
+                  </select>
+                </td>
+                <td>
+                  <input type="text" value={get_in(r, ["condition", "value"])} phx-blur="rule_prop" phx-value-idx={idx} phx-value-prop="value" phx-target={@myself} />
+                </td>
+                <td><button type="button" phx-click="remove_rule" phx-value-idx={idx} phx-target={@myself} class="btn btn-sm btn-danger">Remove</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <button type="button" phx-click="add_rule" phx-target={@myself} class="btn btn-sm" disabled={@fields == []}>+ Add Rule</button>
+        </div>
+
         <button type="submit" class="btn btn-primary" style="margin-top:16px;">Save Method</button>
       </form>
     </.form_card>
@@ -347,7 +399,7 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
       <%= if @req_step == 3 do %>
         <p>Customer: <strong><%= @req_customer.first_name %> <%= @req_customer.last_name %></strong> — Product: <strong><%= @req_product_type %></strong> — Method: <strong><%= @req_method.name %></strong></p>
         <form phx-submit="req_submit" phx-change="req_field_change" phx-target={@myself}>
-          <.field :for={f <- @req_method.fields} label={f["label"] <> if(f["required"], do: " *", else: "")}>
+          <.field :for={f <- ConditionalLogic.visible_fields(@req_method.fields, @req_method.conditional_rules || [], @req_data)} label={f["label"] <> if(f["required"], do: " *", else: "")}>
             <%= render_field_input(f, @req_data[f["key"]]) %>
           </.field>
           <button type="submit" class="btn btn-primary" style="margin-top:16px;">Submit Request</button>
@@ -383,6 +435,40 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
           </tr>
         </tbody>
       </table>
+
+      <.form_section title="Documents" />
+      <%= if @can_edit do %>
+        <form phx-submit="doc_upload" phx-change="doc_field_pick" phx-target={@myself} style="margin-bottom:12px;">
+          <select name="field_key">
+            <option value="">Which field is this for?</option>
+            <option :for={f <- file_fields(@req_detail.fields_snapshot)} value={f["key"]} selected={@upload_field_key == f["key"]}><%= f["label"] %></option>
+          </select>
+          <.live_file_input upload={@uploads.kyc_document} />
+          <div :for={err <- upload_errors(@uploads.kyc_document)} class="field-error"><%= inspect(err) %></div>
+          <button type="submit" class="btn btn-sm btn-primary" disabled={@upload_field_key == ""}>Upload</button>
+        </form>
+      <% end %>
+
+      <.empty_state :if={@req_documents == []} icon="📄" title="No documents uploaded yet" />
+      <div :for={doc <- @req_documents} style="border:1px solid #ddd; border-radius:6px; padding:10px; margin-bottom:10px;">
+        <strong><%= doc.field_key %></strong> — <%= doc.original_filename %>
+        <p :if={doc.ocr_result} style="font-size:12px; color:#555;">OCR: <%= get_in(doc.ocr_result, ["simplified_text", "raw_text"]) || inspect(doc.ocr_result) %></p>
+        <p :if={!doc.ocr_result} style="font-size:12px; color:#999;">No OCR result.</p>
+
+        <div :for={ann <- Map.get(@req_annotations_by_doc, doc.document_id, [])} style="font-size:12px; margin:4px 0;">
+          <.status_badge status={ann.type} /> <%= ann.content %>
+        </div>
+
+        <%= if @can_edit do %>
+          <form phx-submit="doc_annotate" phx-value-document_id={doc.document_id} phx-target={@myself} style="margin-top:6px;">
+            <select name="type">
+              <option :for={t <- VmuCore.Kyc.DocumentAnnotation.types()} value={t}><%= t %></option>
+            </select>
+            <input type="text" name="content" placeholder="Note (optional)" style="width:220px;" />
+            <button type="submit" class="btn btn-sm">Add</button>
+          </form>
+        <% end %>
+      </div>
 
       <%= if @can_edit && @req_detail.status in ["submitted", "under_review"] do %>
         <.form_section title="Decision" />
@@ -426,7 +512,8 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
        mode: :edit,
        editing: nil,
        form_data: %{"name" => "", "title" => "", "product_type" => "", "status" => "active"},
-       fields: []
+       fields: [],
+       conditional_rules: []
      )}
   end
 
@@ -443,7 +530,8 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
          "product_type" => method.product_type,
          "status" => method.status
        },
-       fields: method.fields
+       fields: method.fields,
+       conditional_rules: method.conditional_rules || []
      )}
   end
 
@@ -494,8 +582,42 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     {:noreply, assign(socket, fields: fields)}
   end
 
+  def handle_event("add_rule", _params, socket) do
+    default_key = socket.assigns.fields |> List.first() |> case do
+      nil -> nil
+      f -> f["key"]
+    end
+
+    new_rule = %{"target_field" => default_key, "condition" => %{"field" => default_key, "operator" => "equals", "value" => ""}}
+    {:noreply, update(socket, :conditional_rules, &(&1 ++ [new_rule]))}
+  end
+
+  def handle_event("remove_rule", %{"idx" => idx}, socket) do
+    idx = String.to_integer(idx)
+    {:noreply, update(socket, :conditional_rules, &List.delete_at(&1, idx))}
+  end
+
+  def handle_event("rule_prop", %{"idx" => idx} = params, socket) do
+    idx = String.to_integer(idx)
+    prop = params["prop"]
+    value = params["value"] || ""
+
+    rules =
+      List.update_at(socket.assigns.conditional_rules, idx, fn rule ->
+        case prop do
+          "target_field" -> Map.put(rule, "target_field", value)
+          _ -> Map.update!(rule, "condition", &Map.put(&1, prop, value))
+        end
+      end)
+
+    {:noreply, assign(socket, conditional_rules: rules)}
+  end
+
   def handle_event("save_method", %{"method" => attrs}, socket) do
-    attrs = Map.put(attrs, "fields", socket.assigns.fields)
+    attrs =
+      attrs
+      |> Map.put("fields", socket.assigns.fields)
+      |> Map.put("conditional_rules", socket.assigns.conditional_rules)
 
     result =
       case socket.assigns.editing do
@@ -567,7 +689,11 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
   def handle_event("req_view", %{"id" => id}, socket) do
     request = Requests.get!(id)
     method = Methods.get(request.kyc_method_id)
-    {:noreply, assign(socket, req_mode: :detail, req_detail: request, req_detail_method: method)}
+
+    {:noreply,
+     socket
+     |> assign(req_mode: :detail, req_detail: request, req_detail_method: method, upload_field_key: "")
+     |> load_documents()}
   end
 
   def handle_event("req_cust_search", %{"value" => q}, socket) do
@@ -668,6 +794,55 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     end
   end
 
+  def handle_event("doc_field_pick", %{"field_key" => field_key}, socket) do
+    {:noreply, assign(socket, upload_field_key: field_key)}
+  end
+
+  def handle_event("doc_upload", _params, socket) do
+    field_key = socket.assigns.upload_field_key
+    request_id = socket.assigns.req_detail.request_id
+
+    # `consume_uploaded_entries/3` requires the callback to return `{:ok,
+    # term}` and itself unwraps that one level -- `term` here is
+    # `Documents.upload/3`'s own `{:ok, document} | {:error, changeset}`,
+    # not double-wrapped. Same gotcha DPS's evidence panel already documents.
+    results =
+      consume_uploaded_entries(socket, :kyc_document, fn %{path: tmp_path}, entry ->
+        {:ok,
+         Documents.upload(request_id, field_key, %{
+           filename: entry.client_name,
+           content_type: entry.client_type,
+           tmp_path: tmp_path
+         })}
+      end)
+
+    case results do
+      [{:ok, _document}] ->
+        {:noreply,
+         socket
+         |> assign(upload_field_key: "", notice: "Document uploaded", notice_kind: :success)
+         |> load_documents()}
+
+      [{:error, changeset}] ->
+        {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+
+      [] ->
+        {:noreply, assign(socket, notice: "Choose a file first", notice_kind: :error)}
+    end
+  end
+
+  def handle_event("doc_annotate", %{"document_id" => document_id, "type" => type, "content" => content}, socket) do
+    operator_id = operator_id(socket)
+
+    case Documents.annotate(document_id, type, blank_to_nil(content), operator_id) do
+      {:ok, _annotation} ->
+        {:noreply, socket |> assign(notice: "Annotation added", notice_kind: :success) |> load_documents()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, notice: cs_error_msg(changeset), notice_kind: :error)}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
@@ -717,6 +892,19 @@ defmodule VmuCoreWeb.Live.Admin.KycComponent do
     }
 
     assign(socket, requests: Requests.list(filters))
+  end
+
+  defp load_documents(socket) do
+    documents = Documents.list_for_request(socket.assigns.req_detail.request_id)
+
+    annotations_by_doc =
+      Map.new(documents, fn doc -> {doc.document_id, Documents.list_annotations(doc.document_id)} end)
+
+    assign(socket, req_documents: documents, req_annotations_by_doc: annotations_by_doc)
+  end
+
+  defp file_fields(fields_snapshot) do
+    Enum.filter(fields_snapshot, &(&1["type"] == "file"))
   end
 
   defp customer_name(customer_id) do

@@ -228,4 +228,28 @@ isn't rendered in the submission form yet either, same reason.
 real local-OCR-server adapter + document upload/preview + document-annotation
 review workflow (see §7 for the confirmed real OCR endpoint contract).
 
-### KYC-P3..5 — outlined in §7, detailed at the start of each phase
+### KYC-P3 — Conditional Logic + OCR Adapter + Documents + Annotation ✅ Done 2026-07-29
+| # | Task | Status |
+|---|---|---|
+| P3.1 | `VmuCore.Kyc.ConditionalLogic` (pure evaluator) + Method builder "Conditional Logic" section | ✅ |
+| P3.2 | `VmuCore.Kyc.ProviderAdapter` behaviour + `Kyc.Adapters.OcrHttpAdapter` (real `localhost:4000/api/detect_text`, `Req.Test`-stubbed in tests, same convention as `NotificationDispatcher.HttpGateway`) | ✅ |
+| P3.3 | Migration `kyc_document_annotations` + `Kyc.DocumentAnnotation` + `Kyc.Documents` context (upload to local disk + OCR + annotate) | ✅ |
+| P3.4 | Request submission form applies `ConditionalLogic.visible_fields/3` live; Request detail gained a Documents panel (shared upload slot + field picker, same shape as `DpsComponent`'s evidence panel) with OCR preview + annotation trail | ✅ |
+| P3.5 | Real-Postgres + real-browser verification + regression — 18/18 new tests (9 conditional logic, 2 OCR adapter, 5 documents context, 2 new LiveView flows), full suite 457 tests / same 10 pre-existing failures | ✅ |
+
+Two real gotchas hit and fixed during implementation, not assumed correct from
+docs: Req 0.5.18's multipart file value is `{data, filename:, content_type:}`,
+not `{:file, path}`; `consume_uploaded_entries/3`'s callback must always return
+`{:ok, <term>}` even when `<term>` is itself an `{:error, _}` tuple, or LiveView
+raises — same gotcha `DpsComponent`'s evidence panel already comments on, missed
+on the first pass here too and caught by the browser test.
+
+Third-party identity/screening validation stays an open `ProviderAdapter`
+callback with no implementation yet (`validate_field/2` returns
+`{:error, :not_implemented}`) — deliberate, per the user's confirmed
+architecture: keep it pluggable, add a real provider only when actually needed.
+
+**Next: KYC-P4** — risk-scoring hook on approval (check CDM for an existing
+engine first). **KYC-P5** — API layer.
+
+### KYC-P4..5 — outlined in §7, detailed at the start of each phase

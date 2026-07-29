@@ -15,6 +15,7 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
   alias VmuCore.ASM.{Authz, Operator}
   alias VmuCore.CMS.DebitAccount
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
+  alias VmuCore.Kyc.Adapters.OcrHttpAdapter
 
   @endpoint VmuCoreWeb.Endpoint
 
@@ -200,5 +201,104 @@ defmodule VmuCoreWeb.Live.Admin.KycComponentTest do
     reloaded_account = Repo.get!(DebitAccount, account.debit_account_id)
     assert reloaded_account.kyc_status == "REJECTED"
     assert reloaded_account.kyc_verified_at == nil
+  end
+
+  test "conditional logic hides a field until its condition is satisfied, live in the submission form" do
+    operator = operator_fixture("SUPERVISOR")
+    customer = customer_fixture()
+
+    {:ok, method} =
+      VmuCore.Kyc.Methods.create(%{
+        "name" => "Conditional KYC",
+        "title" => "Conditional KYC",
+        "product_type" => "DEBIT",
+        "status" => "active",
+        "fields" => [
+          %{"key" => "customer_type", "label" => "Customer Type", "type" => "select", "required" => true, "options" => ["retail", "corporate"]},
+          %{"key" => "company_name", "label" => "Company Name", "type" => "text", "required" => false, "options" => []}
+        ],
+        "conditional_rules" => [
+          %{"target_field" => "company_name", "condition" => %{"field" => "customer_type", "operator" => "equals", "value" => "corporate"}}
+        ]
+      })
+
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
+    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
+    view |> element("button[phx-click=req_new]") |> render_click()
+    view |> element("input[phx-keyup=req_cust_search]") |> render_keyup(%{"value" => customer.last_name})
+    view |> element("button[phx-click=req_select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> element("select[phx-change=req_select_product]") |> render_change(%{"value" => "DEBIT"})
+
+    html =
+      view
+      |> element("select[phx-change=req_select_method]")
+      |> render_change(%{"value" => method.method_id})
+
+    refute html =~ "Company Name"
+
+    html =
+      view
+      |> form("form[phx-submit=req_submit]", %{"data" => %{"customer_type" => "corporate"}})
+      |> render_change()
+
+    assert html =~ "Company Name"
+
+    html =
+      view
+      |> form("form[phx-submit=req_submit]", %{"data" => %{"customer_type" => "retail"}})
+      |> render_change()
+
+    refute html =~ "Company Name"
+  end
+
+  test "document upload triggers OCR extraction and supports reviewer annotation" do
+    operator = operator_fixture("SUPERVISOR")
+    customer = customer_fixture()
+    _account = debit_account_fixture(customer)
+
+    {:ok, method} =
+      VmuCore.Kyc.Methods.create(%{
+        "name" => "Doc Upload KYC",
+        "title" => "Doc Upload KYC",
+        "product_type" => "DEBIT",
+        "status" => "active",
+        "fields" => [%{"key" => "id_doc", "label" => "ID Document", "type" => "file", "required" => true, "options" => []}]
+      })
+
+    {:ok, request} = VmuCore.Kyc.Requests.submit(method, %{"customer_id" => customer.customer_id, "data" => %{}})
+
+    Req.Test.stub(OcrHttpAdapter, fn conn ->
+      Req.Test.json(conn, %{"simplified_text" => %{"raw_text" => "784-1990-1234567-1"}})
+    end)
+
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/kyc")
+    view |> element("button[phx-click=section][phx-value-s=requests]") |> render_click()
+    view |> element("button[phx-click=req_view][phx-value-id='#{request.request_id}']") |> render_click()
+
+    view
+    |> form("form[phx-submit=doc_upload]", %{"field_key" => "id_doc"})
+    |> render_change()
+
+    view
+    |> file_input("form[phx-submit=doc_upload]", :kyc_document, [
+      %{name: "emirates_id.jpg", content: "fake jpeg bytes", type: "image/jpeg"}
+    ])
+    |> render_upload("emirates_id.jpg")
+
+    html = view |> element("form[phx-submit=doc_upload]") |> render_submit()
+    assert html =~ "Document uploaded"
+    assert html =~ "emirates_id.jpg"
+    assert html =~ "784-1990-1234567-1"
+
+    document = Repo.get_by!(VmuCore.Kyc.Document, request_id: request.request_id)
+    assert File.exists?(document.storage_path)
+
+    html =
+      view
+      |> form("form[phx-submit=doc_annotate][phx-value-document_id='#{document.document_id}']", %{"type" => "approval", "content" => "clear scan, matches records"})
+      |> render_submit()
+
+    assert html =~ "Annotation added"
+    assert html =~ "clear scan, matches records"
   end
 end

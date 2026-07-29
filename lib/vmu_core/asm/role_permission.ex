@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -72,6 +72,9 @@ defmodule VmuCore.ASM.RolePermission do
       # for Wallet yet (unlike Debit/Prepaid's Adjustments), so no
       # "approve" grant here — added if/when one is ever built.
       {"SUPERVISOR", "wallet",       ~w[view edit]},
+      # KYC-P1 (2026-07-29) — no 4-eyes action yet (that arrives with
+      # KYC-P2's request approve/reject), so no "approve" grant here.
+      {"SUPERVISOR", "kyc",          ~w[view edit]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -90,6 +93,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "debit",        ~w[view edit]},
       {"OPS", "prepaid",      ~w[view edit]},
       {"OPS", "wallet",       ~w[view edit]},
+      {"OPS", "kyc",          ~w[view edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
@@ -116,6 +120,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "debit",        ~w[view edit]},
       {"RISK", "prepaid",      ~w[view edit]},
       {"RISK", "wallet",       ~w[view edit]},
+      {"RISK", "kyc",          ~w[view edit]},
 
       # COMPLIANCE — read everything, change nothing
       {"COMPLIANCE", "system",       ~w[view]},
@@ -137,6 +142,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "debit",        ~w[view]},
       {"COMPLIANCE", "prepaid",      ~w[view]},
       {"COMPLIANCE", "wallet",       ~w[view]},
+      {"COMPLIANCE", "kyc",          ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}

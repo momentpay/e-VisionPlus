@@ -194,13 +194,17 @@ session): sidebar entry, `RolePermission` grants, dispatched as a `live_componen
 
 ## 8. Phase Tracker
 
-### KYC-P1 — Core Schema + Method Builder
+### KYC-P1 — Core Schema + Method Builder ✅ Done 2026-07-29 (commit `3950d92`)
 | # | Task | Status |
 |---|---|---|
-| P1.1 | Migration: `kyc_methods` | ⬜ |
-| P1.2 | `VmuCore.Kyc.FieldTypes` | ⬜ |
-| P1.3 | `VmuCore.Kyc.Method` context | ⬜ |
-| P1.4 | Admin `KycComponent` — Methods list + builder, registered into `AdminLive`/`RolePermission` | ⬜ |
-| P1.5 | Real-Postgres verification + regression | ⬜ |
+| P1.1 | Migration: `kyc_methods` | ✅ |
+| P1.2 | `VmuCore.Kyc.FieldTypes` | ✅ |
+| P1.3 | `VmuCore.Kyc.Method`/`Methods` context (create/update-with-version-bump/list/clone) | ✅ |
+| P1.4 | Admin `KycComponent` — Methods list + builder + Clone-to-product, registered into `AdminLive`/`RolePermission` | ✅ |
+| P1.5 | Real-Postgres verification + regression — 8/8 new tests, full suite 427 tests / same 10 pre-existing failures | ✅ |
+
+**Next: KYC-P2** — `kyc_requests`/`kyc_documents` + submit/review/approve/reject
++ `StatusSync` (§5, the real integration point — syncs the five existing flat
+`kyc_status` fields on approval) + admin Requests queue.
 
 ### KYC-P2..4 — outlined in §7, detailed at the start of each phase

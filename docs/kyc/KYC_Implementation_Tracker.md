@@ -371,3 +371,45 @@ suite 488 tests, same 10 pre-existing failures, no regression.
 This closes KYC-P1 through P5 — the full plan from `docs/kyc/
 KYC_Implementation_Tracker.md` §7 as originally scoped, plus the P3.5
 mid-course correction from real user feedback.
+
+### Post-P5 follow-up (2026-07-29) — UI layout + real seed data
+
+More user feedback after seeing the Method editor live: "Why not keep the
+layout similar to [MMS's real edit screen] — it gives better view and user
+experience." Reworked `KycMethodsComponent`'s editor from one stacked column
+into MMS's real shape — a fixed left column for method-level settings (name/
+title/product/status/step/required) and a wide right column with the Form
+Fields/Conditional Logic tabs, where each field is now its own bordered card
+(label+key, type+required, options, an OCR hint on file fields) instead of a
+cramped table row. Purely visual — the underlying field schema, event
+handlers, and validation are unchanged; deliberately did not reintroduce
+MMS's per-field Document-Type/OCR-toggle controls (§P3.5's reasoning still
+holds: this build's OCR runs automatically on every upload, nothing to
+configure per field).
+
+Also seeded real demo data end-to-end (`priv/repo/seed_kyc_demo.exs`, `mix
+run priv/repo/seed_kyc_demo.exs`, idempotent): Wallet accounts for 3 existing
+demo customers (Wallet had zero seed data before this); a Fleet vehicle+card
+for Zaabi Group LLC (CORPORATE_FLEET had zero real target accounts before
+this — found a real FK on `hcs_fleet_cards.account_id` -> `cms_accounts`
+that isn't visible from the Ecto schema alone, pointed at the company's own
+`parent_account_id`, its central credit facility); one KYC Method per
+product (CREDIT gets two, step 1+2, to exercise the journey feature), every
+one with a *self-contained* conditional-logic pair (the source and target
+fields must be on the same method/step — `Kyc.ConditionalLogic` evaluates
+against one request's own `data`, so a rule can't span two different
+requests/steps) and at least one `file` field; real KYC requests submitted
+and approved/rejected/left-pending across all 7 products against real
+customers.
+
+**Real finding while seeding, not a bug**: three of the demo customers
+(Ahmed Al Rashid on Wallet, Abdullah Al Zaabi and Mohammad Al Farsi on
+Corporate Facility) triggered genuine fuzzy-match sanctions hits from the
+real ~79.5k-entry OFAC-style list loaded in this dev environment
+(`SanctionsCache: loaded 79509 entries from DB`) — KYC-P4's fail-closed gate
+correctly blocked those approvals. Left them as `submitted` rather than
+forcing them through; a demo that only ever shows green approvals wouldn't
+prove the gate does anything. Confirms the `{:hit, _}` branch (previously
+untested — §P4's own note that this repo can't seed a known match into
+`mw_risk`'s database) is real and working, at least in an environment where
+that database has real data loaded.

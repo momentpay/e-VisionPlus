@@ -152,119 +152,135 @@ defmodule VmuCoreWeb.Live.Admin.KycMethodsComponent do
       </:header_actions>
 
       <form phx-submit="save_method" phx-change="form_change" phx-target={@myself}>
-        <.form_section title="Method" />
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-          <.field label="Internal name">
-            <input type="text" name="method[name]" value={@form_data["name"]} required />
-          </.field>
-          <.field label="Title (shown to whoever fills the form)">
-            <input type="text" name="method[title]" value={@form_data["title"]} required />
-          </.field>
-          <.field label="Product">
-            <select name="method[product_type]" required>
-              <option value="">Select product...</option>
-              <option :for={pt <- Arrangement.product_types()} value={pt} selected={@form_data["product_type"] == pt}><%= pt %></option>
-            </select>
-          </.field>
-          <.field label="Status">
-            <select name="method[status]">
-              <option :for={s <- Method.statuses()} value={s} selected={@form_data["status"] == s}><%= s %></option>
-            </select>
-          </.field>
-          <.field label="Step" hint="Order within this product's KYC journey. Methods sharing a step unlock together.">
-            <input type="number" min="1" name="method[step]" value={@form_data["step"] || 1} required />
-          </.field>
-          <.field label="Required to advance">
-            <select name="method[required]">
-              <option value="true" selected={to_string(@form_data["required"]) != "false"}>Yes — later steps wait for this one</option>
-              <option value="false" selected={to_string(@form_data["required"]) == "false"}>No — optional, doesn't block later steps</option>
-            </select>
-          </.field>
-        </div>
+        <div style="display:grid; grid-template-columns:280px 1fr; gap:28px; align-items:start;">
+          <div style="border-right:1px solid #eee; padding-right:20px;">
+            <.form_section title="Method" />
+            <.field label="Internal name">
+              <input type="text" name="method[name]" value={@form_data["name"]} required style="width:100%;" />
+            </.field>
+            <.field label="Title (shown to whoever fills the form)">
+              <input type="text" name="method[title]" value={@form_data["title"]} required style="width:100%;" />
+            </.field>
+            <.field label="Product">
+              <select name="method[product_type]" required style="width:100%;">
+                <option value="">Select product...</option>
+                <option :for={pt <- Arrangement.product_types()} value={pt} selected={@form_data["product_type"] == pt}><%= pt %></option>
+              </select>
+            </.field>
+            <.field label="Status">
+              <select name="method[status]" style="width:100%;">
+                <option :for={s <- Method.statuses()} value={s} selected={@form_data["status"] == s}><%= s %></option>
+              </select>
+            </.field>
+            <.field label="Step" hint="Order within this product's KYC journey. Methods sharing a step unlock together.">
+              <input type="number" min="1" name="method[step]" value={@form_data["step"] || 1} required style="width:100%;" />
+            </.field>
+            <.field label="Required to advance">
+              <select name="method[required]" style="width:100%;">
+                <option value="true" selected={to_string(@form_data["required"]) != "false"}>Yes — later steps wait for this one</option>
+                <option value="false" selected={to_string(@form_data["required"]) == "false"}>No — optional, doesn't block later steps</option>
+              </select>
+            </.field>
+          </div>
 
-        <div style="margin:20px 0 12px; border-bottom:1px solid #ddd;">
-          <button type="button" phx-click="editor_tab" phx-value-t="fields" phx-target={@myself} class={"btn btn-sm #{if @editor_tab == :fields, do: "btn-primary"}"}>Form Fields</button>
-          <button type="button" phx-click="editor_tab" phx-value-t="logic" phx-target={@myself} class={"btn btn-sm #{if @editor_tab == :logic, do: "btn-primary"}"}>Conditional Logic</button>
-        </div>
+          <div>
+            <div style="margin-bottom:16px; border-bottom:1px solid #ddd;">
+              <button type="button" phx-click="editor_tab" phx-value-t="fields" phx-target={@myself} class={"btn btn-sm #{if @editor_tab == :fields, do: "btn-primary"}"}>Form Fields</button>
+              <button type="button" phx-click="editor_tab" phx-value-t="logic" phx-target={@myself} class={"btn btn-sm #{if @editor_tab == :logic, do: "btn-primary"}"}>Conditional Logic</button>
+            </div>
 
-        <%= if @editor_tab == :fields do %>
-          <table class="admin-table" style="margin-bottom:8px;">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Label</th>
-                <th>Key</th>
-                <th>Type</th>
-                <th>Required</th>
-                <th>Options (comma-separated)</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={{f, idx} <- Enum.with_index(@fields)}>
-                <td><%= idx + 1 %></td>
-                <td><input type="text" name={"field_label_#{idx}"} value={f["label"]} phx-blur="field_prop" phx-value-idx={idx} phx-value-prop="label" phx-target={@myself} /></td>
-                <td><code><%= f["key"] %></code></td>
-                <td>
-                  <select name={"field_type_#{idx}"} phx-change="field_prop" phx-value-idx={idx} phx-value-prop="type" phx-target={@myself}>
-                    <option :for={t <- FieldTypes.types()} value={t} selected={f["type"] == t}><%= FieldTypes.label(t) %></option>
-                  </select>
-                </td>
-                <td>
-                  <input type="checkbox" name={"field_required_#{idx}"} checked={f["required"]} phx-click="field_prop" phx-value-idx={idx} phx-value-prop="required" phx-target={@myself} />
-                </td>
-                <td>
-                  <input :if={FieldTypes.has_options?(f["type"])} type="text" name={"field_options_#{idx}"} value={Enum.join(f["options"] || [], ", ")} phx-blur="field_prop" phx-value-idx={idx} phx-value-prop="options" phx-target={@myself} />
-                </td>
-                <td>
-                  <button type="button" phx-click="move_field" phx-value-idx={idx} phx-value-dir="up" phx-target={@myself} class="btn btn-sm">&uarr;</button>
-                  <button type="button" phx-click="move_field" phx-value-idx={idx} phx-value-dir="down" phx-target={@myself} class="btn btn-sm">&darr;</button>
+            <%= if @editor_tab == :fields do %>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <strong>Document Fields</strong>
+                <button type="button" phx-click="add_field" phx-target={@myself} class="btn btn-sm btn-primary">+ Add Field</button>
+              </div>
+
+              <.empty_state :if={@fields == []} icon="📝" title="No fields yet" message="Add the first field for this method." />
+
+              <div :for={{f, idx} <- Enum.with_index(@fields)} style="border:1px solid #ddd; border-radius:8px; padding:14px; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <strong>Field #<%= idx + 1 %></strong>
                   <button type="button" phx-click="remove_field" phx-value-idx={idx} phx-target={@myself} class="btn btn-sm btn-danger">Remove</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <button type="button" phx-click="add_field" phx-target={@myself} class="btn btn-sm">+ Add Field</button>
-        <% end %>
+                </div>
 
-        <%= if @editor_tab == :logic do %>
-          <p style="color:#666; font-size:13px;">Show a field only when another field's value satisfies a condition. A field with no rule is always shown.</p>
-          <table :if={@conditional_rules != []} class="admin-table" style="margin-bottom:8px;">
-            <thead>
-              <tr>
-                <th>Show field</th>
-                <th>When field</th>
-                <th>Operator</th>
-                <th>Value</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={{r, idx} <- Enum.with_index(@conditional_rules)}>
-                <td>
-                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="target_field" phx-target={@myself}>
-                    <option :for={f <- @fields} value={f["key"]} selected={r["target_field"] == f["key"]}><%= f["label"] %></option>
-                  </select>
-                </td>
-                <td>
-                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="field" phx-target={@myself}>
-                    <option :for={f <- @fields} value={f["key"]} selected={get_in(r, ["condition", "field"]) == f["key"]}><%= f["label"] %></option>
-                  </select>
-                </td>
-                <td>
-                  <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="operator" phx-target={@myself}>
-                    <option :for={op <- ConditionalLogic.operators()} value={op} selected={get_in(r, ["condition", "operator"]) == op}><%= op %></option>
-                  </select>
-                </td>
-                <td>
-                  <input type="text" value={get_in(r, ["condition", "value"])} phx-blur="rule_prop" phx-value-idx={idx} phx-value-prop="value" phx-target={@myself} />
-                </td>
-                <td><button type="button" phx-click="remove_rule" phx-value-idx={idx} phx-target={@myself} class="btn btn-sm btn-danger">Remove</button></td>
-              </tr>
-            </tbody>
-          </table>
-          <button type="button" phx-click="add_rule" phx-target={@myself} class="btn btn-sm" disabled={@fields == []}>+ Add Rule</button>
-        <% end %>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                  <.field label="Field Label">
+                    <input type="text" name={"field_label_#{idx}"} value={f["label"]} phx-blur="field_prop" phx-value-idx={idx} phx-value-prop="label" phx-target={@myself} style="width:100%;" />
+                  </.field>
+                  <.field label="Field Key" hint="Used in form processing. Keep consistent once set.">
+                    <input type="text" value={f["key"]} readonly style="width:100%; background:#f5f5f5;" />
+                  </.field>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px;">
+                  <.field label="Field Type">
+                    <select name={"field_type_#{idx}"} phx-change="field_prop" phx-value-idx={idx} phx-value-prop="type" phx-target={@myself} style="width:100%;">
+                      <option :for={t <- FieldTypes.types()} value={t} selected={f["type"] == t}><%= FieldTypes.label(t) %></option>
+                    </select>
+                  </.field>
+                  <.field label="Required">
+                    <label style="font-weight:normal;">
+                      <input type="checkbox" name={"field_required_#{idx}"} checked={f["required"]} phx-click="field_prop" phx-value-idx={idx} phx-value-prop="required" phx-target={@myself} />
+                      Required to submit
+                    </label>
+                  </.field>
+                </div>
+
+                <.field :if={FieldTypes.has_options?(f["type"])} label="Options (comma-separated)">
+                  <input type="text" name={"field_options_#{idx}"} value={Enum.join(f["options"] || [], ", ")} phx-blur="field_prop" phx-value-idx={idx} phx-value-prop="options" phx-target={@myself} style="width:100%;" />
+                </.field>
+
+                <p :if={FieldTypes.file_type?(f["type"])} style="font-size:12px; color:#888; margin-top:8px;">
+                  📄 OCR runs automatically against the real OCR service when a document is uploaded for this field — no extra configuration needed.
+                </p>
+
+                <div style="margin-top:10px;">
+                  <button type="button" phx-click="move_field" phx-value-idx={idx} phx-value-dir="up" phx-target={@myself} class="btn btn-sm">&uarr; Move up</button>
+                  <button type="button" phx-click="move_field" phx-value-idx={idx} phx-value-dir="down" phx-target={@myself} class="btn btn-sm">&darr; Move down</button>
+                </div>
+              </div>
+            <% end %>
+
+            <%= if @editor_tab == :logic do %>
+              <p style="color:#666; font-size:13px;">Show a field only when another field's value satisfies a condition. A field with no rule is always shown.</p>
+              <table :if={@conditional_rules != []} class="admin-table" style="margin-bottom:8px;">
+                <thead>
+                  <tr>
+                    <th>Show field</th>
+                    <th>When field</th>
+                    <th>Operator</th>
+                    <th>Value</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={{r, idx} <- Enum.with_index(@conditional_rules)}>
+                    <td>
+                      <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="target_field" phx-target={@myself}>
+                        <option :for={f <- @fields} value={f["key"]} selected={r["target_field"] == f["key"]}><%= f["label"] %></option>
+                      </select>
+                    </td>
+                    <td>
+                      <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="field" phx-target={@myself}>
+                        <option :for={f <- @fields} value={f["key"]} selected={get_in(r, ["condition", "field"]) == f["key"]}><%= f["label"] %></option>
+                      </select>
+                    </td>
+                    <td>
+                      <select phx-change="rule_prop" phx-value-idx={idx} phx-value-prop="operator" phx-target={@myself}>
+                        <option :for={op <- ConditionalLogic.operators()} value={op} selected={get_in(r, ["condition", "operator"]) == op}><%= op %></option>
+                      </select>
+                    </td>
+                    <td>
+                      <input type="text" value={get_in(r, ["condition", "value"])} phx-blur="rule_prop" phx-value-idx={idx} phx-value-prop="value" phx-target={@myself} />
+                    </td>
+                    <td><button type="button" phx-click="remove_rule" phx-value-idx={idx} phx-target={@myself} class="btn btn-sm btn-danger">Remove</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <button type="button" phx-click="add_rule" phx-target={@myself} class="btn btn-sm" disabled={@fields == []}>+ Add Rule</button>
+            <% end %>
+          </div>
+        </div>
 
         <button type="submit" class="btn btn-primary" style="margin-top:16px;">Save Method</button>
       </form>

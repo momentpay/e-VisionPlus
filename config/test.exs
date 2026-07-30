@@ -40,3 +40,8 @@ config :vmu_core, :veriscent_hsm_http_plug,
 # calls (KYC-P3, docs/kyc/KYC_Implementation_Tracker.md §7).
 config :vmu_core, :kyc_ocr_http_plug,
   {Req.Test, VmuCore.Kyc.Adapters.OcrHttpAdapter}
+
+# Same reasoning for VmuCore.DPS.NetworkAdapter.MastercomClient's Mastercom
+# v6 API calls (DPS-P5, re-ported 2026-07-29 from Avenza/apps/vmu_dps).
+config :vmu_core, :mastercom_http_plug,
+  {Req.Test, VmuCore.DPS.NetworkAdapter.MastercomClient}

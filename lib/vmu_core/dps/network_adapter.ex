@@ -15,10 +15,14 @@ defmodule VmuCore.DPS.NetworkAdapter do
   - `VmuCore.DPS.NetworkAdapter.Manual` — real, formalizes today's actual process:
     ops re-keys the chargeback into the network's portal by hand; `network_ref` gets
     filled in later by an operator (already a `Dispute` field).
-  - `VmuCore.DPS.NetworkAdapter.Vrol` (Visa Resolve Online) / `.Mastercom`
-    (Mastercard) — stubs. No VROL/Mastercom API credentials or client exist in this
-    project — every callback returns `{:error, :not_implemented}` until a real
-    integration is built.
+  - `VmuCore.DPS.NetworkAdapter.Mastercom` — real (re-ported 2026-07-29 from
+    `Avenza/apps/vmu_dps`, see `MastercomClient`'s moduledoc). A real consumer
+    key already exists (`.env`'s `MASTERCARDCOM_Consumerkey`) but the RSA
+    private key does not — every call correctly fails closed with
+    `{:error, :missing_private_key}` until one is supplied.
+  - `VmuCore.DPS.NetworkAdapter.Vrol` (Visa Resolve Online) — still a stub. No
+    VROL API credentials or client exist in this project — every callback
+    returns `{:error, :not_implemented}` until a real integration is built.
   """
 
   @doc "File a chargeback with the network. Returns the network's case reference, or `nil` if none yet (manual filing)."

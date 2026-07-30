@@ -156,4 +156,17 @@ config :vmu_core, Oban,
     default:      5
   ]
 
+# ---------------------------------------------------------------------------
+# DPS.NetworkAdapter.Mastercom (re-ported 2026-07-29 from Avenza/apps/vmu_dps)
+# — the consumer_key already lives in this project's own .env
+# (MASTERCARDCOM_Consumerkey), confirmed by the user (2026-07-30) as the
+# same Mastercard Developer registration MDES tokenization will also use.
+# private_key_path is genuinely unset — MastercomClient fails closed with
+# {:error, :missing_private_key} until one is supplied, on purpose.
+# ---------------------------------------------------------------------------
+config :vmu_core, :mastercom,
+  consumer_key: System.get_env("MASTERCARDCOM_Consumerkey"),
+  private_key_path: System.get_env("MASTERCOM_PRIVATE_KEY_PATH"),
+  base_url: System.get_env("MASTERCOM_BASE_URL", "https://sandbox.api.mastercard.com/mastercom/v6")
+
 import_config "#{config_env()}.exs"

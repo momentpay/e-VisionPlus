@@ -326,4 +326,62 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       assert Repo.get!(WalletAccount, account.wallet_account_id).kyc_status == "PENDING"
     end
   end
+
+  describe "Multi-currency (Digital Wallet Phase W7, 2026-07-30)" do
+    test "adding a currency creates a real second account under the same wallet product and switches to it" do
+      {account, _s, _b, _l, _bl, _c} = wallet_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=add_currency]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=add_currency_save]", %{"action" => %{"currency" => "usd"}})
+        |> render_submit()
+
+      assert html =~ "USD account added to this wallet."
+      assert html =~ "Currencies (2)"
+
+      new_account = Repo.get_by!(WalletAccount, wallet_product_id: account.wallet_product_id, currency: "USD")
+      assert new_account.wallet_account_id != account.wallet_account_id
+      assert D.equal?(new_account.available_balance, D.new(0))
+    end
+
+    test "adding a currency that already exists on the wallet fails cleanly, not with a crash" do
+      {account, _s, _b, _l, _bl, _c} = wallet_fixture()
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> element("button[phx-click=open_action][phx-value-a=add_currency]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=add_currency_save]", %{"action" => %{"currency" => account.currency}})
+        |> render_submit()
+
+      assert html =~ "Add currency failed"
+    end
+
+    test "switching currency loads the sibling account's own balance and history" do
+      {account, sys_id, bank_id, logo_id, block_id, _c} = wallet_fixture(load: D.new("500.00"))
+      operator = operator_fixture("SUPERVISOR")
+
+      {:ok, other} =
+        VmuCore.CMS.WalletProductOpening.add_currency_account(%{
+          wallet_product_id: account.wallet_product_id,
+          sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id, currency: "EUR"
+        })
+
+      {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
+      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+
+      html = view |> element("button[phx-click=switch_currency][phx-value-id='#{other.wallet_account_id}']") |> render_click()
+
+      assert html =~ "EUR"
+      refute html =~ "500.00 AED"
+    end
+  end
 end

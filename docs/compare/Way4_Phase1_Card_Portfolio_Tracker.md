@@ -500,10 +500,34 @@ shaped anywhere). Real dependency is an integration contract with
 not anything inside this repo — scoping that integration is the actual
 first step, not vmu_core code.
 
-## 7. Tokenization / Apple Pay / Google Pay — blocked
+## 7. Tokenization / Apple Pay / Google Pay
 
-**Status: 🔴 Blocked — no work until a vendor is chosen**
+**Status: 🟡 Vendor decided + Phase A done 2026-07-29, blocked on live MDES credentials/spec for the rest**
 
-Confirmed genuinely unbuilt in both repos. Blocked on Way4 parity plan
-§3 Decision 1 (Visa Token Service vs. Mastercard MDES, and whether
-Apple/Google Pay are in scope for this phase or a later one).
+Way4 parity plan §3 Decision 1 resolved 2026-07-29: **Mastercard MDES**
+for real implementation (Visa VTS/Apple Pay/Samsung Pay stay stub/
+interface-only), **Google Pay** first wallet. New `VmuCore.NTS` module
+(Network Tokenization Service):
+
+- **Phase A** (2026-07-29) — token domain model (`NTS.Token`/`Tokens`,
+  `nts_tokens`, DPAN stored cleartext by design), `NTS.TokenServiceProvider`
+  pluggable behaviour (mirrors `CMS.RailProvider`'s shape), `NTS.
+  TokenLifecycle` wired into `CTA.CardLifecycle`'s block/unblock/replace/
+  renew so a card's provisioned tokens stay in sync. `NTS.
+  TokenServiceProviders.Stub` is the only implementation until real
+  credentials land — honestly declines rather than faking success. 16/16
+  tests.
+- **Real Mastercom v6 client re-ported from Avenza the same week**
+  (`DPS.NetworkAdapter.MastercomClient`, OAuth 1.0a + RSA-SHA256 signing)
+  — genuinely lost work, not guessed; the same Mastercard Developer
+  registration covers both Mastercom and MDES, confirmed by the user. 9/9
+  tests including a real independently-verified RSA-SHA256 signature.
+- **Still blocked** on: the real MDES Token Connect API spec/Postman
+  collection, the inbound provisioning-callback auth scheme (Phase C),
+  MDES's token BIN range (Phase D — the DPAN-aware FAS hot-path change,
+  deliberately deferred to its own later, extra-scrutiny increment). An
+  RSA private key was supplied 2026-07-30; format compatibility
+  verification was in progress when last touched.
+
+Full approved phased plan (Phase A-E + a deferred in-app-tokenization
+sketch): `C:\Users\WELCOME\.claude\plans\valiant-prancing-puffin.md`.

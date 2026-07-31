@@ -79,7 +79,7 @@ this repo · 🔵 scope decision needed before any estimate is meaningful.
 
 | Row | Doc % | vmu_core reality | Owning module(s) | Real named gap |
 |---|---|---|---|---|
-| KYC | 65% | 🟡 | Shared/CIF | dedupe, merge, sanctions hook, exposure roll-up, consent/retention all missing (per CIF requirements doc) |
+| KYC | 65% | 🟢 superseded 2026-07-29 | `VmuCore.Kyc.*` (new native module, not Shared/CIF) | A full native KYC module replaced the old Shared/CIF-based framing entirely: method builder + conditional logic, submission/review workflow, step-sequencing/journey gating, document upload + OCR, sanctions screening (fail-closed, wraps the real `mw_risk` `MwRisk.SanctionsChecker`), external `/api/v1/kyc/*` API with `ASM.ServiceAccount` bearer auth. Per-product methods (CREDIT/DEBIT/PREPAID/CORPORATE_FACILITY/CORPORATE_EMPLOYEE/CORPORATE_FLEET/WALLET), each syncing back to the right product's existing `kyc_status` field. See `docs/kyc/KYC_Implementation_Tracker.md`. Residual gaps: no sanctions-hit override/REFER queue, no "group" field type |
 | Risk Engine | 65% | 🟡 | CDM | AML unwired (see above); no policy knockout rules beyond bureau score; no REFER/manual-override queue |
 | Fraud Detection | 50% | 🟡 | CDM, FAS | rules-based only; velocity rules real but untested without Redis; no ML models anywhere |
 | Loyalty Engine | 45% | 🟡 | LMS (P1 done) | no warehouse-release job (points sit un-redeemable if `warehouse_days > 0`); no reversal/chargeback clawback; no MCC exclusions; no time-based accelerators |
@@ -108,16 +108,16 @@ this repo · 🔵 scope decision needed before any estimate is meaningful.
 | Virtual Cards | 45% | 🟠 partial | `cta_cards.card_type` already has a `VIRTUAL` enum value (data model ready) — but the dedicated issuance + one-time credential-reveal flow (PAN/CVV generation, ephemeral vault) was only ever built in Avenza; no equivalent exists here |
 | Corporate Cards | 10% | 🟡 closer than doc suggests | HCS (Phase 7, complete) already gives company/employee-card/spending-control primitives — Corporate Cards is much more "extend HCS + add a card product config" than a from-zero build |
 | Fleet Cards | 0% | 🟡 closer than doc suggests | same HCS foundation; the Avenza-only piece was vehicle/driver-assignment (`HCS.Vehicle`, `HCS.DriverAssignment`) layered on top — a real but bounded addition, not a new module |
-| Tokenization (network tokens) | 10% | 🔴 | no vendor token-service integration anywhere |
-| Apple Pay / Google Pay | 5% | 🔴 | depends on tokenization above |
+| Tokenization (network tokens) | 10% | 🟡 vendor decided, Phase A done 2026-07-29 | Mastercard MDES chosen (Google Pay first, Visa VTS/Apple/Samsung stay stub). `VmuCore.NTS.*` — token domain model, `CardLifecycle` hooks (block/unblock/replace/renew keep tokens in sync), pluggable `TokenServiceProvider` behaviour. Real Mastercom v6 client also re-ported from Avenza (`DPS.NetworkAdapter.MastercomClient`) as the concrete signing precedent — same Mastercard Developer registration covers both. Blocked on: RSA private key format verification in progress, real MDES Token Connect API spec, inbound-callback auth scheme, token BIN range. See `docs/wallet/WALLET_Module_Requirements.md` and the approved NTS implementation plan |
+| Apple Pay / Google Pay | 5% | 🟡 Google Pay in progress (see Tokenization row) | Apple Pay/Samsung Pay stay stub/interface-only per explicit scoping decision |
 | BNPL (merchant) | 30% | 🟡 partial | CMS/COL already do account-level EMI; true merchant-initiated BNPL (installment offered at POS, separate merchant settlement terms) is unbuilt |
-| Digital Wallet | 60% | 🔴 0% here | this is entirely Avenza/`wallet-app` territory; **no wallet ledger, account, or card concept exists in `vmu_core`** |
-| QR Payments | 55% | 🔴 0% here | same — merchant-presented QR is a wallet-app/channel capability |
-| Instant Payments | 45% | 🔴 0% here | same |
-| Account-to-Account (A2A) | 40% | 🔴 0% here | same |
+| Digital Wallet | 60% | 🟢 done 2026-07-28/29 | **No longer 0% here.** W1-W6 all shipped natively on `CMS.WalletAccount`/`WalletProduct` (not ported from wallet-app): account/ledger foundation, wallet-to-wallet transfer, personal QR, admin UI, velocity-limit enforcement + auto step-up KYC. See `docs/wallet/DIGITAL_WALLET_Module_Requirements.md` |
+| QR Payments | 55% | 🟢 personal QR done 2026-07-28 | `CMS.WalletQrIdentity`/`WalletQrPaymentCommand` — scan-and-pay via wallet-to-wallet transfer. Merchant-presented QR (fixed/variable amount, revoke/expire) deliberately stays v2, per original scoping |
+| Instant Payments | 45% | 🟡 domain model done 2026-07-29, rail vendor still open | `CMS.ExternalPayment`/`ExternalPaymentCommand` — real risk gate (reuses `FAS.RiskAdapter`'s `mw_risk` fraud pipeline), pluggable `CMS.RailProvider`, external `/api/v1/wallet/payments` API. `CMS.RailProviders.Stub` is the only implementation until a rail vendor is chosen — the domain/risk/API layer is no longer the gap, only the concrete bank-rail integration is |
+| Account-to-Account (A2A) | 40% | 🟡 same build as Instant Payments (2026-07-29) | Same `CMS.ExternalPayment` pipeline, `rail_type: "A2A"` — see Instant Payments row, same rail-vendor blocker |
 | ATM Switching | 5% | 🔴 | FAS is an issuer switch for card-present/CNP auth; no ATM-acquiring path modeled |
 | ISO20022 | 25% | 🔴 | no pain/pacs message support |
-| Multi-Currency | 60% | 🔵 architecture conflict, not just a gap | **CMS's own ADR-C4 deliberately chose single billing currency per account** — Way4's "Unlimited" multi-currency claim (sub-wallet style) directly conflicts with a decision already made here. Needs a product decision, not a code fix, before scoring or building against it. |
+| Multi-Currency | 60% | 🟢 resolved 2026-07-30, wallet-scoped | **Resolved as a wallet-layer capability, not a `CMS.Account` reversal.** ADR-C4 (single billing currency per credit/debit/prepaid account) stands unchanged — ordinary card products stay single-currency by design. Multi-currency lives entirely in the Digital Wallet product via composition: one `CMS.WalletProduct` groups N single-currency `CMS.WalletAccount` rows (unique per currency). `WalletProductOpening.add_currency_account/1` existed since Phase W1 but had no real caller; Phase W7 (2026-07-30) gave it one — the admin wallet detail view now lists every currency under a wallet side by side and lets an operator add a new one. No FX/conversion between currencies — each is its own walled-garden balance, matching wallet-app's own real design. |
 
 ---
 
@@ -389,40 +389,51 @@ reintroduced here.
    eligibility/participation data), not a vmu_core-side MBS build —
    scoping that integration is the first step, not blocked on anything
    inside this repo.
-7. **Tokenization / Apple Pay / Google Pay** — vendor token-service
-   integration (network token requestor). Needs a vendor/network decision
-   (§3 Decision 2) before scoping.
+7. ~~**Tokenization / Apple Pay / Google Pay**~~ — vendor decided
+   2026-07-29 (Mastercard MDES, Google Pay first — §3 Decision 1 now
+   resolved). Phase A (token domain model + `CardLifecycle` lifecycle
+   hooks, against an honest stub TSP) done same day — see `VmuCore.NTS.*`
+   and `Way4_Phase1_Card_Portfolio_Tracker.md` item 7. Real Mastercom v6
+   client also re-ported from Avenza as the concrete signing precedent for
+   the real MDES client. Still blocked on live credentials/spec (private
+   key format verification in progress, real API spec, callback auth
+   scheme, token BIN range) — approved phased plan exists, not yet fully
+   executable end-to-end.
 
 ### Phase 2 — Digital channel absorption (the wallet-app "port in" work)
-This is the concrete first slice of the still-unwritten wallet→vmu_core
-porting plan flagged in the platform-of-record decision. Covers: Digital
-Wallet, QR Payments, Instant Payments, Account-to-Account, and (pending
-Decision 3 below) Multi-Currency.
 
-~~Requirements pass~~ ✅ Done 2026-07-28 —
-[`../wallet/DIGITAL_WALLET_Module_Requirements.md`](../wallet/DIGITAL_WALLET_Module_Requirements.md).
-**Note the naming collision this surfaced**: `docs/wallet/WALLET_Module_
-Requirements.md` (the doc previously assumed to be this phase's stub) is
-actually scoped to network/scheme tokenization (Apple/Google Pay via
-VTS/MDES — Decision 1 below), an unrelated capability that happens to
-share the word "wallet." The real gap-analysis against `wallet-app`'s
-actual `WalletAccounts`/`WalletLedger`/`WalletTransfers` code lives in the
-new doc. Verdict, applying "best implementation wins, one model of
-record" together with the Prepaid precedent (`Way4_Phase1_Card_Portfolio_
-Tracker.md`'s sequencing decision — wallet-app's account/ledger code was
-found real and mature for Prepaid too, and the verdict was still "build
-native, don't port"): **build Digital Wallet accounts natively on
-`cms_accounts`, reusing `wallet_accounts`/`wallet_ledger`/`wallet_
-transfers`/QR as design reference, not code to port** — one exception,
-QR's wire-format design is clean enough to adopt close to as-is. The new
-doc's §4 also directly informs **Decision 2 below**: wallet-app's own
-multi-currency wallets are built via a "Wallet Product" grouping N
-single-currency sub-accounts, not a multi-currency balance on one row —
-compatible with ADR-C4 without reversing it.
+~~This phase~~ ✅ **Done 2026-07-28/29, W1-W6 all shipped** — see
+[`../wallet/DIGITAL_WALLET_Module_Requirements.md`](../wallet/DIGITAL_WALLET_Module_Requirements.md)
+for the full build log. Not a port — built natively on `CMS.WalletAccount`/
+`CMS.WalletProduct` (own tables, balance-based like `CMS.DebitAccount`),
+reusing `wallet-app`'s `WalletAccounts`/`WalletLedger`/`WalletTransfers`/QR
+as **design reference only** (one exception: QR's wire-format design was
+adopted close to as-is). Delivered:
 
-- ATM Switching and ISO20022 remain grouped here provisionally — both are
-  genuinely new acquiring/rail capabilities with no natural home yet; the
-  new requirements doc didn't resolve this, still needs its own look.
+- **W1-W4** (2026-07-28) — account/ledger foundation, wallet-to-wallet
+  transfer, personal QR (scan-and-pay), admin ops UI.
+- **W5** (2026-07-29) — velocity-limit enforcement (`CMS.
+  WalletVelocityLimits`, activating the `velocity_limits` field that had
+  been admin-editable but unenforced since W4) + automatic step-up KYC
+  trigger (`Kyc.WalletStepUp`, into the native KYC module above) on a
+  breach.
+- **W6** (2026-07-29) — A2A + Instant Payments domain model
+  (`CMS.ExternalPayment`), a real risk gate reusing `FAS.RiskAdapter`'s
+  `mw_risk` fraud pipeline (the same one FAS's card-authorization path
+  already uses), a pluggable `CMS.RailProvider` (honest `Stub` until a
+  rail vendor is chosen), and an external `/api/v1/wallet/payments` API.
+  **The remaining gap for A2A/Instant Payments is narrowly the rail
+  vendor** — the domain model, risk screening, and API contract exist
+  regardless of that decision.
+
+**Multi-currency (Decision 2) is now resolved** — see that decision's
+entry in §3 below and the Multi-Currency row in §1 Group C.
+
+- ATM Switching and ISO20022 remain unscoped — both are genuinely new
+  acquiring/rail capabilities with no natural home yet, untouched by any
+  of the above.
+- W006 (merchant-presented QR) deliberately stays v2, per original
+  scoping — not part of what shipped.
 
 ### Phase 3 — Platform maturity
 Lower urgency; these are cross-cutting improvements to what Phases 0–2
@@ -451,17 +462,16 @@ Phase 0 above.
 1. **Tokenization vendor** — which network token service(s) to integrate
    (Visa Token Service, Mastercard MDES) and whether Apple Pay/Google Pay
    are in scope for this phase or a later one. Blocks Phase 1 item 7.
-2. **Multi-currency** — does the platform need real multi-currency-per-
-   account support (reversing ADR-C4), or does that belong entirely in a
-   future wallet/channel layer (Phase 2) while `cms_accounts` stays
-   single-currency by design? This is an architecture decision, not a
-   feature toggle. **Partially informed 2026-07-28** — see
-   `../wallet/DIGITAL_WALLET_Module_Requirements.md` §4: wallet-app's own
-   real multi-currency wallets don't reverse an equivalent single-currency
-   rule either, they compose N single-currency accounts under one
-   customer-facing "Wallet Product." Still needs explicit product
-   confirmation that composition satisfies the actual requirement (see
-   that doc's §8 Open Question 1) before treating this as closed.
+2. ~~**Multi-currency**~~ — **resolved 2026-07-30.** Confirmed: multi-
+   currency support belongs entirely in the wallet layer via composition
+   (N single-currency `CMS.WalletAccount` rows grouped under one `CMS.
+   WalletProduct`), not a `cms_accounts`/ADR-C4 reversal. Ordinary card
+   products (Credit/Debit/Prepaid) stay single-currency by design,
+   unchanged. Built out 2026-07-30 (Phase W7): the admin wallet UI now
+   surfaces every currency under a wallet side by side with an "Add
+   Currency" action, giving `WalletProductOpening.add_currency_account/1`
+   (real since W1, previously unreachable) its first real caller. No FX
+   between currencies — each is its own balance, by design.
 3. **KYC provider market** — config-driven recognition rules are cheap;
    external provider adapters (e.g., India CKYC) are market-gated and were
    already parked once pending a launch-market answer — still open. (Note:
@@ -488,15 +498,18 @@ exercised against live data or a real test run), it's worth budgeting for
 similar discoveries in whichever item comes next rather than assuming a
 clean, additive build.
 
-Within Phase 1, Debit and Corporate/Fleet (extends HCS, already done) are
-the lowest-risk, highest-comparison-impact items and don't depend on any
-of the four open decisions in §3; Prepaid and Tokenization each depend on
-one specific decision and can be scoped in parallel once that decision
-lands; BNPL's dependency is now an integration contract with
-`MerchantManagementSystem` (merchant eligibility data), not anything
-inside this repo. Phase 2's requirements pass is now written (see Phase 2
-above) — its Phase W1/W2/W3 (account foundation, wallet-to-wallet
-transfer, personal QR) have no remaining open decisions and can be
-sequenced next; W6+ (A2A, Instant Payments, merchant QR) each still need
-their own external rail/vendor/ownership decision per that doc's §8
-before being scoped further.
+**Update 2026-07-30**: Phase 1 items 1-5 (Virtual/Corporate/Fleet/Debit/
+Prepaid) are all fully done, as is Phase 2 (Digital Wallet W1-W7, incl.
+multi-currency and A2A/Instant Payments' domain+risk+API layer). What's
+left is narrower than this section originally described:
+
+- **Phase 1 item 6 (BNPL)** — still blocked on the `MerchantManagementSystem`
+  integration contract, unchanged.
+- **Phase 1 item 7 (Tokenization)** — vendor decided, Phase A done; blocked
+  on live MDES credentials/spec (see that item's entry above and the
+  approved NTS implementation plan).
+- **Phase 2's A2A/Instant Payments** — domain model/risk/API done; blocked
+  narrowly on which bank-rail vendor to integrate, same open question as
+  before, just no longer blocking anything else.
+- **ATM Switching, ISO20022** — still fully unscoped, no natural home.
+- Phase 3 (platform maturity) — not started, unchanged.

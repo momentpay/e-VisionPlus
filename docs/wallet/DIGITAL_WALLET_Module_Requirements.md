@@ -17,9 +17,16 @@ anything visible in the browser). **Phase W5 partially done 2026-07-29**
 external API — `CMS.ExternalPayment`/`ExternalPaymentCommand`/
 `RailProvider`, `/api/v1/wallet/payments`, 13/13 new tests; the rail
 vendor itself is still an open decision for both W011 and W012, per
-design — see §7 Phase W6). W006 (merchant QR) remains v2, deliberately
-deferred. Full suite 511 tests / same 10 pre-existing failures, no
-regression. This is the Way4 parity plan's **Phase 2** requirements
+design — see §7 Phase W6). **Phase W7 done 2026-07-30** (multi-currency —
+`WalletProductOpening.add_currency_account/1` existed since W1 but had no
+real caller; the admin wallet detail view now lists every currency under
+a wallet side by side with an "Add Currency" action, 3/3 new tests. No
+FX/conversion between currencies — each is its own walled-garden balance,
+resolving Way4 parity plan §3 Decision 2 as a wallet-layer composition
+question, not a `cms_accounts`/ADR-C4 reversal). W006 (merchant QR)
+remains v2, deliberately deferred. Full suite 539 tests / same 10
+pre-existing failures, no regression. This is the Way4 parity plan's
+**Phase 2** requirements
 pass (`docs/compare/Way4_Parity_Implementation_Plan.md` §2 "Phase 2 —
 Digital channel absorption"), covering Digital Wallet, QR Payments,
 Instant Payments, and Account-to-Account (A2A). **Do not confuse this with
@@ -122,7 +129,7 @@ reference**, not code to port.
 | Capability | Verdict | Reasoning |
 |---|---|---|
 | Account entity | ~~Rebuild native — new `account_type: "WALLET"` value on `CMS.Account`~~ **SUPERSEDED, see the correction note above — built as `CMS.WalletAccount`, its own schema mirroring `CMS.DebitAccount`'s balance-based shape instead.** | A wallet is stored value, not a credit-limit product — `CMS.Account`'s columns don't fit; `CMS.DebitAccount`'s do |
-| Multi-currency wallet UX | **Rebuild native, informed by wallet-app's real pattern** — `wallet_accounts`' actual design is *not* a multi-currency balance on one row; it's a `WalletProduct` container holding N single-currency `SubWallet`s. This is directly compatible with this repo's own ADR-C4 (`CMS.Account` stays single-currency) without reversing it — build the "product" grouping as a new thin concept over multiple single-currency accounts, same relationship shape `HCS.Company`→`EmployeeCard` already uses. **Built 2026-07-28 as `CMS.WalletProduct` grouping N `CMS.WalletAccount` rows.** | **This materially informs Way4 plan §3 Decision 2** — multi-currency does not require reversing ADR-C4; a real, tested implementation of the exact same requirement achieves it via composition instead. Worth taking back to that decision explicitly. |
+| Multi-currency wallet UX | **Rebuild native, informed by wallet-app's real pattern** — `wallet_accounts`' actual design is *not* a multi-currency balance on one row; it's a `WalletProduct` container holding N single-currency `SubWallet`s. This is directly compatible with this repo's own ADR-C4 (`CMS.Account` stays single-currency) without reversing it — build the "product" grouping as a new thin concept over multiple single-currency accounts, same relationship shape `HCS.Company`→`EmployeeCard` already uses. **Built 2026-07-28 as `CMS.WalletProduct` grouping N `CMS.WalletAccount` rows; given a real user-facing caller 2026-07-30 (Phase W7) — see below.** | **Resolved Way4 plan §3 Decision 2, 2026-07-30** — multi-currency does not require reversing ADR-C4; composition, now with a real admin UI on top, is the answer. |
 | Ledger/balance posting | **Rebuild native on `InternalGlPoster`**, adopt `wallet_ledger.PostingEngine`'s *design* (idempotent by `reference_id`, balanced-debit/credit invariant validated before commit, freeze-aware rejection) as new `post_wallet_*` functions alongside the existing `post_debit_*`/`post_prepaid_*` ones | `InternalGlPoster`/`cms_ledger_entries` is already this repo's real ledger of record, integrated with TRAMS clearing for every other product. A second, parallel double-entry engine (`wallet_ledger`) would recreate exactly the "two ledgers, which one is real" split-brain this session's own CU-1 work (Unified Card Master) and the Phase 1 research note ("`cms_ledger_entries`/`InternalGlPoster` IS the real TRAMS ledger of record, not `WalletLedger`") already closed once |
 | Wallet-to-wallet transfer | **Rebuild native**, `Transfer`'s state shape (`:initiated→:reserved→:completed/:failed`, idempotency key) is a good reference; the actual move is two `InternalGlPoster` postings (debit sender, credit receiver) inside one `Repo.transaction`, same shape `PrepaidLedger.consume_active_loads/2`/Debit's own adjustment posting already use | No new balance-movement primitive needed — this repo already has the atomic dual-posting pattern proven twice today (Debit/Prepaid Adjustments). **✅ Done, Phase W2.** |
 | QR payments | **Rebuild native**, `QrIdentity`'s wire format (`WAL\|v1\|account_id\|currency\|amount\|label\|checksum`, SHA-256 checksum) is a clean, self-contained, zero-dependency design worth reusing *as a pattern* — no conflicting architecture in this repo to reconcile against | This is the cleanest "port the idea, not the code" case in this whole doc — genuinely new capability, no ledger-of-record conflict, no `wallet_*` dependency needed at all. **✅ Done, Phase W3** (personal QR only — merchant-presented QR stays v2). |
@@ -145,6 +152,7 @@ reference**, not code to port.
 | ~~Wallet-appropriate LOGO/BLOCK config~~ `WalletVelocityLimits` (activates the existing `velocity_limits` field instead) | ✅ Done — `CMS.WalletVelocityLimits.check/2`, no `ParameterEngine`/LOGO/BLOCK changes needed |
 | Admin UI | Wallet account list/detail in the admin console, same wizard+tabs convention as Debit/Prepaid (`docs/compare/Card_Products_UX_Parity_Tracker.md`) — Overview/Ledger History/Transfers/QR/History tabs is the natural shape |
 | A2A/Instant Payments domain model + risk gate + rail adapter + external API | ✅ Done, Phase W6 — `CMS.ExternalPayment` (`cms_external_payments`), `CMS.ExternalPaymentCommand.initiate/1` (risk gate via `FAS.RiskAdapter.evaluate/1` reusing the same `mw_risk` fraud pipeline FAS's card-authorization path uses; balance debit via the existing `WalletWithdrawalCommand`; compensating credit — not a transaction rollback — if the rail declines after the debit, deliberately bypassing `WalletVelocityLimits` since a reversal isn't new money in), `CMS.RailProvider` behaviour + `CMS.RailProviders.Stub` (the only implementation until a rail vendor is chosen; honestly returns `:rail_not_configured` rather than faking success), `Api.V1.ExternalPaymentController` (`POST`/`GET /api/v1/wallet/payments`, new `wallet:read`/`wallet:write` `ServiceAccount` scopes) |
+| Multi-currency admin UI (real caller for `add_currency_account/1`) | ✅ Done, Phase W7 (2026-07-30) — `WalletComponent`'s account detail view now loads every sibling `WalletAccount` under the same `wallet_product_id` and renders them as a "Currencies" list (currency/balance/status, click to switch), plus an "+ Add Currency" action calling `WalletProductOpening.add_currency_account/1` (real since W1, previously unreachable by any operator). `WalletAccount.changeset/2` gained a `unique_constraint` on `[:wallet_product_id, :currency]` for a clean error instead of a raw Postgrex crash on a duplicate-currency add. Deliberately no FX/conversion between currencies — `WalletTransferCommand` still rejects cross-currency transfers (`:currency_mismatch`), unchanged; each currency is its own walled-garden balance, matching wallet-app's own real design |
 
 ## 6. Feature Inventory (draft — validate with product before build)
 
@@ -293,14 +301,27 @@ reference**, not code to port.
    `external_payment_controller_test.exs`). Full suite 511 tests / same
    10 pre-existing failures, no regression. Merchant-presented QR (W006)
    was NOT part of this phase — still v2, deliberately deferred.
+7. ~~**Phase W7 — Multi-currency admin UI.**~~ ✅ **Done 2026-07-30.**
+   User confirmed Way4 plan §3 Decision 2 explicitly: multi-currency
+   support is needed for the wallet. Rather than a new build, this closed
+   a real "command exists, nobody can reach it" gap found while checking —
+   `WalletProductOpening.add_currency_account/1` had existed since Phase
+   W1 with zero callers anywhere in `lib/`. `WalletComponent`'s account
+   detail view now loads every sibling `WalletAccount` under the product
+   and renders a "Currencies" list + "Add Currency" action wired to that
+   same command. `WalletAccount.changeset/2` gained a `unique_constraint`
+   on `[:wallet_product_id, :currency]` (the DB already enforced it; the
+   changeset didn't turn a violation into a clean error). Deliberately no
+   FX/conversion — cross-currency transfer stays rejected
+   (`WalletTransferCommand`'s existing `:currency_mismatch` guard,
+   unchanged), each currency is its own balance. 3/3 new tests. Full
+   suite 539 tests / same 10 pre-existing failures, no regression.
 
 ## 8. Open Questions (need product/business input before W1 starts)
 
-1. **Confirm the multi-currency finding lands.** §4's Wallet-Product/
-   sub-account composition pattern is offered as the answer to Way4 plan
-   §3 Decision 2 — does this resolve that decision, or is there a real
-   requirement (e.g. a single balance genuinely denominated in a currency
-   chosen at transaction time) that composition can't satisfy?
+1. ~~**Confirm the multi-currency finding lands.**~~ **Resolved
+   2026-07-30** — composition satisfies the real requirement; see Phase
+   W7 above and Way4 plan §3 Decision 2.
 2. **Load channels for v1** — which of cash/agent, bank transfer,
    card-to-wallet are actually needed at launch vs. later?
 3. **A2A rail** — same shape of question as tokenization's VTS/MDES

@@ -469,6 +469,40 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Multi-currency (Digital Wallet Phase W7, 2026-07-30) — WalletProductOpening.
+  # add_currency_account/1 already existed since Phase W1 but had no real
+  # caller anywhere; this is its first one.
+  # ---------------------------------------------------------------------------
+
+  def handle_event("switch_currency", %{"id" => wallet_account_id}, socket) do
+    {:noreply, load_detail(socket, wallet_account_id)}
+  end
+
+  def handle_event("add_currency_save", %{"action" => params}, socket) do
+    if socket.assigns.can_edit do
+      account = socket.assigns.account
+      currency = params["currency"] |> to_string() |> String.trim() |> String.upcase()
+
+      case WalletProductOpening.add_currency_account(%{
+             wallet_product_id: account.wallet_product_id,
+             sys_id: account.sys_id, bank_id: account.bank_id,
+             logo_id: account.logo_id, block_id: account.block_id,
+             currency: currency
+           }) do
+        {:ok, new_account} ->
+          {:noreply, socket
+                      |> load_detail(new_account.wallet_account_id)
+                      |> assign(notice: "#{currency} account added to this wallet.", notice_kind: :success)}
+
+        {:error, cs} ->
+          {:noreply, assign(socket, notice: "Add currency failed — #{cs_error_msg(cs)}", notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot modify wallets.", notice_kind: :error)}
+    end
+  end
+
   def handle_event("wallet_kyc", %{"status" => status}, socket) do
     account = socket.assigns.account
 
@@ -521,11 +555,19 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
     product = Repo.get(WalletProduct, account.wallet_product_id)
     account = Map.put(account, :customer_name, customer && "#{customer.first_name} #{customer.last_name}")
 
+    sibling_accounts =
+      Repo.all(
+        from a in WalletAccount,
+          where: a.wallet_product_id == ^account.wallet_product_id,
+          order_by: [asc: a.currency]
+      )
+
     assign(socket,
       mode: :detail,
       account: account,
       customer: customer,
       product: product,
+      sibling_accounts: sibling_accounts,
       active_action: :none,
       notice: nil,
       generated_qr: nil,
@@ -1097,6 +1139,57 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
           <tr><td>Balance</td><td class="mono"><%= money(@account.available_balance) %> <%= @account.currency %></td></tr>
           <tr><td>Status</td><td><span class={"badge #{status_cls(@account.status)}"}><%= @account.status %></span></td></tr>
           <tr><td>Opened</td><td><%= @account.opened_at %></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+      <span>Currencies (<%= length(@sibling_accounts) %>)</span>
+      <button :if={@can_edit} class="btn btn-sm btn-secondary" phx-click="open_action" phx-value-a="add_currency" phx-target={@myself}>+ Add Currency</button>
+    </div>
+
+    <%= if @active_action == :add_currency do %>
+      <div class="action-panel" style="margin-bottom:16px;">
+        <div class="action-panel-title">
+          <span>💱 Add a Currency to this Wallet</span>
+          <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+        </div>
+        <div class="text-sm text-muted" style="margin-bottom:8px;">
+          Opens a new single-currency account under the same wallet, using
+          this account's SYS/BANK/LOGO/BLOCK scope. Each currency is its
+          own balance — money doesn't move between currencies automatically.
+        </div>
+        <form phx-submit="add_currency_save" phx-target={@myself}>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Currency (ISO 4217) *</label>
+              <input class="input" type="text" name="action[currency]" placeholder="USD" maxlength="3" required/></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="submit" class="btn btn-primary">Add Currency</button>
+            <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    <% end %>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Currency</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <%= for sib <- @sibling_accounts do %>
+            <tr class={if sib.wallet_account_id == @account.wallet_account_id, do: "row-active", else: ""}>
+              <td><%= sib.currency %></td>
+              <td class="mono"><%= money(sib.available_balance) %></td>
+              <td><span class={"badge #{status_cls(sib.status)}"}><%= sib.status %></span></td>
+              <td>
+                <%= if sib.wallet_account_id == @account.wallet_account_id do %>
+                  <span class="text-sm text-muted">Viewing</span>
+                <% else %>
+                  <button class="btn btn-sm btn-ghost" phx-click="switch_currency" phx-value-id={sib.wallet_account_id} phx-target={@myself}>View →</button>
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
         </tbody>
       </table>
     </div>

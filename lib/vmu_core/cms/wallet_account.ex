@@ -58,6 +58,9 @@ defmodule VmuCore.CMS.WalletAccount do
     |> validate_inclusion(:status, @valid_statuses)
     |> validate_inclusion(:kyc_status, @valid_kyc_statuses)
     |> validate_number(:available_balance, greater_than_or_equal_to: 0)
+    |> unique_constraint([:wallet_product_id, :currency],
+         name: :cms_wallet_accounts_wallet_product_id_currency_index,
+         message: "this wallet already has an account in that currency")
   end
 
   def active?(%__MODULE__{status: "ACTIVE"}), do: true

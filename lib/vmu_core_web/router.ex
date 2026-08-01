@@ -103,6 +103,12 @@ defmodule VmuCoreWeb.Router do
   # Push to Merchant). Every action acts on behalf of the authenticated
   # cardholder (conn.assigns.current_customer_id), never a client-supplied
   # customer id — see CardholderAuth/api_v1_cardholder above.
+  scope "/api/v1/customer", VmuCoreWeb.Api.V1.Customer do
+    pipe_through :api_v1_cardholder
+
+    get "/cards", CardsController, :index
+  end
+
   scope "/api/v1/customer/nts", VmuCoreWeb.Api.V1.Customer do
     pipe_through :api_v1_cardholder
 

@@ -13,7 +13,7 @@ defmodule VmuCore.CTA.Cards do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CTA.Card, CTA.CardStateMachine, CMS.Account}
+  alias VmuCore.{Repo, CTA.Card, CTA.CardStateMachine, CMS.Account, CMS.DebitAccount, CMS.PrepaidAccount}
 
   @live_statuses ~w[INACTIVE ACTIVE BLOCKED ORDERED EMBOSSED DISPATCHED]
 
@@ -76,6 +76,31 @@ defmodule VmuCore.CTA.Cards do
       from c in Card,
         where: c.prepaid_account_id == ^prepaid_account_id,
         order_by: [desc: c.generation, desc: c.inserted_at]
+    )
+  end
+
+  @doc """
+  All cards across every product (Credit/Debit/Prepaid) for a customer —
+  NTS Phase F6 (2026-08-02), the first real cardholder-facing card
+  listing (Kosa app). No single FK covers this (`Card` has `account_id`/
+  `debit_account_id`/`prepaid_account_id`, never more than one; each
+  points at a different product's own account table), so this unions
+  three product-scoped lookups by `customer_id` rather than the
+  existing `by_account/1`-style single-FK helpers above, which take an
+  account id the caller doesn't have yet at this point.
+  """
+  @spec by_customer(Ecto.UUID.t()) :: [Card.t()]
+  def by_customer(customer_id) do
+    account_ids = Repo.all(from a in Account, where: a.customer_id == ^customer_id, select: a.account_id)
+    debit_account_ids = Repo.all(from a in DebitAccount, where: a.customer_id == ^customer_id, select: a.debit_account_id)
+    prepaid_account_ids = Repo.all(from a in PrepaidAccount, where: a.customer_id == ^customer_id, select: a.prepaid_account_id)
+
+    Repo.all(
+      from c in Card,
+        where:
+          c.account_id in ^account_ids or c.debit_account_id in ^debit_account_ids or
+            c.prepaid_account_id in ^prepaid_account_ids,
+        order_by: [desc: c.inserted_at]
     )
   end
 

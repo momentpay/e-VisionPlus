@@ -29,6 +29,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   alias VmuCore.{Repo, CMS.PrepaidAccount, CMS.PrepaidAccountOpening, CMS.PrepaidLedgerEntry,
                  CMS.PrepaidLedger, CMS.PrepaidAdjustmentCommand, CMS.PrepaidBlockHistory,
                  CMS.PrepaidNonMonetaryEvent, CTA.CardLifecycle, CTA.Cards}
+  alias VmuCore.NTS.{Tokens, TokenLifecycle}
   alias VmuCore.Shared.{Customer, LogoParameter, BlockParameter}
   alias VmuCore.ASM.Authz
   alias Decimal, as: D
@@ -76,6 +77,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
        balance: nil,
        ledger_entries: [],
        cards: [],
+       nts_tokens: [],
        adjustments: [],
        block_history: [],
        nonmon_events: [],
@@ -517,6 +519,21 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
     end
   end
 
+  # NTS Phase E — admin console manual "remove device" action.
+  def handle_event("nts_token_remove", %{"id" => token_id}, socket) do
+    if socket.assigns.can_edit do
+      case TokenLifecycle.delete_token(token_id, operator: socket.assigns.current_operator) do
+        :ok ->
+          {:noreply, socket |> load_detail(socket.assigns.account.prepaid_account_id) |> assign(notice: "Wallet token removed.", notice_kind: :success)}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, notice: "Remove failed — #{inspect(reason)}", notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot remove wallet tokens.", notice_kind: :error)}
+    end
+  end
+
   # Card Products UX Parity Phase 2d (2026-07-28) — per-card channel
   # controls, reusing CTA.CardLifecycle.set_channel_controls/2 directly
   # (already card-generic, confirmed unchanged for a prepaid-issued card).
@@ -579,6 +596,8 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
     customer = Repo.get(Customer, account.customer_id)
     account = Map.put(account, :customer_name, customer && "#{customer.first_name} #{customer.last_name}")
 
+    cta_cards = Cards.by_prepaid_account(prepaid_account_id)
+
     assign(socket,
       mode: :detail,
       account: account,
@@ -592,7 +611,8 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
             where: l.prepaid_account_id == ^prepaid_account_id,
             order_by: [desc: l.inserted_at]
         ),
-      cards: Cards.by_prepaid_account(prepaid_account_id),
+      cards: cta_cards,
+      nts_tokens: Tokens.list_for_cards(Enum.map(cta_cards, & &1.card_id)),
       adjustments: PrepaidAdjustmentCommand.list_for(prepaid_account_id),
       block_history: PrepaidBlockHistory.history_for(prepaid_account_id),
       nonmon_events: PrepaidNonMonetaryEvent.history_for(prepaid_account_id)
@@ -1394,6 +1414,8 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
         </tbody>
       </table>
     </div>
+
+    <.nts_tokens_panel tokens={@nts_tokens} myself={@myself} />
     """
   end
 

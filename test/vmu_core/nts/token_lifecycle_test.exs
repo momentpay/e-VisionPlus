@@ -16,7 +16,7 @@ defmodule VmuCore.NTS.TokenLifecycleTest do
   alias VmuCore.CMS.Account
   alias VmuCore.CTA.{Card, CardLifecycle}
   alias VmuCore.NTS.{Token, Tokens, TokenLifecycle}
-  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
+  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, ModuleConfigWriter, SysParameter}
   alias Decimal, as: D
 
   setup do
@@ -62,6 +62,14 @@ defmodule VmuCore.NTS.TokenLifecycleTest do
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "424242", description: "test", card_validity_years: 4}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 
+    # Phase E gates provision/4 on cta.wallet_tokenization_mode (default
+    # "disabled") — opt this logo in so the pre-existing Phase A/D
+    # provision/suspend/resume/delete assertions keep exercising the real
+    # TSP path unchanged.
+    {:ok, _} =
+      ModuleConfigWriter.put("cta", "wallet_tokenization_mode", "scheme_token",
+        %{scope_type: "logo", sys_id: sys_id, bank_id: bank_id, logo_id: logo_id}, nil)
+
     customer =
       %Customer{}
       |> Customer.changeset(%{sys_id: sys_id, bank_id: bank_id, first_name: "Nts", last_name: "Lifecycle#{n}", id_type: "PASSPORT", id_number: "NTSL-#{n}"})
@@ -99,6 +107,44 @@ defmodule VmuCore.NTS.TokenLifecycleTest do
       assert token.status == "ACTIVE"
       assert token.dpan == "4111000000001234"
       assert token.token_reference_id == "TSP-REF-1"
+    end
+
+    test "when the logo's wallet_tokenization_mode is disabled (the real default), declines before creating any token row" do
+      Application.put_env(:vmu_core, :tsp_provider, AcceptingTsp)
+
+      # Build the card fixture manually, skipping card_fixture/0's own
+      # opt-in write, to exercise the real default ("disabled").
+      n = System.unique_integer([:positive])
+      sys_id = "T#{100 + rem(n, 900)}"
+      bank_id = "B#{100 + rem(n, 900)}"
+      logo_id = "L#{100 + rem(n, 900)}"
+      block_id = "K#{100 + rem(n, 900)}"
+
+      %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
+      %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+      %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "424243", description: "test", card_validity_years: 4}) |> Repo.insert!()
+      %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
+
+      customer =
+        %Customer{}
+        |> Customer.changeset(%{sys_id: sys_id, bank_id: bank_id, first_name: "Nts", last_name: "Disabled#{n}", id_type: "PASSPORT", id_number: "NTSD-#{n}"})
+        |> Repo.insert!()
+
+      account =
+        %Account{}
+        |> Account.changeset(%{
+          customer_id: customer.customer_id, sys_id: sys_id, bank_id: bank_id, logo_id: logo_id,
+          block_id: block_id, pan_token: "ntsl-disabled-pan-#{n}", last_four: "0000",
+          expiry_date: "1230", credit_limit: D.new("5000.00"), emboss_name: "NTS DISABLED#{n}"
+        })
+        |> Repo.insert!()
+
+      {:ok, card} = CardLifecycle.issue_new(account, activate: true)
+
+      assert {:error, {:tokenization_disabled, "disabled"}} =
+               TokenLifecycle.provision(card, %{"device_id" => "dev1"}, "GOOGLE_PAY")
+
+      assert [] = Repo.all(from t in Token, where: t.card_id == ^card.card_id)
     end
   end
 

@@ -21,21 +21,41 @@ defmodule VmuCore.NTS.TokenLifecycle do
   """
 
   require Logger
+  import Ecto.Query
 
   alias VmuCore.Repo
   alias VmuCore.NTS.{Token, Tokens, TokenServiceProvider}
   alias VmuCore.ASM.AuditLog
   alias VmuCore.FAS.DpanCache
+  alias VmuCore.CMS.{Account, DebitAccount, PrepaidAccount}
+  alias VmuCore.Shared.ModuleConfigEngine
 
   @doc """
   Provision a new device token for `card` into `wallet` (`"GOOGLE_PAY"` for
   now). Creates the token row first (status PENDING) so every attempt is
   audit-traceable regardless of outcome, then calls the TSP.
+
+  Gated on the Module Configuration Framework's `cta.wallet_tokenization_mode`
+  (per-logo, `[disabled, scheme_token, own_token]`, default `"disabled"`) —
+  this is that key's first real consumer. Only `"scheme_token"` proceeds to
+  the TSP; `"disabled"` (the default) and `"own_token"` (reserved, unused —
+  no own-token implementation exists) both decline before creating any
+  token row, so a logo that hasn't opted in never gets a stray PENDING/
+  DELETED row from an attempt that was never going to succeed.
   """
   @spec provision(struct(), map(), String.t(), keyword()) :: {:ok, Token.t()} | {:error, term()}
   def provision(card, device_info, wallet, opts \\ []) do
     scheme = Keyword.get(opts, :scheme, "MASTERCARD")
 
+    with {:ok, "scheme_token"} <- tokenization_mode(card) do
+      do_provision(card, device_info, wallet, scheme, opts)
+    else
+      {:ok, mode} -> {:error, {:tokenization_disabled, mode}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_provision(card, device_info, wallet, scheme, opts) do
     {:ok, token} =
       Tokens.create(%{
         "card_id" => card.card_id, "scheme" => scheme, "wallet" => wallet,
@@ -117,6 +137,25 @@ defmodule VmuCore.NTS.TokenLifecycle do
     :ok
   end
 
+  @doc """
+  Delete a single token by id — the admin console's manual "remove device"
+  action (Way4 parity plan §5 / Phase E). Unlike `delete_for_card/2` (every
+  live token on a card, called only from `CardLifecycle.replace/3`), this
+  targets one device/token, leaving the card's other provisioned wallets
+  untouched.
+  """
+  @spec delete_token(binary(), keyword()) :: :ok | {:error, :token_not_found}
+  def delete_token(token_id, opts \\ []) do
+    case Tokens.get(token_id) do
+      nil ->
+        {:error, :token_not_found}
+
+      token ->
+        transition_with_tsp(token, "DELETED", :delete_token, opts)
+        :ok
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
@@ -138,6 +177,36 @@ defmodule VmuCore.NTS.TokenLifecycle do
         Logger.warning("[NTS] #{action} TSP call failed for token #{token.token_id}: #{inspect(reason)}")
         AuditLog.record(opts[:operator], action <> "_failed", token.token_id,
           %{card_id: token.card_id, reason: inspect(reason)})
+    end
+  end
+
+  # Resolves `cta.wallet_tokenization_mode` for the logo `card` belongs to.
+  # A card carries exactly one of account_id/debit_account_id/
+  # prepaid_account_id (never more than one — same three-way polymorphism
+  # DpanCache's own resolve_and_check_block/3 branches on); each account
+  # type carries its own sys_id/bank_id/logo_id, so this resolves which
+  # one before asking ModuleConfigEngine.
+  defp tokenization_mode(%{account_id: id}) when not is_nil(id),
+    do: scope_lookup(Account, :account_id, id)
+
+  defp tokenization_mode(%{debit_account_id: id}) when not is_nil(id),
+    do: scope_lookup(DebitAccount, :debit_account_id, id)
+
+  defp tokenization_mode(%{prepaid_account_id: id}) when not is_nil(id),
+    do: scope_lookup(PrepaidAccount, :prepaid_account_id, id)
+
+  defp tokenization_mode(_card), do: {:error, :account_not_found}
+
+  defp scope_lookup(schema, key_field, id) do
+    query = from(a in schema, where: field(a, ^key_field) == ^id,
+                 select: {a.sys_id, a.bank_id, a.logo_id})
+
+    case Repo.one(query) do
+      {sys_id, bank_id, logo_id} ->
+        ModuleConfigEngine.get("cta", "wallet_tokenization_mode", sys_id, bank_id, logo_id)
+
+      nil ->
+        {:error, :account_not_found}
     end
   end
 end

@@ -18,7 +18,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
   alias VmuCore.Repo
   alias VmuCore.ASM.{Authz, Operator}
   alias VmuCore.CMS.{DebitAccount, DebitAccountOpening}
-  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
+  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, ModuleConfigWriter, SysParameter}
   alias Decimal, as: D
 
   @endpoint VmuCoreWeb.Endpoint
@@ -197,6 +197,55 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
 
     unblock_html = view |> element("button[phx-click=card_unblock]") |> render_click()
     assert unblock_html =~ "Card unblocked."
+  end
+
+  test "NTS Phase E — admin can remove a provisioned wallet token from the card's detail view" do
+    {account, sys_id, bank_id, logo_id, _block_id} = debit_account_fixture()
+    operator = operator_fixture("SUPERVISOR")
+
+    ModuleConfigWriter.put("cta", "wallet_tokenization_mode", "scheme_token",
+      %{scope_type: "logo", sys_id: sys_id, bank_id: bank_id, logo_id: logo_id}, nil)
+    Application.put_env(:vmu_core, :tsp_provider, __MODULE__.AcceptingTsp)
+    on_exit(fn -> Application.delete_env(:vmu_core, :tsp_provider) end)
+
+    {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
+    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
+    view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
+
+    view
+    |> form("form[phx-submit=issue_card_save]", %{"card" => %{"card_type" => "PRIMARY"}})
+    |> render_submit()
+
+    view |> element("button[phx-click=card_activate]") |> render_click()
+
+    [card] = VmuCore.CTA.Cards.by_debit_account(account.debit_account_id)
+    {:ok, token} = VmuCore.NTS.TokenLifecycle.provision(card, %{"device_id" => "dev1"}, "GOOGLE_PAY")
+
+    {:ok, view, html} = live(authed_conn(operator), "/visionplus/admin/debit")
+    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
+
+    assert html =~ "Wallet Tokens" or render(view) =~ "Wallet Tokens"
+    assert render(view) =~ "GOOGLE_PAY"
+
+    remove_html =
+      view |> element("button[phx-click=nts_token_remove][phx-value-id='#{token.token_id}']") |> render_click()
+
+    assert remove_html =~ "Wallet token removed."
+    assert VmuCore.NTS.Tokens.get(token.token_id).status == "DELETED"
+  end
+
+  defmodule AcceptingTsp do
+    @behaviour VmuCore.NTS.TokenServiceProvider
+    @impl true
+    def provision_token(_card, _device_info, _wallet), do: {:ok, %{token_reference_id: "REF", dpan: "4111000000009999", status: "ACTIVE"}}
+    @impl true
+    def suspend_token(_token), do: {:ok, %{}}
+    @impl true
+    def resume_token(_token), do: {:ok, %{}}
+    @impl true
+    def delete_token(_token), do: {:ok, %{}}
   end
 
   test "external funding channel requires a reference" do

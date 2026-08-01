@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   alias VmuCore.Shared.{Customer, BankParameter, LogoParameter, BlockParameter}
   alias VmuCore.CTA.{Cards, CardLifecycle, CredentialVault}
   alias VmuCore.ASM.AuditLog
+  alias VmuCore.NTS.{Tokens, TokenLifecycle}
 
   @card_block_reasons [
     {"Lost",     "LOST"},
@@ -95,6 +96,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        # CTA-P3: card generation list + event timeline for the Cards tab
        cards: [],
        card_events: [],
+       nts_tokens: [],
        selected_card_id: nil,
        # Constants for templates (module attrs not accessible via @ in HEEx)
        block_codes:          @block_codes,
@@ -252,6 +254,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       # CTA-P3: plastic generation list + event timeline for the Cards tab
       cta_cards = Cards.by_account(account_id)
       card_evts = AuditLog.for_subjects(Enum.map(cta_cards, & &1.card_id), action_prefix: "card_")
+      nts_tokens = Tokens.list_for_cards(Enum.map(cta_cards, & &1.card_id))
 
       assign(socket,
         account:           acc,
@@ -267,7 +270,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         statements:        stmts,
         emi_schedules:     emis,
         cards:             cta_cards,
-        card_events:       card_evts
+        card_events:       card_evts,
+        nts_tokens:        nts_tokens
       )
     else
       assign(socket, result: {:error, "Account not found."})
@@ -465,6 +469,20 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
       {:error, reason} ->
         {:noreply, assign(socket, result: {:error, "Unblock failed — #{inspect(reason)}"})}
+    end
+  end
+
+  # NTS Phase E — admin console manual "remove device" action.
+  def handle_event("nts_token_remove", %{"id" => token_id}, socket) do
+    operator = Map.get(socket.assigns, :current_operator)
+
+    case TokenLifecycle.delete_token(token_id, operator: operator) do
+      :ok ->
+        {:noreply, socket |> load_detail(socket.assigns.account.account_id)
+                   |> assign(result: {:ok, "Wallet token removed."})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, result: {:error, "Remove failed — #{inspect(reason)}"})}
     end
   end
 
@@ -2669,6 +2687,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           </table>
         </div>
       <% end %>
+
+      <.nts_tokens_panel tokens={@nts_tokens} myself={@myself} />
 
       <div class="form-pane-section-title" style="margin-top:20px;">
         Supplementary Cards (<%= length(@supp_cards) %>)

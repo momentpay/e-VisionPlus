@@ -43,6 +43,16 @@ defmodule VmuCore.NTS.Tokens do
     )
   end
 
+  @doc "All non-deleted tokens across several cards, newest first — for admin console listings covering every generation of a card on one account."
+  @spec list_for_cards([binary()]) :: [Token.t()]
+  def list_for_cards(card_ids) do
+    Repo.all(
+      from t in Token,
+        where: t.card_id in ^card_ids and t.status != "DELETED",
+        order_by: [desc: t.inserted_at]
+    )
+  end
+
   @doc """
   Move a token to `new_status`. Returns `{:error, :invalid_transition}` for
   a transition not in the fixed table above (e.g. re-deleting an already

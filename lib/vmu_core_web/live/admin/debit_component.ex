@@ -29,6 +29,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
                  CMS.DebitFundingCommand, CMS.DebitAdjustmentCommand, CMS.DebitBlockHistory,
                  CMS.DebitNonMonetaryEvent, CTA.CardLifecycle, CTA.Cards}
+  alias VmuCore.NTS.{Tokens, TokenLifecycle}
   alias VmuCore.Shared.{Customer, LogoParameter, BlockParameter}
   alias VmuCore.ASM.Authz
 
@@ -75,6 +76,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
        customer: nil,
        fundings: [],
        cards: [],
+       nts_tokens: [],
        adjustments: [],
        block_history: [],
        nonmon_events: [],
@@ -530,6 +532,21 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     end
   end
 
+  # NTS Phase E — admin console manual "remove device" action.
+  def handle_event("nts_token_remove", %{"id" => token_id}, socket) do
+    if socket.assigns.can_edit do
+      case TokenLifecycle.delete_token(token_id, operator: socket.assigns.current_operator) do
+        :ok ->
+          {:noreply, socket |> load_detail(socket.assigns.account.debit_account_id) |> assign(notice: "Wallet token removed.", notice_kind: :success)}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, notice: "Remove failed — #{inspect(reason)}", notice_kind: :error)}
+      end
+    else
+      {:noreply, assign(socket, notice: "Your role cannot remove wallet tokens.", notice_kind: :error)}
+    end
+  end
+
   # Card Products UX Parity Phase 1e (2026-07-28) — per-card channel
   # controls, reusing CTA.CardLifecycle.set_channel_controls/2 directly
   # (already card-generic, confirmed unchanged for a debit-issued card).
@@ -589,6 +606,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     account = Repo.get!(DebitAccount, debit_account_id)
     customer = Repo.get(Customer, account.customer_id)
     account = Map.put(account, :customer_name, customer && "#{customer.first_name} #{customer.last_name}")
+    cta_cards = Cards.by_debit_account(debit_account_id)
 
     assign(socket,
       mode: :detail,
@@ -597,7 +615,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       active_action: :none,
       notice: nil,
       fundings: Repo.all(from f in DebitFunding, where: f.debit_account_id == ^debit_account_id, order_by: [desc: f.inserted_at]),
-      cards: Cards.by_debit_account(debit_account_id),
+      cards: cta_cards,
+      nts_tokens: Tokens.list_for_cards(Enum.map(cta_cards, & &1.card_id)),
       adjustments: DebitAdjustmentCommand.list_for(debit_account_id),
       block_history: DebitBlockHistory.history_for(debit_account_id),
       nonmon_events: DebitNonMonetaryEvent.history_for(debit_account_id)
@@ -1332,6 +1351,8 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
         </tbody>
       </table>
     </div>
+
+    <.nts_tokens_panel tokens={@nts_tokens} myself={@myself} />
     """
   end
 

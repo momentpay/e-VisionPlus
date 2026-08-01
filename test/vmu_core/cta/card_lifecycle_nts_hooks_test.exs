@@ -13,7 +13,7 @@ defmodule VmuCore.CTA.CardLifecycleNtsHooksTest do
   alias VmuCore.CMS.Account
   alias VmuCore.CTA.{Card, CardLifecycle}
   alias VmuCore.NTS.{Tokens, TokenLifecycle}
-  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
+  alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, ModuleConfigWriter, SysParameter}
   alias Decimal, as: D
 
   setup do
@@ -47,6 +47,10 @@ defmodule VmuCore.CTA.CardLifecycleNtsHooksTest do
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "424242", description: "test", card_validity_years: 4}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
+
+    {:ok, _} =
+      ModuleConfigWriter.put("cta", "wallet_tokenization_mode", "scheme_token",
+        %{scope_type: "logo", sys_id: sys_id, bank_id: bank_id, logo_id: logo_id}, nil)
 
     customer =
       %Customer{}

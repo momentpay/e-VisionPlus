@@ -188,4 +188,13 @@ config :vmu_core, :mdes,
   base_url: System.get_env("MDES_BASE_URL", "https://sandbox.api.mastercard.com/mdes"),
   google_pay_token_requestor_id: System.get_env("MDES_GOOGLE_PAY_TRID")
 
+# ---------------------------------------------------------------------------
+# CAM.CustomerSession (Cardholder Access, NTS Phase F1, 2026-08-02) — HS256
+# signing key for cardholder session tokens. The fallback is a fixed
+# dev-only string, never suitable for a real environment — set
+# CAM_SESSION_SIGNING_KEY in prod/staging.
+# ---------------------------------------------------------------------------
+config :vmu_core, :cam,
+  session_signing_key: System.get_env("CAM_SESSION_SIGNING_KEY", "dev-only-insecure-cam-signing-key-do-not-use-in-prod")
+
 import_config "#{config_env()}.exs"

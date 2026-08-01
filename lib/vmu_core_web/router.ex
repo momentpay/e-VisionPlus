@@ -79,6 +79,26 @@ defmodule VmuCoreWeb.Router do
     get  "/payments/:id", ExternalPaymentController, :show
   end
 
+  # Cardholder-identity API (CAM Phase F1, 2026-08-02) — composes on top of
+  # :api_v1 (still proves "this is Kosa app") with CardholderAuth (proves
+  # "acting as this specific customer", via a separate X-Customer-Token
+  # header). See CardholderAuth's moduledoc for why this is additive, not
+  # a replacement pipeline.
+  pipeline :api_v1_cardholder do
+    plug :accepts, ["json"]
+    plug VmuCoreWeb.Plugs.ApiV1Auth
+    plug VmuCoreWeb.Plugs.CardholderAuth
+  end
+
+  # Cardholder login (CAM Phase F1) — no cardholder token exists yet at
+  # this point, so plain :api_v1 (app-level only), not :api_v1_cardholder.
+  scope "/api/v1/customer/auth", VmuCoreWeb.Api.V1.Customer do
+    pipe_through :api_v1
+
+    post "/request_otp", AuthController, :request_otp
+    post "/verify_otp",  AuthController, :verify_otp
+  end
+
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard
   pipeline :operator do
     plug VmuCoreWeb.OperatorAuth

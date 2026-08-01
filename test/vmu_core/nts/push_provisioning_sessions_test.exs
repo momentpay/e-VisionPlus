@@ -170,6 +170,39 @@ defmodule VmuCore.NTS.PushProvisioningSessionsTest do
     assert {:ok, [%{"tokenRequestorId" => "1"}]} = PushProvisioningSessions.list_eligible_token_requestors(card.card_id, "MERCHANT")
   end
 
+  test "start_proprietary_push/4 (Case 4) pushes with requestIssuerInitiatedDigitizationData: true and no callback_url, returns the digitization data" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      assert conn.body_params["requestIssuerInitiatedDigitizationData"] == true
+      refute Map.has_key?(conn.body_params, "signatureData")
+
+      Req.Test.json(conn, %{
+        "responseId" => "r1",
+        "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-prop"}],
+        "issuerInitiatedDigitizationData" => %{"opaque" => "blob"}
+      })
+    end)
+
+    assert {:ok, session, digitization_data} =
+             PushProvisioningSessions.start_proprietary_push(card.card_id, customer.customer_id, "50123456789", funding_account())
+
+    assert session.status == "COMPLETED"
+    assert digitization_data == %{"opaque" => "blob"}
+    assert Tokens.get(session.token_id).status == "PUSHED"
+  end
+
+  test "start_proprietary_push/4 fails cleanly and deletes the token when MDES returns no receipt" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      Req.Test.json(conn, %{"responseId" => "r1", "pushAccountReceipts" => []})
+    end)
+
+    assert {:error, :no_receipt_returned} =
+             PushProvisioningSessions.start_proprietary_push(card.card_id, customer.customer_id, "50123456789", funding_account())
+  end
+
   test "card_belongs_to_customer?/2 is true for the owning customer and false otherwise" do
     {card, customer} = card_and_customer_fixture()
     {_other_card, other_customer} = card_and_customer_fixture()

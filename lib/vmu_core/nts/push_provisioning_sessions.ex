@@ -1,12 +1,19 @@
 defmodule VmuCore.NTS.PushProvisioningSessions do
   @moduledoc """
-  Business layer for MDES Token Connect's browser-redirect use cases —
-  NTS Phase F2 (2026-08-02): Push to Merchant (case-1), Push to Merchant
-  with Authentication (case-3, Phase F5), Pull from Wallet (case-5,
-  Phase F4). Unlike Case 2/Google Pay and Case 4/proprietary comms
-  (fire-and-forget, no redirect), these round-trip through the Token
-  Requestor's own UI, so the attempt needs to survive across that
-  boundary — this is the session record for that.
+  Business layer for MDES Token Connect's remaining push-based use cases
+  — NTS Phase F2/F3 (2026-08-02): Push to Merchant (case-1, `start_push/
+  5`), Push to Token Requestor via Proprietary Communication (case-4,
+  `start_proprietary_push/4`), Push to Merchant with Authentication
+  (case-3, Phase F5), Pull from Wallet (case-5, Phase F4). Case 2/Google
+  Pay stays on its own dedicated path (`TokenServiceProviders.
+  MastercardMdes.provision_token/3`) since it's a `TokenServiceProvider`
+  behaviour implementation, not a customer-initiated session.
+
+  `start_push/5` (cases 1/3/5) round-trips through the Token Requestor's
+  own UI via a browser redirect, so the attempt needs to survive across
+  that boundary — the session record is for that. `start_proprietary_
+  push/4` (case 4) is fire-and-forget like Case 2, no redirect needed,
+  but still creates a session for a consistent audit trail.
 
   ## Lifecycle
 
@@ -75,6 +82,57 @@ defmodule VmuCore.NTS.PushProvisioningSessions do
             |> Repo.update()
 
           {:ok, updated, build_redirect_url(methods, receipt["pushAccountReceipt"], callback_url)}
+
+        {:ok, %{"pushAccountReceipts" => []}} ->
+          fail(session, :no_receipt_returned)
+
+        {:error, reason} ->
+          fail(session, reason)
+      end
+    end
+  end
+
+  @doc """
+  Case 4 — Push to Token Requestor using Proprietary Communication (NTS
+  Phase F3, 2026-08-02). Unlike `start_push/4`'s browser-redirect flow,
+  this is fire-and-forget, same shape as Case 2/Google Pay: requests
+  `requestIssuerInitiatedDigitizationData: true` so MDES returns the
+  digitization result in-band, no `callbackURL`/redirect needed. Still
+  creates a session record (consistent audit trail alongside the token,
+  same as every other case here) but completes it synchronously in this
+  same call rather than waiting for `NtsCallbackController`.
+
+  Returns the raw `issuerInitiatedDigitizationData` blob for the caller
+  to hand off to the specific Token Requestor's own proprietary channel
+  — no specific partner exists yet, so this is honestly a mechanism only
+  (mirrors `TokenServiceProviders.Stub`'s posture before Google Pay's
+  real spec existed). The token is transitioned to `PUSHED`, not
+  `ACTIVE` — same honest caution as `TokenServiceProviders.MastercardMdes.
+  provision_token/3`'s Google Pay flow: we can't confirm the Token
+  Requestor's own proprietary hand-off actually completed from here.
+  """
+  @spec start_proprietary_push(binary(), binary(), String.t(), map()) ::
+          {:ok, PushProvisioningSession.t(), map()} | {:error, term()}
+  def start_proprietary_push(card_id, customer_id, token_requestor_id, funding_account) do
+    with {:ok, card} <- fetch_card(card_id),
+         {:ok, token} <- create_pending_token(card, token_requestor_id, "TOKEN_REQUESTOR"),
+         {:ok, session} <- create_session(card_id, customer_id, token.token_id, token_requestor_id, []),
+         push_id = "CA-" <> Ecto.UUID.generate() do
+      case MastercardMdesClient.push_multiple_accounts(
+             Ecto.UUID.generate(), token_requestor_id, funding_account, push_id,
+             request_issuer_initiated_digitization_data: true
+           ) do
+        {:ok, %{"pushAccountReceipts" => [receipt | _]} = response} ->
+          {:ok, _} = Tokens.transition(token, "PUSHED")
+
+          {:ok, updated} =
+            session
+            |> PushProvisioningSession.changeset(%{
+              "push_account_receipt" => receipt["pushAccountReceipt"], "status" => "COMPLETED"
+            })
+            |> Repo.update()
+
+          {:ok, updated, Map.get(response, "issuerInitiatedDigitizationData", %{})}
 
         {:ok, %{"pushAccountReceipts" => []}} ->
           fail(session, :no_receipt_returned)

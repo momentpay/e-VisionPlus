@@ -42,7 +42,7 @@ defmodule VmuCore.NTS.PushProvisioningSessions do
 
   alias VmuCore.Repo
   alias VmuCore.CTA.Card
-  alias VmuCore.NTS.{PushProvisioningSession, MastercardMdesClient, Token, Tokens}
+  alias VmuCore.NTS.{PushProvisioningSession, MastercardMdesClient, ConsentService, Token, Tokens}
 
   @doc """
   Starts a push session for `card_id`/`customer_id` toward
@@ -237,6 +237,26 @@ defmodule VmuCore.NTS.PushProvisioningSessions do
 
   @spec get(binary()) :: PushProvisioningSession.t() | nil
   def get(session_id), do: Repo.get(PushProvisioningSession, session_id)
+
+  @doc """
+  Case 3 — Push to Merchant with Authentication (NTS Phase F5,
+  2026-08-02). Called once the cardholder has entered the activation
+  code the Token Requestor showed them, for a session already sitting
+  in `AUTH_REQUIRED` (set by `complete/2` when the TR's callback result
+  was `REQUIRE_ADDITIONAL_AUTHENTICATION`). Honestly fails — see
+  `NTS.ConsentService`'s moduledoc for why. The session/state machine
+  exists and is exercised by this call; only the actual Mastercard-side
+  notification is missing.
+  """
+  @spec authenticate(binary(), String.t()) ::
+          {:error, :not_found} | {:error, :not_awaiting_authentication} | {:error, :consent_service_spec_not_available}
+  def authenticate(session_id, activation_code) do
+    case get(session_id) do
+      nil -> {:error, :not_found}
+      %{status: "AUTH_REQUIRED"} = session -> ConsentService.notify_activation_code_required(session, activation_code)
+      _session -> {:error, :not_awaiting_authentication}
+    end
+  end
 
   @doc """
   Lists Token Requestors eligible to receive `card_id`, filtered to

@@ -245,6 +245,44 @@ defmodule VmuCore.NTS.PushProvisioningSessionsTest do
              )
   end
 
+  test "authenticate/2 (Case 3) fails honestly with :consent_service_spec_not_available once a session is AUTH_REQUIRED" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      Req.Test.json(conn, %{
+        "responseId" => "r1",
+        "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-r"}],
+        "availablePushMethods" => [%{"type" => "WEB", "uri" => "https://merchant.test/push"}]
+      })
+    end)
+
+    {:ok, session, _url} = PushProvisioningSessions.start_push(card.card_id, customer.customer_id, "50123456789", funding_account())
+    {:ok, auth_required} = PushProvisioningSessions.complete(session.session_id, %{"result" => "REQUIRE_ADDITIONAL_AUTHENTICATION"})
+    assert auth_required.status == "AUTH_REQUIRED"
+
+    assert {:error, :consent_service_spec_not_available} = PushProvisioningSessions.authenticate(session.session_id, "123456")
+  end
+
+  test "authenticate/2 rejects a session that isn't AUTH_REQUIRED" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      Req.Test.json(conn, %{
+        "responseId" => "r1",
+        "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-r"}],
+        "availablePushMethods" => [%{"type" => "WEB", "uri" => "https://merchant.test/push"}]
+      })
+    end)
+
+    {:ok, session, _url} = PushProvisioningSessions.start_push(card.card_id, customer.customer_id, "50123456789", funding_account())
+
+    assert {:error, :not_awaiting_authentication} = PushProvisioningSessions.authenticate(session.session_id, "123456")
+  end
+
+  test "authenticate/2 with an unknown session id returns :not_found" do
+    assert {:error, :not_found} = PushProvisioningSessions.authenticate(Ecto.UUID.generate(), "123456")
+  end
+
   test "card_belongs_to_customer?/2 is true for the owning customer and false otherwise" do
     {card, customer} = card_and_customer_fixture()
     {_other_card, other_customer} = card_and_customer_fixture()

@@ -106,9 +106,10 @@ defmodule VmuCoreWeb.Router do
   scope "/api/v1/customer/nts", VmuCoreWeb.Api.V1.Customer do
     pipe_through :api_v1_cardholder
 
-    get  "/eligible_token_requestors", NtsController, :eligible_token_requestors
-    post "/push_sessions",             NtsController, :create_push_session
-    post "/pull_sessions",             NtsController, :create_pull_session
+    get  "/eligible_token_requestors",           NtsController, :eligible_token_requestors
+    post "/push_sessions",                       NtsController, :create_push_session
+    post "/push_sessions/:id/authenticate",      NtsController, :authenticate_session
+    post "/pull_sessions",                       NtsController, :create_pull_session
   end
 
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard

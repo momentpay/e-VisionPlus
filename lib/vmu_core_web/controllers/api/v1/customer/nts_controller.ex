@@ -95,6 +95,43 @@ defmodule VmuCoreWeb.Api.V1.Customer.NtsController do
     end
   end
 
+  @doc """
+  POST /api/v1/customer/nts/push_sessions/:id/authenticate — Case 3,
+  Push to Merchant with Authentication (Phase F5). The activation code
+  the Token Requestor showed the cardholder, per case-3's doc. Honestly
+  fails today — see `NTS.ConsentService`'s moduledoc.
+  """
+  def authenticate_session(conn, %{"id" => session_id} = params) do
+    conn = ApiV1Auth.require_scope(conn, "nts:customer")
+
+    if conn.halted do
+      conn
+    else
+      case PushProvisioningSessions.get(session_id) do
+        nil ->
+          ErrorEnvelope.send(conn, 404, "session_not_found", "No session with that id")
+
+        %{customer_id: customer_id} when customer_id != conn.assigns.current_customer_id ->
+          ErrorEnvelope.send(conn, 403, "forbidden", "This session does not belong to you")
+
+        _session ->
+          code = params["activation_code"]
+
+          case PushProvisioningSessions.authenticate(session_id, code) do
+            {:error, :not_awaiting_authentication} ->
+              ErrorEnvelope.send(conn, 422, "not_awaiting_authentication", "This session isn't waiting on an activation code")
+
+            {:error, :consent_service_spec_not_available} ->
+              ErrorEnvelope.send(conn, 503, "consent_service_not_configured",
+                "Cardholder authentication for this Token Requestor isn't available yet")
+
+            {:error, :not_found} ->
+              ErrorEnvelope.send(conn, 404, "session_not_found", "No session with that id")
+          end
+      end
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------

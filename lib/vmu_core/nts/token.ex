@@ -21,7 +21,12 @@ defmodule VmuCore.NTS.Token do
   @foreign_key_type :binary_id
 
   @schemes ~w[MASTERCARD VISA]
-  @wallets ~w[GOOGLE_PAY APPLE_PAY SAMSUNG_PAY]
+  # TOKEN_REQUESTOR (NTS Phase F2, 2026-08-02) — Cases 1/3/5's
+  # browser-redirect flows push to an arbitrary merchant/commerce-platform
+  # Token Requestor, not one of the three fixed consumer wallet brands
+  # below. `PushProvisioningSessions` uses this value; the destination's
+  # actual name/id lives on `token_requestor_id`, not `wallet`.
+  @wallets ~w[GOOGLE_PAY APPLE_PAY SAMSUNG_PAY TOKEN_REQUESTOR]
   # PUSHED (2026-07-31, NTS Phase B) — Mastercard's real MDES Token Connect
   # "Push Provisioning" flow (issuer pushes the account to a Token
   # Requestor like Google Pay from the issuer's own app) is asynchronous:

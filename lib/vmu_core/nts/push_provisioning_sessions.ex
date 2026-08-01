@@ -1,0 +1,258 @@
+defmodule VmuCore.NTS.PushProvisioningSessions do
+  @moduledoc """
+  Business layer for MDES Token Connect's browser-redirect use cases —
+  NTS Phase F2 (2026-08-02): Push to Merchant (case-1), Push to Merchant
+  with Authentication (case-3, Phase F5), Pull from Wallet (case-5,
+  Phase F4). Unlike Case 2/Google Pay and Case 4/proprietary comms
+  (fire-and-forget, no redirect), these round-trip through the Token
+  Requestor's own UI, so the attempt needs to survive across that
+  boundary — this is the session record for that.
+
+  ## Lifecycle
+
+  `start_push/5`: creates a `PENDING` session first (so its own id can be
+  used to build `/nts/callback/:session_id` as MDES's `callbackURL`),
+  then calls `MastercardMdesClient.push_multiple_accounts/5`, stores the
+  receipt, and returns a redirect URL built from the response's
+  `availablePushMethods`.
+
+  **The redirect URL's exact query-param shape is a best-effort
+  generic guess** (`?receipt=<receipt>&callback=<our callback URL>`),
+  not a confirmed contract — MDES's own spec defers this to each Token
+  Requestor's individual "Issuer Interface Implementation Guide," which
+  we don't have. Flagging this explicitly rather than presenting it as
+  verified: a real Token Requestor integration may need a different
+  shape once we have their actual guide.
+
+  `complete/2` is called by `NtsCallbackController` when the Token
+  Requestor redirects the cardholder back — transitions the session and,
+  on success, creates/activates the corresponding `NTS.Token` row (reuse
+  `NTS.Tokens`, same as Phase B/D — no separate token bookkeeping here).
+  """
+
+  require Logger
+  import Ecto.Query
+
+  alias VmuCore.Repo
+  alias VmuCore.CTA.Card
+  alias VmuCore.NTS.{PushProvisioningSession, MastercardMdesClient, Token, Tokens}
+
+  @doc """
+  Starts a push session for `card_id`/`customer_id` toward
+  `token_requestor_id`. `funding_account` is the plaintext
+  `%{"cardAccountData" => %{"accountNumber" =>, "expiryMonth" =>,
+  "expiryYear" =>}}` map (same shape/sourcing constraint as
+  `TokenServiceProviders.MastercardMdes.provision_token/3` — vmu_core
+  never retains a raw PAN, so this must come from a fresh cardholder
+  entry or a `CredentialVault` reveal, never persisted here).
+
+  Creates the `NTS.Token` row up front (status PENDING), same
+  audit-traceable-regardless-of-outcome posture as `TokenLifecycle.
+  provision/4` — the session links to that specific token by id (not a
+  "the current pending token for this card" lookup) so two concurrent
+  sessions for the same card can never cross-activate each other's token.
+  """
+  @spec start_push(binary(), binary(), String.t(), map(), keyword()) ::
+          {:ok, PushProvisioningSession.t(), String.t()} | {:error, term()}
+  def start_push(card_id, customer_id, token_requestor_id, funding_account, opts \\ []) do
+    wallet = Keyword.get(opts, :wallet, "TOKEN_REQUESTOR")
+
+    with {:ok, card} <- fetch_card(card_id),
+         {:ok, token} <- create_pending_token(card, token_requestor_id, wallet),
+         {:ok, session} <- create_session(card_id, customer_id, token.token_id, token_requestor_id, opts) do
+      callback_url = callback_url_for(session)
+      push_id = "CA-" <> Ecto.UUID.generate()
+
+      case MastercardMdesClient.push_multiple_accounts(
+             Ecto.UUID.generate(), token_requestor_id, funding_account, push_id,
+             callback_url: callback_url,
+             request_issuer_initiated_digitization_data: false
+           ) do
+        {:ok, %{"pushAccountReceipts" => [receipt | _], "availablePushMethods" => methods}} ->
+          {:ok, updated} =
+            session
+            |> PushProvisioningSession.changeset(%{"push_account_receipt" => receipt["pushAccountReceipt"]})
+            |> Repo.update()
+
+          {:ok, updated, build_redirect_url(methods, receipt["pushAccountReceipt"], callback_url)}
+
+        {:ok, %{"pushAccountReceipts" => []}} ->
+          fail(session, :no_receipt_returned)
+
+        {:error, reason} ->
+          fail(session, reason)
+      end
+    end
+  end
+
+  @doc """
+  Called by `NtsCallbackController` when the Token Requestor redirects
+  the cardholder back. `result_params` is whatever the TR appended to
+  our callback URL — parsed best-effort (see moduledoc caveat): looks
+  for a `result`/`status` param indicating success, `REQUIRE_ADDITIONAL_
+  AUTHENTICATION` (routes to `AUTH_REQUIRED`, Phase F5/Case 3), or
+  anything else (treated as failure).
+  """
+  @spec complete(binary(), map()) :: {:ok, PushProvisioningSession.t()} | {:error, :not_found}
+  def complete(session_id, result_params) do
+    case get(session_id) do
+      nil ->
+        {:error, :not_found}
+
+      session ->
+        outcome = String.upcase(to_string(result_params["result"] || result_params["status"] || ""))
+        new_status = status_for(outcome)
+
+        {:ok, updated} =
+          session
+          |> PushProvisioningSession.changeset(%{
+            "status" => new_status,
+            "requires_authentication" => new_status == "AUTH_REQUIRED"
+          })
+          |> Repo.update()
+
+        if new_status == "COMPLETED", do: activate_token(updated)
+
+        {:ok, updated}
+    end
+  end
+
+  @spec get(binary()) :: PushProvisioningSession.t() | nil
+  def get(session_id), do: Repo.get(PushProvisioningSession, session_id)
+
+  @doc """
+  Lists Token Requestors eligible to receive `card_id`, filtered to
+  `token_requestor_type` (`"MERCHANT"` for Case 1's picker, `nil` for
+  no filter). Same `getEligibleTokenRequestors` call `TokenServiceProviders.
+  MastercardMdes.resolve_google_pay_requestor_id/1` already uses for
+  Google Pay — duplicated here rather than shared since that module's
+  BIN-resolution helper is private and scoped to its own TSP-behaviour
+  concern, not this session-tracking one.
+  """
+  @spec list_eligible_token_requestors(binary(), String.t() | nil) :: {:ok, [map()]} | {:error, term()}
+  def list_eligible_token_requestors(card_id, token_requestor_type \\ nil) do
+    with {:ok, card} <- fetch_card(card_id),
+         {:ok, bin_prefix} <- resolve_bin_prefix(card),
+         {:ok, %{"tokenRequestors" => requestors}} <-
+           MastercardMdesClient.get_eligible_token_requestors([bin_prefix], Ecto.UUID.generate()) do
+      filtered =
+        if token_requestor_type do
+          Enum.filter(requestors, &(&1["tokenRequestorType"] == token_requestor_type))
+        else
+          requestors
+        end
+
+      {:ok, filtered}
+    end
+  end
+
+  @doc """
+  Ownership check for the customer-facing controllers — a cardholder must
+  never be able to push someone else's card. `Card` has no `customer_id`
+  of its own (only `account_id`/`debit_account_id`/`prepaid_account_id`),
+  so this resolves through whichever one is set.
+  """
+  @spec card_belongs_to_customer?(binary(), binary()) :: boolean()
+  def card_belongs_to_customer?(card_id, customer_id) do
+    case Repo.get(Card, card_id) do
+      nil ->
+        false
+
+      card ->
+        cond do
+          card.account_id -> Repo.exists?(from a in VmuCore.CMS.Account, where: a.account_id == ^card.account_id and a.customer_id == ^customer_id)
+          card.debit_account_id -> Repo.exists?(from a in VmuCore.CMS.DebitAccount, where: a.debit_account_id == ^card.debit_account_id and a.customer_id == ^customer_id)
+          card.prepaid_account_id -> Repo.exists?(from a in VmuCore.CMS.PrepaidAccount, where: a.prepaid_account_id == ^card.prepaid_account_id and a.customer_id == ^customer_id)
+          true -> false
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  defp fetch_card(card_id) do
+    case Repo.get(Card, card_id) do
+      nil -> {:error, :card_not_found}
+      card -> {:ok, card}
+    end
+  end
+
+  defp resolve_bin_prefix(card) do
+    scope =
+      cond do
+        card.account_id -> Repo.one(from a in VmuCore.CMS.Account, where: a.account_id == ^card.account_id, select: {a.sys_id, a.bank_id, a.logo_id})
+        card.debit_account_id -> Repo.one(from a in VmuCore.CMS.DebitAccount, where: a.debit_account_id == ^card.debit_account_id, select: {a.sys_id, a.bank_id, a.logo_id})
+        card.prepaid_account_id -> Repo.one(from a in VmuCore.CMS.PrepaidAccount, where: a.prepaid_account_id == ^card.prepaid_account_id, select: {a.sys_id, a.bank_id, a.logo_id})
+        true -> nil
+      end
+
+    case scope do
+      {sys_id, bank_id, logo_id} ->
+        case Repo.get_by(VmuCore.Shared.LogoParameter, sys_id: sys_id, bank_id: bank_id, logo_id: logo_id) do
+          nil -> {:error, :logo_not_found}
+          %{bin_prefix: prefix} -> {:ok, prefix}
+        end
+
+      nil ->
+        {:error, :account_not_found}
+    end
+  end
+
+  defp create_pending_token(card, token_requestor_id, wallet) do
+    Tokens.create(%{
+      "card_id" => card.card_id, "scheme" => "MASTERCARD", "wallet" => wallet,
+      "token_requestor_id" => token_requestor_id, "last_four" => card.last_four
+    })
+  end
+
+  defp create_session(card_id, customer_id, token_id, token_requestor_id, opts) do
+    %PushProvisioningSession{}
+    |> PushProvisioningSession.changeset(%{
+      "card_id" => card_id, "customer_id" => customer_id, "token_id" => token_id,
+      "token_requestor_id" => token_requestor_id,
+      "direction" => Keyword.get(opts, :direction, "push"),
+      "wallet_session_id" => Keyword.get(opts, :wallet_session_id),
+      "wallet_callback_url" => Keyword.get(opts, :wallet_callback_url)
+    })
+    |> Repo.insert()
+  end
+
+  defp fail(session, reason) do
+    Logger.warning("[NTS.PushProvisioningSessions] push failed for session=#{session.session_id}: #{inspect(reason)}")
+    {:ok, _} = session |> PushProvisioningSession.changeset(%{"status" => "FAILED"}) |> Repo.update()
+
+    case Repo.get(Token, session.token_id) do
+      nil -> :ok
+      token -> Tokens.transition(token, "DELETED")
+    end
+
+    {:error, reason}
+  end
+
+  defp callback_url_for(session) do
+    base = Application.get_env(:vmu_core, :nts, [])[:callback_base_url] || ""
+    base <> "/nts/callback/#{session.session_id}"
+  end
+
+  # Prefer WEB (Kosa is Flutter web-first, Phase F6) — fall back to the
+  # first method the Token Requestor supports if WEB isn't offered.
+  defp build_redirect_url(methods, receipt, callback_url) do
+    method = Enum.find(methods, &(&1["type"] == "WEB")) || List.first(methods) || %{}
+    uri = method["uri"] || ""
+    separator = if String.contains?(uri, "?"), do: "&", else: "?"
+    "#{uri}#{separator}receipt=#{URI.encode_www_form(receipt)}&callback=#{URI.encode_www_form(callback_url)}"
+  end
+
+  defp status_for("REQUIRE_ADDITIONAL_AUTHENTICATION"), do: "AUTH_REQUIRED"
+  defp status_for(outcome) when outcome in ["SUCCESS", "APPROVED", "COMPLETED", "ACTIVE"], do: "COMPLETED"
+  defp status_for(_outcome), do: "FAILED"
+
+  defp activate_token(session) do
+    case Repo.get(Token, session.token_id) do
+      nil -> :ok
+      token -> Tokens.transition(token, "ACTIVE")
+    end
+  end
+end

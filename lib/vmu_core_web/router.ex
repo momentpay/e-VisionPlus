@@ -99,6 +99,17 @@ defmodule VmuCoreWeb.Router do
     post "/verify_otp",  AuthController, :verify_otp
   end
 
+  # Cardholder-facing NTS/MDES surface (NTS Phase F2, 2026-08-02, Case 1 —
+  # Push to Merchant). Every action acts on behalf of the authenticated
+  # cardholder (conn.assigns.current_customer_id), never a client-supplied
+  # customer id — see CardholderAuth/api_v1_cardholder above.
+  scope "/api/v1/customer/nts", VmuCoreWeb.Api.V1.Customer do
+    pipe_through :api_v1_cardholder
+
+    get  "/eligible_token_requestors", NtsController, :eligible_token_requestors
+    post "/push_sessions",             NtsController, :create_push_session
+  end
+
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard
   pipeline :operator do
     plug VmuCoreWeb.OperatorAuth
@@ -118,6 +129,10 @@ defmodule VmuCoreWeb.Router do
     # SSO (Way4 parity plan Phase 0 item 6, 2026-07-24)
     get  "/visionplus/admin/auth/oidc/start",    VmuCoreWeb.OidcSessionController, :start
     get  "/visionplus/admin/auth/oidc/callback", VmuCoreWeb.OidcSessionController, :callback
+
+    # MDES Token Connect inbound redirect callback (NTS Phase F2,
+    # 2026-08-02) — see NtsCallbackController's moduledoc.
+    get "/nts/callback/:session_id", VmuCoreWeb.NtsCallbackController, :show
 
     # AD/LDAP directory sign-in (same item)
     post "/visionplus/admin/login/directory", VmuCoreWeb.DirectorySessionController, :create

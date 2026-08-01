@@ -45,13 +45,19 @@ defmodule VmuCore.NTS.MastercardMdesClient do
   "accountNumber" => ..., "expiryMonth" => ..., "expiryYear" => ...}`);
   encrypted here via `MastercardPayloadEncryption`, never sent plaintext.
 
-  `request_issuer_initiated_digitization_data: true` asks MDES to return
-  the digitization result in-band rather than requiring a separate
-  inbound callback — the only way this flow gets a real DPAN back at
-  all, since this API has no documented inbound webhook.
+  `opts`:
+    - `:request_issuer_initiated_digitization_data` (default `true`) —
+      asks MDES to return the digitization result in-band rather than
+      requiring a separate inbound callback. Case 2/Google Pay and
+      Case 4/proprietary comms rely on this default. Cases 1/3/5 (NTS
+      Phase F2+, browser-redirect flows) pass `false` — they want the
+      standard `availablePushMethods` redirect response instead.
+    - `:callback_url` — populates `signatureData.callbackURL` (per spec,
+      "the URL for the token requestor to use to pass control back to
+      the Issuer"). Only meaningful for the redirect flows above.
   """
-  @spec push_multiple_accounts(String.t(), String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def push_multiple_accounts(request_id, token_requestor_id, funding_account, push_account_id) do
+  @spec push_multiple_accounts(String.t(), String.t(), map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def push_multiple_accounts(request_id, token_requestor_id, funding_account, push_account_id, opts \\ []) do
     config = Application.get_env(:vmu_core, :mdes, [])
 
     with {:ok, encrypted} <-
@@ -59,14 +65,21 @@ defmodule VmuCore.NTS.MastercardMdesClient do
              [%{"pushAccountId" => push_account_id, "fundingAccountData" => funding_account}],
              config[:cert_path]
            ) do
-      request(:post, "/connect/#{@maj}/pushMultipleAccounts", %{
-        "requestId" => request_id,
-        "tokenRequestorId" => token_requestor_id,
-        "pushFundingAccounts" => %{"encryptedPayload" => encrypted},
-        "requestIssuerInitiatedDigitizationData" => true
-      })
+      body =
+        %{
+          "requestId" => request_id,
+          "tokenRequestorId" => token_requestor_id,
+          "pushFundingAccounts" => %{"encryptedPayload" => encrypted},
+          "requestIssuerInitiatedDigitizationData" => Keyword.get(opts, :request_issuer_initiated_digitization_data, true)
+        }
+        |> maybe_put_callback_url(Keyword.get(opts, :callback_url))
+
+      request(:post, "/connect/#{@maj}/pushMultipleAccounts", body)
     end
   end
+
+  defp maybe_put_callback_url(body, nil), do: body
+  defp maybe_put_callback_url(body, callback_url), do: Map.put(body, "signatureData", %{"callbackURL" => callback_url})
 
   @doc """
   Makes a signed request. `path` is relative to the configured base_url

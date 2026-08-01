@@ -86,4 +86,32 @@ defmodule VmuCore.NTS.MastercardMdesClientTest do
       assert get_in(body, ["pushFundingAccounts", "encryptedPayload", "algorithmCipherMode"]) == "CBC"
     end
   end
+
+  test "push_multiple_accounts/5 with opts sends callback_url in signatureData and honors request_issuer_initiated_digitization_data: false" do
+    if File.exists?("docs/nts/myrsa.key") do
+      configure_with_real_key()
+      test_pid = self()
+
+      Req.Test.stub(MastercardMdesClient, fn conn ->
+        send(test_pid, {:captured, conn.body_params})
+        Req.Test.json(conn, %{
+          "responseId" => "req-3",
+          "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-xyz"}],
+          "availablePushMethods" => [%{"type" => "WEB", "uri" => "https://merchant.test/push"}]
+        })
+      end)
+
+      funding_account = %{"cardAccountData" => %{"accountNumber" => "5412340000000099", "expiryMonth" => "12", "expiryYear" => "30"}}
+
+      assert {:ok, _} =
+               MastercardMdesClient.push_multiple_accounts("req-3", "50123456789", funding_account, "CA-1",
+                 callback_url: "https://issuer.test/nts/callback/abc",
+                 request_issuer_initiated_digitization_data: false
+               )
+
+      assert_receive {:captured, body}
+      assert body["requestIssuerInitiatedDigitizationData"] == false
+      assert body["signatureData"]["callbackURL"] == "https://issuer.test/nts/callback/abc"
+    end
+  end
 end

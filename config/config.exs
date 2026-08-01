@@ -197,4 +197,15 @@ config :vmu_core, :mdes,
 config :vmu_core, :cam,
   session_signing_key: System.get_env("CAM_SESSION_SIGNING_KEY", "dev-only-insecure-cam-signing-key-do-not-use-in-prod")
 
+# ---------------------------------------------------------------------------
+# NTS.PushProvisioningSessions (NTS Phase F2, 2026-08-02) — callback_base_url
+# is this app's own publicly-reachable base URL, prepended to
+# `/nts/callback/:session_id` and sent to MDES as `signatureData.
+# callbackURL` for Cases 1/3/5's browser-redirect flows. Also where a Kosa
+# web build lives for the confirmation-screen redirect target.
+# ---------------------------------------------------------------------------
+config :vmu_core, :nts,
+  callback_base_url: System.get_env("NTS_CALLBACK_BASE_URL", "http://localhost:4001"),
+  kosa_app_base_url: System.get_env("KOSA_APP_BASE_URL", "http://localhost:5000")
+
 import_config "#{config_env()}.exs"

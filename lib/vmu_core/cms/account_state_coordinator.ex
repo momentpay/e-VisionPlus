@@ -73,8 +73,14 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
     - `:currency` — ISO 4217 currency code (default "AED")
 
   Returns:
-    `{:approved, response_code, updated_otb}`
+    `{:approved, response_code, updated_otb, updated_cash_otb}`
     `{:declined, response_code, reason}`
+
+  Note the approved arity is 4, not 3 — `updated_cash_otb` is real and
+  relied upon by `FAS.IncrementalHandler.extend_hold/7`.
+  `FAS.Authorization.run_credit_authorization/1` normalizes down to a
+  3-tuple before handing off to its own `handle_asc_result/2`, which is
+  shared with Debit/Prepaid's genuinely-3-tuple results.
   """
   def authorize(account_id, amount, opts \\ []) do
     channel   = Keyword.get(opts, :channel, :pos)

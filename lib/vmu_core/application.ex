@@ -19,6 +19,10 @@ defmodule VmuCore.Application do
       # 2b. Hot card ETS cache — loads LOST/STOLEN/FRAUD-blocked pan_tokens; refreshes every 5 min.
       #     Must start after Repo (2a) but before any FAS authorization traffic.
       VmuCore.FAS.HotCardCache,
+      # 2c. DPAN resolution ETS cache (NTS Phase D, 2026-08-01) — same
+      #     shape/reasoning as HotCardCache above, loads active scheme
+      #     tokens for the authorization hot path.
+      VmuCore.FAS.DpanCache,
       # 3. Horde distributed registry — per-account GenServer lookup across cluster nodes
       {Horde.Registry,
        [name: VmuCore.Shared.Registry, keys: :unique, members: :auto]},

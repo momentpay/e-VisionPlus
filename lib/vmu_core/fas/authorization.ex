@@ -49,7 +49,7 @@ defmodule VmuCore.FAS.Authorization do
   alias VmuCore.CMS.{AccountStateCoordinator, SupplementaryCard}
   alias VmuCore.CTA.{Card, Cards}
   alias VmuCore.FAS.{STIP, AuthorizationRecord, PendingHold, RiskAdapter, CardValidator, HotCardCache,
-                     ReversalHandler, IncrementalHandler, CompletionHandler, HSM, EmvHandler}
+                     DpanCache, ReversalHandler, IncrementalHandler, CompletionHandler, HSM, EmvHandler}
   alias VmuCore.FAS.Telemetry, as: FasTelemetry
   alias VmuCore.FAS.ResponseCodes, as: RC
   alias VmuCore.Repo
@@ -209,10 +209,22 @@ defmodule VmuCore.FAS.Authorization do
   defp run_credit_authorization(%{account_id: account_id, amount: amount,
                             channel: channel, mcc: mcc,
                             supp_account_id: supp_id, sub_limit: sub_limit} = ctx) do
-    auth_result = AccountStateCoordinator.authorize(account_id, amount,
-                    channel: channel, mcc: mcc,
-                    supplementary_account_id: supp_id,
-                    sub_limit: sub_limit)
+    # AccountStateCoordinator.authorize/3 actually replies with the same
+    # 4-tuple its internal do_authorize/6 produces (rc + both OTB figures)
+    # — its own moduledoc claims a 3-tuple, but incremental_handler.ex's
+    # extend_hold/7 already pattern-matches the 4-tuple directly, so the
+    # 4-tuple is the real, relied-upon contract; normalize to the 3-tuple
+    # handle_asc_result/2 expects (same shape Debit/Prepaid's branches
+    # below already produce) rather than changing ASC's actual behavior.
+    auth_result =
+      case AccountStateCoordinator.authorize(account_id, amount,
+             channel: channel, mcc: mcc,
+             supplementary_account_id: supp_id,
+             sub_limit: sub_limit) do
+        {:approved, rc, otb, _cash_otb} -> {:approved, rc, otb}
+        other -> other
+      end
+
     handle_asc_result(auth_result, ctx)
   end
 
@@ -410,20 +422,30 @@ defmodule VmuCore.FAS.Authorization do
   defp resolve_account(pan) do
     token = pan_token(pan)
 
+    # NTS Phase D (2026-08-01) — a wallet-tokenized transaction presents a
+    # DPAN, not the real PAN, in DE2; DpanCache resolves it via the same
+    # ETS-only, zero-extra-DB-round-trip shape as HotCardCache above. Most
+    # transactions are still a real PAN (:not_found here), which falls
+    # through to the existing resolution unchanged.
+    case DpanCache.check(token) do
+      {:ok, {account_id, _card_id}} ->
+        resolve_with_supplementary_check(account_id)
+
+      :blocked ->
+        {:error, :account_not_found}
+
+      :not_found ->
+        resolve_real_pan_account(token)
+    end
+  end
+
+  defp resolve_real_pan_account(token) do
     case Cards.by_pan_token(token) do
       nil ->
         {:error, :account_not_found}
 
       %Card{account_id: account_id} when not is_nil(account_id) ->
-        case SupplementaryCard.lookup_by_account(account_id) do
-          {primary_id, sub_limit} ->
-            # Supplementary card — auth runs against the primary account; sub_limit enforced in ASC
-            {:ok, {primary_id, account_id, sub_limit}}
-
-          nil ->
-            # Primary (standalone) card
-            {:ok, {account_id, nil, nil}}
-        end
+        resolve_with_supplementary_check(account_id)
 
       # Debit (Way4 parity plan Phase 1 item 4) — no supplementary-card
       # concept in v1's confirmed scope, so this is a direct pass-through.
@@ -438,6 +460,21 @@ defmodule VmuCore.FAS.Authorization do
       # no-supplementary-card pass-through as Debit.
       %Card{prepaid_account_id: prepaid_account_id} when not is_nil(prepaid_account_id) ->
         {:ok, {prepaid_account_id, nil, nil}}
+    end
+  end
+
+  # Shared by both the real-PAN and DPAN resolution paths — a supplementary
+  # card can be tokenized too, same sub_limit enforcement either way.
+  # SupplementaryCard.lookup_by_account/1 only ever matches CMS.Account ids
+  # (Credit), so calling it with a Debit/Prepaid account_id correctly
+  # returns nil and falls through to the plain-account tuple below.
+  defp resolve_with_supplementary_check(account_id) do
+    case SupplementaryCard.lookup_by_account(account_id) do
+      {primary_id, sub_limit} ->
+        {:ok, {primary_id, account_id, sub_limit}}
+
+      nil ->
+        {:ok, {account_id, nil, nil}}
     end
   end
 

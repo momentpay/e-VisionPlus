@@ -25,6 +25,7 @@ defmodule VmuCore.NTS.TokenLifecycle do
   alias VmuCore.Repo
   alias VmuCore.NTS.{Token, Tokens, TokenServiceProvider}
   alias VmuCore.ASM.AuditLog
+  alias VmuCore.FAS.DpanCache
 
   @doc """
   Provision a new device token for `card` into `wallet` (`"GOOGLE_PAY"` for
@@ -60,6 +61,12 @@ defmodule VmuCore.NTS.TokenLifecycle do
 
         AuditLog.record(opts[:operator], "nts_token_provision", token.token_id,
           %{card_id: card.card_id, wallet: wallet, scheme: scheme, status: status})
+
+        # NTS Phase D — a status of ACTIVE means this token just became
+        # (or remains) DPAN-resolvable; refresh now rather than waiting up
+        # to 5 minutes for FAS.DpanCache's own schedule. A no-op cost for
+        # PUSHED (no dpan yet, nothing changes in the cache).
+        if status == "ACTIVE", do: DpanCache.refresh()
 
         {:ok, updated}
 
@@ -121,6 +128,11 @@ defmodule VmuCore.NTS.TokenLifecycle do
       {:ok, _} ->
         {:ok, _} = Tokens.transition(token, new_status)
         AuditLog.record(opts[:operator], action, token.token_id, %{card_id: token.card_id})
+        # Any real status change (SUSPENDED/ACTIVE/DELETED) can add or
+        # remove a DpanCache entry — refresh now, don't wait for the
+        # 5-minute schedule (matches CardLifecycle's own HotCardCache.
+        # refresh() calls after a block-state change).
+        DpanCache.refresh()
 
       {:error, reason} ->
         Logger.warning("[NTS] #{action} TSP call failed for token #{token.token_id}: #{inspect(reason)}")

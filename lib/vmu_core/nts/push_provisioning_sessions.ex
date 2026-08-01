@@ -144,6 +144,66 @@ defmodule VmuCore.NTS.PushProvisioningSessions do
   end
 
   @doc """
+  Case 5 — Pull Provisioning from Wallet (NTS Phase F4, 2026-08-02). The
+  wallet is the entry point here, not us: the cardholder starts in
+  Google Pay, gets redirected into Kosa carrying `wallet_session_id`
+  (MDES's `tokenRequestorSessionId` — ties our push back to the pull
+  session the wallet already opened) and `wallet_callback_url`
+  (where to send the cardholder back once we're done). After
+  authenticating (CAM, Phase F1) and picking a card, this pushes the
+  same way `start_push/5` does but keyed to the wallet's own session
+  instead of a browser-redirect round trip we control — no
+  `callbackURL` needed since the response comes back synchronously.
+
+  Same honest caution as `start_proprietary_push/4`: the token lands on
+  `PUSHED`, not `ACTIVE` — per case-5's own doc, "Wallet completes
+  provisioning (BAU)" happens entirely on the wallet's side after we
+  hand off the receipt; we have no way to confirm it from here.
+
+  Returns a URL to redirect the cardholder's browser to
+  (`wallet_callback_url` with the receipt appended) — same best-effort
+  query-shape caveat as `start_push/5`'s redirect URL.
+  """
+  @spec start_pull(binary(), binary(), String.t(), map(), keyword()) ::
+          {:ok, PushProvisioningSession.t(), String.t()} | {:error, term()}
+  def start_pull(card_id, customer_id, token_requestor_id, funding_account, opts) do
+    wallet_session_id = Keyword.fetch!(opts, :wallet_session_id)
+    wallet_callback_url = Keyword.fetch!(opts, :wallet_callback_url)
+
+    with {:ok, card} <- fetch_card(card_id),
+         {:ok, token} <- create_pending_token(card, token_requestor_id, "TOKEN_REQUESTOR"),
+         {:ok, session} <-
+           create_session(card_id, customer_id, token.token_id, token_requestor_id,
+             direction: "pull", wallet_session_id: wallet_session_id, wallet_callback_url: wallet_callback_url
+           ),
+         push_id = "CA-" <> Ecto.UUID.generate() do
+      case MastercardMdesClient.push_multiple_accounts(
+             Ecto.UUID.generate(), token_requestor_id, funding_account, push_id,
+             token_requestor_session_id: wallet_session_id,
+             request_issuer_initiated_digitization_data: false
+           ) do
+        {:ok, %{"pushAccountReceipts" => [receipt | _]} = response} ->
+          {:ok, _} = Tokens.transition(token, "PUSHED")
+
+          {:ok, updated} =
+            session
+            |> PushProvisioningSession.changeset(%{
+              "push_account_receipt" => receipt["pushAccountReceipt"], "status" => "COMPLETED"
+            })
+            |> Repo.update()
+
+          {:ok, updated, build_wallet_redirect_url(wallet_callback_url, receipt["pushAccountReceipt"], response["signature"])}
+
+        {:ok, %{"pushAccountReceipts" => []}} ->
+          fail(session, :no_receipt_returned)
+
+        {:error, reason} ->
+          fail(session, reason)
+      end
+    end
+  end
+
+  @doc """
   Called by `NtsCallbackController` when the Token Requestor redirects
   the cardholder back. `result_params` is whatever the TR appended to
   our callback URL — parsed best-effort (see moduledoc caveat): looks
@@ -301,6 +361,12 @@ defmodule VmuCore.NTS.PushProvisioningSessions do
     uri = method["uri"] || ""
     separator = if String.contains?(uri, "?"), do: "&", else: "?"
     "#{uri}#{separator}receipt=#{URI.encode_www_form(receipt)}&callback=#{URI.encode_www_form(callback_url)}"
+  end
+
+  defp build_wallet_redirect_url(wallet_callback_url, receipt, signature) do
+    separator = if String.contains?(wallet_callback_url, "?"), do: "&", else: "?"
+    base = "#{wallet_callback_url}#{separator}receipt=#{URI.encode_www_form(receipt)}"
+    if signature, do: base <> "&signature=#{URI.encode_www_form(signature)}", else: base
   end
 
   defp status_for("REQUIRE_ADDITIONAL_AUTHENTICATION"), do: "AUTH_REQUIRED"

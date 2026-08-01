@@ -55,6 +55,14 @@ defmodule VmuCore.NTS.MastercardMdesClient do
     - `:callback_url` — populates `signatureData.callbackURL` (per spec,
       "the URL for the token requestor to use to pass control back to
       the Issuer"). Only meaningful for the redirect flows above.
+    - `:token_requestor_session_id` — populates `signatureData.
+      tokenRequestorSessionId` ("the session Id provided by the token
+      requestor in pull provisioning use case") — Case 5 (Pull from
+      Wallet, NTS Phase F4): the wallet already started a session before
+      redirecting the cardholder to us, and this ties our push back to
+      it. Same `signatureData` object as `:callback_url` above (mutually
+      exclusive in practice — a request is either a push-initiated
+      redirect or a pull-initiated one, never both).
   """
   @spec push_multiple_accounts(String.t(), String.t(), map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def push_multiple_accounts(request_id, token_requestor_id, funding_account, push_account_id, opts \\ []) do
@@ -72,14 +80,25 @@ defmodule VmuCore.NTS.MastercardMdesClient do
           "pushFundingAccounts" => %{"encryptedPayload" => encrypted},
           "requestIssuerInitiatedDigitizationData" => Keyword.get(opts, :request_issuer_initiated_digitization_data, true)
         }
-        |> maybe_put_callback_url(Keyword.get(opts, :callback_url))
+        |> maybe_put_signature_data(Keyword.get(opts, :callback_url), Keyword.get(opts, :token_requestor_session_id))
 
       request(:post, "/connect/#{@maj}/pushMultipleAccounts", body)
     end
   end
 
-  defp maybe_put_callback_url(body, nil), do: body
-  defp maybe_put_callback_url(body, callback_url), do: Map.put(body, "signatureData", %{"callbackURL" => callback_url})
+  defp maybe_put_signature_data(body, nil, nil), do: body
+
+  defp maybe_put_signature_data(body, callback_url, token_requestor_session_id) do
+    signature_data =
+      %{}
+      |> maybe_put("callbackURL", callback_url)
+      |> maybe_put("tokenRequestorSessionId", token_requestor_session_id)
+
+    Map.put(body, "signatureData", signature_data)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   @doc """
   Makes a signed request. `path` is relative to the configured base_url

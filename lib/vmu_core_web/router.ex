@@ -108,6 +108,7 @@ defmodule VmuCoreWeb.Router do
 
     get  "/eligible_token_requestors", NtsController, :eligible_token_requestors
     post "/push_sessions",             NtsController, :create_push_session
+    post "/pull_sessions",             NtsController, :create_pull_session
   end
 
   # Authenticated operator pipeline (ASM-P1) — legacy UI + LiveDashboard

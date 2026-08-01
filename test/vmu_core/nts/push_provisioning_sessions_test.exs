@@ -203,6 +203,48 @@ defmodule VmuCore.NTS.PushProvisioningSessionsTest do
              PushProvisioningSessions.start_proprietary_push(card.card_id, customer.customer_id, "50123456789", funding_account())
   end
 
+  test "start_pull/5 (Case 5) sends tokenRequestorSessionId, not callbackURL, and returns the wallet_callback_url with the receipt appended" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      assert conn.body_params["requestIssuerInitiatedDigitizationData"] == false
+      assert conn.body_params["signatureData"]["tokenRequestorSessionId"] == "wallet-sess-123"
+      refute Map.has_key?(conn.body_params["signatureData"], "callbackURL")
+
+      Req.Test.json(conn, %{
+        "responseId" => "r1",
+        "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-pull"}],
+        "signature" => "jws-signature-value"
+      })
+    end)
+
+    assert {:ok, session, redirect_url} =
+             PushProvisioningSessions.start_pull(
+               card.card_id, customer.customer_id, "50123456789", funding_account(),
+               wallet_session_id: "wallet-sess-123", wallet_callback_url: "https://googlepay.test/callback"
+             )
+
+    assert session.status == "COMPLETED"
+    assert session.direction == "pull"
+    assert session.wallet_session_id == "wallet-sess-123"
+    assert redirect_url == "https://googlepay.test/callback?receipt=MCC-pull&signature=jws-signature-value"
+    assert Tokens.get(session.token_id).status == "PUSHED"
+  end
+
+  test "start_pull/5 fails cleanly and deletes the token when MDES returns no receipt" do
+    {card, customer} = card_and_customer_fixture()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      Req.Test.json(conn, %{"responseId" => "r1", "pushAccountReceipts" => []})
+    end)
+
+    assert {:error, :no_receipt_returned} =
+             PushProvisioningSessions.start_pull(
+               card.card_id, customer.customer_id, "50123456789", funding_account(),
+               wallet_session_id: "wallet-sess-999", wallet_callback_url: "https://googlepay.test/callback"
+             )
+  end
+
   test "card_belongs_to_customer?/2 is true for the owning customer and false otherwise" do
     {card, customer} = card_and_customer_fixture()
     {_other_card, other_customer} = card_and_customer_fixture()

@@ -166,6 +166,31 @@ defmodule VmuCoreWeb.Api.V1.Customer.NtsControllerTest do
     assert resp["error"]["code"] == "forbidden"
   end
 
+  test "POST pull_sessions (Case 5) creates a session and returns a wallet redirect_url", %{conn: conn} do
+    {card, customer} = card_and_customer_fixture()
+    token = app_token()
+
+    Req.Test.stub(MastercardMdesClient, fn conn ->
+      Req.Test.json(conn, %{
+        "responseId" => "r1",
+        "pushAccountReceipts" => [%{"pushAccountId" => "CA-1", "pushAccountReceipt" => "MCC-pull-ctrl"}]
+      })
+    end)
+
+    resp =
+      conn
+      |> authed(token, customer)
+      |> post("/api/v1/customer/nts/pull_sessions", %{
+        "card_id" => card.card_id, "token_requestor_id" => "50123456789",
+        "wallet_session_id" => "wallet-sess-ctrl", "wallet_callback_url" => "https://googlepay.test/callback",
+        "pan" => "5412360000000123", "expiry_month" => "12", "expiry_year" => "30"
+      })
+      |> json_response(201)
+
+    assert resp["status"] == "COMPLETED"
+    assert resp["redirect_url"] =~ "receipt=MCC-pull-ctrl"
+  end
+
   test "no X-Customer-Token header returns 401", %{conn: conn} do
     token = app_token()
 

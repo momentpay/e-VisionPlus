@@ -44,19 +44,24 @@ defmodule VmuCore.NTS.TokenLifecycle do
       })
 
     case TokenServiceProvider.impl().provision_token(card, device_info, wallet) do
-      {:ok, %{token_reference_id: ref, dpan: dpan}} ->
-        {:ok, _} = Tokens.transition(token, "ACTIVE")
+      {:ok, %{token_reference_id: ref, dpan: dpan, status: status}} ->
+        # The provider declares the resulting status, not this module — a
+        # synchronous TSP (e.g. wallet-initiated provisioning) can confirm
+        # ACTIVE immediately with a real dpan; MDES's real Push Provisioning
+        # flow (NTS Phase B) only ever returns PUSHED here (a receipt, no
+        # dpan yet — see MastercardMdes.provision_token/3).
+        {:ok, _} = Tokens.transition(token, status)
 
-        {:ok, activated} =
+        {:ok, updated} =
           token.token_id
           |> Tokens.get()
           |> Token.changeset(%{"dpan" => dpan, "token_reference_id" => ref})
           |> Repo.update()
 
         AuditLog.record(opts[:operator], "nts_token_provision", token.token_id,
-          %{card_id: card.card_id, wallet: wallet, scheme: scheme})
+          %{card_id: card.card_id, wallet: wallet, scheme: scheme, status: status})
 
-        {:ok, activated}
+        {:ok, updated}
 
       {:error, reason} ->
         {:ok, _} = Tokens.transition(token, "DELETED")

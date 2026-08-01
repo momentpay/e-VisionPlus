@@ -166,7 +166,26 @@ config :vmu_core, Oban,
 # ---------------------------------------------------------------------------
 config :vmu_core, :mastercom,
   consumer_key: System.get_env("MASTERCARDCOM_Consumerkey"),
-  private_key_path: System.get_env("MASTERCOM_PRIVATE_KEY_PATH"),
+  private_key_path: System.get_env("MASTERCOM_PRIVATE_KEY_PATH", "docs/nts/myrsa.key"),
   base_url: System.get_env("MASTERCOM_BASE_URL", "https://sandbox.api.mastercard.com/mastercom/v6")
+
+# ---------------------------------------------------------------------------
+# NTS.MastercardMdesClient (NTS Phase B, 2026-07-31) — MDES Token Connect.
+# Same Mastercard Developer registration as :mastercom above (confirmed by
+# the user), so the same consumer_key/private_key_path. cert_path is
+# MDES's own public field-level-encryption certificate, used by
+# NTS.MastercardPayloadEncryption for pushMultipleAccounts' request body.
+# google_pay_token_requestor_id stays unset until a real one is known —
+# MastercardMdes falls back to discovering it live otherwise.
+# ---------------------------------------------------------------------------
+config :vmu_core, :mdes,
+  consumer_key: System.get_env("MASTERCARDCOM_Consumerkey"),
+  private_key_path: System.get_env("MDES_PRIVATE_KEY_PATH", "docs/nts/myrsa.key"),
+  cert_path: System.get_env(
+    "MDES_CERT_PATH",
+    "docs/wallet/mdes-token-connect-clientenc1785255654516-sandbox-client-encryption-key.pem"
+  ),
+  base_url: System.get_env("MDES_BASE_URL", "https://sandbox.api.mastercard.com/mdes"),
+  google_pay_token_requestor_id: System.get_env("MDES_GOOGLE_PAY_TRID")
 
 import_config "#{config_env()}.exs"

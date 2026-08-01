@@ -1,0 +1,1196 @@
+openapi: 3.0.3
+info:
+  version: '2.11'
+  title: Token Connect API
+  description: >
+    The MDES APIs are designed as RPC style stateless web services where each
+    API endpoint represents an operation to be performed. All request and
+    response payloads are sent in the JSON (JavaScript Object Notation)
+    data-interchange format. Each endpoint in the API specifies the HTTP Method
+    used to access it. All strings in request and response objects are to be
+    UTF-8 encoded. All request and response parameters are case sensitive.
+  contact:
+    name: API Support
+    email: apisupport@mastercard.com
+    url: 'https://developer.mastercard.com/support'
+servers:
+  - url: 'https://api.mastercard.com/mdes'
+    description: Production server
+  - url: 'https://sandbox.api.mastercard.com/mdes/mtf'
+    description: MTF server
+  - url: 'https://sandbox.api.mastercard.com/mdes'
+    description: Sandbox server
+tags:
+  - name: Get Eligible Token Requestors
+    description: Retrieve information about eligible Token Requestors
+  - name: Get Assets
+    description: Retrieve static assets from MDES
+  - name: Push Account
+    description: Push card or account to Token Requestors
+  - name: Push Multiple Accounts
+    description: Push card(s) and account(s) to Token Requestor
+paths:
+  "/connect/{maj}/getEligibleTokenRequestors":
+    post:
+      parameters:
+        - $ref: "#/components/parameters/parameterIdMaj"
+      tags:
+        - Get Eligible Token Requestors
+      summary: >-
+        Retrieve information about Token Requestors that have been enabled for
+        one or more of the issuer's account ranges
+      description: >
+        This API is used to retrieve information about Token Requestors that
+        have been enabled for one or more of the Issuer's account ranges. The
+        information returned is cached by Issuer back-end servers. The Issuer
+        typically uses this information to present to their cardholders the list
+        of available Token Requestors they can push their card (or account) to,
+        both for web-based and app-based user interfaces.
+
+      operationId: getEligibleTokenRequestors
+      requestBody:
+        $ref: '#/components/requestBodies/GetEligibleTokenRequestorsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GetEligibleTokenRequestorsResponse'
+        default:
+          $ref: '#/components/responses/ErrorWrapperData'
+  "/issuer-assets/{maj}/asset/tokenrequestor/{AssetId}":
+    get:
+      tags:
+        - Get Assets
+      summary: >-
+        Retrieve static Assets from MDES's repository, such as Token Requestors'
+        logos
+      description: >
+        This API is used to retrieve static Assets from MDES repository, such as
+        the Token Requestor logo.
+
+        Every Asset in the repository is referenced using an Asset ID. Once an
+        Asset has been assigned to an Asset ID, the contents of the Asset will
+        not change. If contents needs to change (for example, Token Requestor
+        has supplied new artwork), they will be updated in the repository and be
+        assigned a new Asset ID.
+
+        Different types of Assets are supported in the repository, such as
+        images and text files; for each type of Asset, multiple formats may be
+        supported. For example, a single image asset may be supported in various
+        file formats, or variant sizes. This allows the Issuer to select the
+        most appropriate format to use for a particular target.
+      operationId: getAsset
+      parameters:
+        - $ref: "#/components/parameters/parameter_asset"
+        - $ref: "#/components/parameters/parameterIdMaj"
+      responses:
+        '200':
+          $ref: '#/components/responses/AssetResponse'
+        default:
+          $ref: '#/components/responses/ErrorWrapperData'
+  "/connect/{maj}/pushAccount":
+    post:
+      deprecated: true
+      parameters:
+        - $ref: "#/components/parameters/parameterIdMaj"
+      tags:
+        - Push Account
+      summary: Push a Card or a Financial Account to a given Token Requestor
+      description: >
+        Used to push a Card or a Financial Account to a given Token Requestor.
+        If the Token Requestor participates in MDES Token Connect program and if
+        the funding account has been enabled in MDES for this Token Requestor,
+        MDES returns the Token Requestor's URI(s) as well as a
+        pushAccountReceipt. The Issuer can then call out one of the Token
+        Requestor's URI, with the push receipt as parameter.<br/> <br/> This
+        endpoint requires the usage of Mastercard client encryption librairies.
+
+        - For that, refer to [Token Connect API
+        Security](https://developer.mastercard.com/mdes-token-connect/documentation/api-basics/#api-security)
+        and [How to Consume the MDES Token Connect
+        API?](https://developer.mastercard.com/mdes-token-connect/documentation/api-basics/#how-to-consume-the-mdes-token-connect-api)
+
+        - Requests are expected to contain the following fields:
+        `encryptedData`, `publicKeyFingerprint`,
+        `encryptedKey`,`oaepHashingAlgorithm` and `iv`
+
+        - Examples of encrypted payloads can also be found in [JSON
+        Samples](https://developer.mastercard.com/mdes-token-connect/documentation/code-and-formats/#json-samples).
+      operationId: pushAccount
+      requestBody:
+        $ref: '#/components/requestBodies/PushAccountRequest'
+
+      responses:
+        '200':
+          $ref: '#/components/responses/PushAccountResponse'
+        default:
+          $ref: '#/components/responses/ErrorWrapperData'
+  "/connect/{maj}/pushMultipleAccounts":
+    post:
+
+      parameters:
+        - $ref: "#/components/parameters/parameterIdMaj"
+      tags:
+        - Push Multiple Accounts
+      summary: Push multiple Cards and/or multiple Financial Account to a given Token Requestor
+      description: >
+        Used to Push multiple Cards and/or multiple Financial Account to a given Token Requestor.
+        If the Token Requestor participates in MDES Token Connect program and if
+        the funding account has been enabled in MDES for this Token Requestor,
+        MDES returns the Token Requestor's URI(s) as well as a
+        pushAccountReceipts. API will support a signature so that the merchanttoken requestor can validate the request has not been altered during redirection.
+        The Issuer can then call out one of the Token
+        Requestor's URI, with the push account data as parameter.<br/> <br/> This
+        endpoint requires the usage of Mastercard client encryption librairies.
+
+        - For that, refer to [Token Connect API
+        Security](https://developer.mastercard.com/mdes-token-connect/documentation/api-basics/#api-security)
+        and [How to Consume the MDES Token Connect
+        API?](https://developer.mastercard.com/mdes-token-connect/documentation/api-basics/#how-to-consume-the-mdes-token-connect-api)
+
+        - Requests are expected to contain the following fields:
+        `encryptedData`, `publicKeyFingerprint`,
+        `encryptedKey`,`oaepHashingAlgorithm` and `iv`
+
+        - Examples of encrypted payloads can also be found in [JSON
+        Samples](https://developer.mastercard.com/mdes-token-connect/documentation/code-and-formats/#json-samples).
+      operationId: pushMultipleAccounts
+      requestBody:
+        $ref: '#/components/requestBodies/PushMultipleAccountsRequest'
+
+      responses:
+        '200':
+          $ref: '#/components/responses/PushMultipleAccountsResponse'
+        default:
+          $ref: '#/components/responses/ErrorWrapperData'
+components:
+  requestBodies:
+    GetEligibleTokenRequestorsRequest:
+      required: true
+      description: Contains the details of the request message.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GetEligibleTokenRequestorsRequestData'
+    PushAccountRequest:
+      required: true
+      description: >
+        A Push Account request is used to trigger the push of a Card or
+          Financial Account to a target Token Requestor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PushAccountRequestData'
+    PushMultipleAccountsRequest:
+      required: true
+      description: >
+        A Push Multiple Accounts request is used to trigger the push of multiple Cards and/or multiple Financial Account to a targted Token Requestor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PushMultipleAccountsRequestData'
+  responses:
+    GetEligibleTokenRequestorsResponse:
+      description: The call succeeded. See payload for details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GetEligibleTokenRequestorsResponseData'
+    AssetResponse:
+      description: The call succeeded. See payload for details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AssetResponseData'
+    PushAccountResponse:
+      description: The call succeeded. See payload for details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PushAccountResponseData'
+    PushMultipleAccountsResponse:
+      description: The call succeeded. See payload for details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PushMultipleAccountsResponseData'
+    ErrorWrapperData:
+      description: An error occurred. See payload for details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorWrapper'
+  parameters:
+    parameter_asset:
+      in: path
+      name: AssetId
+      required: true
+      schema:
+        type: string
+      description: >
+        An Asset ID corresponds to an individual Digital Asset. Digital Assets are returned as part of the Product Configuration from the Tokenize Response. The Asset ID itself is supplied as a Get request in the form of https://{INSERT ENVIRONMENT URL HERE}/mdes/assets/static/1/0/asset/{AssetId} - See JSON examples for details.
+      example: 554dbc44-496a-4896-b41c-dd431e25d5e4
+    parameterIdMaj:
+      in: path
+      name: maj
+      required: true
+      schema:
+        type: string
+      description: >
+        Major parameter to be added to each path
+      example: "1/0"
+  schemas:
+    GetEligibleTokenRequestorsRequestData:
+      required:
+        - requestId
+        - accountRanges
+      properties:
+        requestId:
+          type: string
+          description: |
+            Unique identifier for the request.
+          minLength: 1
+          maxLength: 64
+          example: '123456'
+        accountRanges:
+          type: array
+          description: >
+            Array of the starting numbers of the account ranges to retrieve the
+            enabled Token Requestors for.
+
+            The starting numbers are numeric strings between 9 and 19 in
+            length.If the starting numbers are less than 19, MDES will zero pad
+            the end of the starting numbers to 19 in length. The padded value
+            must exactly match the account range start number enabled for the
+            Token Requestor.
+             __Max Number of Items:__ 25
+          items:
+            type: string
+            example: '5412346789'
+        supportsTokenConnect:
+
+          type: boolean
+          deprecated: true
+          description: >
+            A boolean parameter to receive only token requestors that support
+            Token Connect or not. Must be one of:
+              * true - Token Connect is supported
+              * false - Token Connect is not supported
+          example: true
+
+    GetEligibleTokenRequestorsResponseData:
+      required:
+        - responseId
+      properties:
+        responseId:
+          type: string
+          description: >
+            Unique identifier for the response matching the requestId supplied
+            in the request.
+          minLength: 1
+          maxLength: 64
+          example: '123456'
+        tokenRequestors:
+          type: array
+          description: >
+            The array of Token Requestors that are eligible for the account
+            ranges in the request.
+
+            __Conditional.__ Required if the operation was successful.
+          items:
+            $ref: '#/components/schemas/TokenRequestor'
+        errors:
+          type: array
+          description: >
+            Element encapsulating a collection of errors that occurred during a
+            single request.
+
+            __Conditional.__ Required if one or more errors occurred while
+            performing the operation. Not present if the operation was
+            successful.
+          items:
+            $ref: '#/components/schemas/Error'
+    PushAccountRequestData:
+      required:
+        - requestId
+        - pushFundingAccount
+        - tokenRequestorId
+      properties:
+        requestId:
+          type: string
+          description: |
+            Unique identifier for the request.
+          minLength: 1
+          maxLength: 64
+          example: '123456'
+        pushFundingAccount:
+          $ref: '#/components/schemas/PushFundingAccount'
+        tokenRequestorId:
+          type: string
+          description: |
+            Identifies the Token Requestor
+          minLength: 11
+          maxLength: 11
+          example: '50123456789'
+    PushAccountResponseData:
+      required:
+        - responseId
+      properties:
+        responseId:
+          type: string
+          description: >
+            Unique identifier for the response matching the requestId supplied
+            in the request.
+          minLength: 1
+          maxLength: 64
+          example: '123456'
+        pushAccountReceipt:
+          type: string
+          description: >
+            Receipt value to be passed to the Token Requestor. The
+            pushAccountReceipt represents the pushed account details and expires
+            after 15 minutes.
+
+            __Conditional.__ Required if the push operation was successful. Not
+            present otherwise.
+
+            When valid, the receipt will consist of a 3-character prefix
+            identifying the product associated to the funding account
+            concatenated with a universally unique identifier, in the form
+            prefix-UUID. The prefix is needed by some Token Requestors in
+            preparation of performing a tokenization. Prefix values are:
+              * MCC: Mastercard Credit
+              * DMC: Mastercard Debit
+              * MSI: Maestro
+              * PVL: Private Label
+          minLength: 1
+          maxLength: 64
+          example: MCC-C307F0AE-298E-48EB-AA43-A7C40B32DDDE
+        availablePushMethods:
+          type: array
+          description: >
+            Array of push methods supported by the Token Requestor.
+
+            __Conditional.__ Required if the push operation was successful. Not
+            present otherwise.
+          items:
+            $ref: '#/components/schemas/PushMethod'
+        errors:
+          type: array
+          description: >
+            Element encapsulating a collection of errors that occurred during a
+            single request.
+
+            __Conditional.__ Required if one or more errors occurred while
+            performing the operation. Not present if the operation was
+            successful.
+          items:
+            $ref: '#/components/schemas/Error'
+    PushMultipleAccountsRequestData:
+      required:
+        - requestId
+        - pushFundingAccounts
+        - tokenRequestorId
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: The Id of the request submitted.
+          minLength: 1
+          maxLength: 64
+          example: "123456"
+        pushFundingAccounts:
+          $ref: '#/components/schemas/EncryptedPayloadForMultiplePush'
+        tokenRequestorId:
+          type: string
+          description: |
+            Identifies the Token Requestor
+          minLength: 11
+          maxLength: 11
+          example: '50123456789'
+        signatureData:
+          $ref: '#/components/schemas/pushAccountSignatureData'
+        requestIssuerInitiatedDigitizationData:
+          type: boolean
+          description: |
+            Boolean value to indicate to return Issuer Initiated Digitization Data or not. A default of false should be assumed if this parameter is not supplied. Must be one of:
+              * true: Issuer Initiated Digitization Data is requested in the response.
+              * false: Issuer Initiated Digitization Data is not requested in the response.
+          minLength: 4
+          maxLength: 5
+          example: false
+        pushAccountReceiptsValidityPeriod:
+          type: number
+          description: |
+            Push Account Receipt validity period for given request. Validity period in minutes. If an issuer is pushing more than one accounts then provided value will be applicable to all pushAccountReceipts.
+              * Default value 15 minutes
+              * Value must be greater than 4 minutes
+              * Value must be lesser or equal to 15 minutes
+          minLength: 1
+          maxLength: 2
+          example: 15
+        authenticationCode:
+          type: string
+          description: The authentication code entered by the cardholder in the Issuer app. Authentication Code is used to confirm that the same cardholder is present in both the Token Requestor and Issuer environments.
+          minLength: 1
+          maxLength: 32
+          example: "123456"
+    EncryptedPayloadForMultiplePush:
+      type: object
+      description: |
+        Contains encrypted payload of array of Push Multiple Funding Account
+      required:
+        - encryptedPayload
+      properties:
+        encryptedPayload:
+          $ref: '#/components/schemas/EncryptedPayloadForMultiplePushData'
+    PushMultipleAccountsResponseData:
+      type: object
+      required:
+        - responseId
+      properties:
+        responseId:
+          type: string
+          description: >
+            Unique identifier for the response matching the requestId supplied
+            in the request.
+          minLength: 1
+          maxLength: 64
+          example: '123456'
+        pushAccountReceipts:
+          type: array
+          description: >
+            Array of the receipt values to be passed to the token requestor.
+
+            __Conditional.__ Required if the push operation was successful. Not
+            present otherwise.
+          items:
+            $ref: '#/components/schemas/PushMultipleAccountsData'
+        availablePushMethods:
+          type: array
+          description: >
+            Array of push methods supported by the Token Requestor.
+
+            __Conditional.__ Required if the push operation was successful. Not
+            present otherwise.
+          items:
+            $ref: '#/components/schemas/PushMethod'
+        signature:
+          type: string
+          description: >
+            The JWS signature output.
+            __Conditional.__ Required if tokenRequestorSignatureSupport is true and at least one pushAccountReceipt is successfully returned
+
+          example: 'ew0KImFsZyI6ICJSUzI1NiIsDQoNCiJraWQiOiAiYXNkZmctcXdlcnR5LXp4Y3ZiIg0KfQ.ew0KDQrCoCJwdXNoQWNjb3VudFJlY2VpcHQiOiAiTUNDLVNUTC0xMzQzMTNCRi01NTg1LTRFNzEtQUIyNC1FQ0RCQzI4RjIzRjEiLA0KImlzc3VlckNhbGxCYWNrIjogImh0dHBzOi8vaXNzdWVyY2FsbGJhY2sudXJsIiwNCiJjYWxsYmFja1JlcXVpcmVkIjogdHJ1ZSwNCiJjb21wbGV0ZVdlYnNpdGVBY3RpdmF0aW9uIjogdHJ1ZSwNCiJhY2NvdW50SG9sZGVyRGF0YVN1cHBsaWVkIjogdHJ1ZSwNCiJsb2NhbGUiOiAiZW5fVVMiDQoNCn0.dBjftJeZ4CVP-'
+        tokenRequestorSignatureSupport:
+          type: boolean
+          description: >
+            Indicates if the Token Requestor supports verification of the signature
+          example: true
+        errors:
+          type: array
+          description: >
+            Element encapsulating a collection of errors that occurred during a
+            single request.
+
+            __Conditional.__ Required if one or more errors occurred while
+            performing the operation. Not present if the operation was
+            successful.
+          items:
+            $ref: '#/components/schemas/Error'
+    AssetResponseData:
+      properties:
+        mediaContents:
+          type: array
+          description: >-
+            Contains all contents of the Asset, including all variations. When
+            the Asset corresponds to a Token Requestor's logo, the logo is
+            provided both in .svg as well as in .png format
+          items:
+            $ref: '#/components/schemas/MediaContent'
+    MediaContent:
+      required:
+        - type
+        - data
+      description: >-
+        The content of the media. When the Asset corresponds to a Token
+        Requestor's logo, the content is a square image.
+      properties:
+        type:
+          type: string
+          description: >
+            What type of media this is.
+            Specified as a MIME type, which will be one of the following
+            supported types:
+              * "application/pdf": for images (must be a vector PDF image)
+              * "image/png": includes alpha channel
+              * "image/svg+xml": image in SVG format
+              * "text/plain"
+              * "text/html"
+          minLength: 1
+          maxLength: 32
+          example: image/png
+        data:
+          type: string
+          description: >
+            The data for this item of media. Base64-encoded data, where the
+            decoded data is in the format as specified in ‘type'.
+          example: >-
+            iVBORw0KGgoAAAANSUhEUgAAAXcAAAF3CAIAAADRopypAAAABGdBTUEAANbY1E9YMgAAAAlwSFlzAAAASAAAAEgARslrPgAAGtNJREFUeNrt3W9oW
+        height:
+          type: string
+          format: int32
+          description: >
+            For non-SVG image assets, the height of the image. Specified in pixels.
+          minLength: 1
+          maxLength: 6
+          example: "192"
+        width:
+          type: string
+          format: int32
+          description: >
+            For non-SVG image assets, the width of the image. Specified in pixels.
+          minLength: 1
+          maxLength: 6
+          example: "192"
+    ErrorWrapper:
+      type: object
+      required:
+        - errors
+      properties:
+        errors:
+          $ref: '#/components/schemas/ErrorList'
+        responseId:
+          type: string
+          description: A response identifier
+          example: 5d4ecdc5-e6cd-47cc-94fc-d6b2dfd3338c
+    ErrorList:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/components/schemas/Error'
+    Error:
+      type: object
+      required:
+        - source
+        - reasonCode
+      properties:
+        source:
+          type: string
+          description: >
+            An element used to indicate the source of the issue causing this error. Must be either:
+              * INPUT: Service input data triggered an error
+              * MDES: MDES reported an error
+          minLength: 1
+          maxLength: 32
+          example: INPUT
+        reasonCode:
+          type: string
+          description: >
+            A reason code for the error that has occurred. See Error Reason Code
+            definitions for the appropriate API service.
+          minLength: 1
+          maxLength: 100
+          example: INVALID_FIELD_LENGTH
+        description:
+          type: string
+          description: |
+            Description of the reason why the operation failed.
+          minLength: 1
+          maxLength: 256
+          example: 'Invalid Field Length - {field name}'
+        errorCode:
+          type: string
+          description: >
+            Only generated by Open API. See Open API documentation for use
+            cases.
+          minLength: 1
+          maxLength: 100
+          example: "1234"
+        recoverable:
+          type: boolean
+          description: |
+            Only generated by Open API. See Open API documentation.
+          minLength: 1
+          maxLength: 16
+          example: true
+    TokenRequestor:
+      required:
+        - tokenRequestorId
+        - name
+        - consumerFacingEntityName
+        - tokenRequestorType
+        - enabledAccountRanges
+      description: >-
+        The information that MDES returns for each Token Requestor, when it is
+        enabled for at least one of the Issuer's input account range
+      properties:
+        tokenRequestorId:
+          type: string
+          description: >
+            Identifies the Token Requestor where the Account must be pushed to.
+            The string contains a 11-digit numeric value.
+          minLength: 11
+          maxLength: 11
+          example: '50123456789'
+        name:
+          type: string
+          description: |
+            The legal name of the Token Requestor.
+            minLength: 1
+            maxLength: 64
+          example: Sunrise Ave. Ltd
+        consumerFacingEntityName:
+          type: string
+          description: >
+            The name of the Token Requestor to be displayed to the account
+            holder.
+          minLength: 1
+          maxLength: 100
+          example: Happy Sunrise Online
+        imageAssetId:
+          type: string
+          description: >
+            The image of the Token Requestor (for instance a logo). Provided as
+            an Asset ID – use the Get Asset API to retrieve the actual asset.
+          minLength: 1
+          maxLength: 64
+          example: dbc55444-496a-4896-b41c-5d5e2dd431e2
+        tokenRequestorType:
+          type: string
+          description: |
+            The type of the Token Requestor. Must be either
+              * MERCHANT: The Token Requestor is a Merchant
+              * WALLET: The Token Requestor is a Wallet or a Commerce Platform
+          minLength: 1
+          maxLength: 32
+          example: MERCHANT
+        walletId:
+          type: string
+          description: >
+            The identifier of the Wallet Provider.
+
+            __Conditional,__ Only present when the token is provided to a Wallet
+            Provider. Not present otherwise.
+          minLength: 1
+          maxLength: 3
+          example: '123'
+        enabledAccountRanges:
+          type: array
+          description: >
+            Array of account range start numbers that are enabled for the Token
+            Requestor.The start numbers will be 19 digits in length.
+          items:
+            type: integer
+            format: int64
+            example: 5412346789000000000
+        supportedPushMethods:
+          type: array
+          description: >
+            Array of the push methods supported by the Token Requestor.
+
+            __Conditional__. The array is not returned if the Token Requestor
+            does not participate in MDES Token Connect Program. Possible push methods are:
+              * ANDROID: The Token Requestor supports app-to-app and web-to-app communication on Android.
+              * IOS: The Token Requestor supports app-to-app and web-to-app communication on iOS.
+              * WEB: The Token Requestor supports web-to-web or app-to-web communication.
+          items:
+            type: string
+            example: ANDROID
+        supportsMultiplePushedCards:
+          type: boolean
+          description: >
+            Flag to indicate if Token Requestor supports multiple push account
+            receipts in a single request. When supported, a maximum of 5
+            receipts may be sent to the Token Requestor in a single request
+
+            __Conditional__. Must be present if the Token Requestor participates
+            in MDES Token Connect program, not present otherwise.
+
+            Must be either :
+              * true: Multiple push receipts are supported.
+              * false: Multiple push receipts are not supported.
+          example: true
+        supportedAccountHolderData:
+          type: array
+          description: >
+            List (array) of account holder data elements that the Token
+            Requestor accepts to receive from the Issuer with a pushed card or
+            account.
+
+            __Conditional__. The array is not returned if the Token Requestor
+            does not participate in MDES Token Connect Program. If the Token
+            Requestor participates in MDES Token Connect but doesn't accept any
+            account holder data then an empty array is returned.
+
+            __To ensure forward-compatibility, all API client implementations
+            must be resilient to new data element values being added to
+            responses from MDES.__
+
+            Possible values are:
+              * "NAME": The first name and last name of the account holder
+              * "ADDRESS": The billing address for the account holder
+              * "EMAIL_ADDRESS": The email address for the account holder
+              * "MOBILE_PHONE_NUMBER": The mobile phone number for the account holder
+          items:
+            type: string
+            example: ADDRESS
+        supportsCardHolderAuthentication:
+          type: boolean
+          description: >
+            Flag to indicate if token requestor supports cardholder
+            authentication after the token is activated. Must be one of:
+              * true - Post Tokenization Carholder Authentication (Consent Service) is supported.
+              * false - Post Tokenization Carholder Authentication (Consent Service) is not supported.
+          example: true
+        supportsTokenConnect:
+          type: boolean
+          description: >
+            A boolean parameter indicate that token requestor supports Token
+            Connect or not. Must be one of: * true - Token Connect is supported
+              * false - Token Connect is not supported
+          example: true
+        availablePushMethods:
+          type: array
+          description: Array of push methods supported by the token requestor.
+          items:
+            $ref: '#/components/schemas/PushMethod'
+        supportIssuerInitiatedDigitizationData:
+          type: boolean
+          description: >
+            A boolean parameter indicate that token requestor supports Issuer Initiated Digitization Data. or not. Must be one of:
+              * true - Issuer Initiated Digitization Data is supported
+              * false - Issuer Initiated Digitization Data is not supported
+          example: false
+    PushFundingAccount:
+      description: |
+        PushFundingAccountData object containing the account information to be provisioned by the token requestor.
+      required:
+        - encryptedPayload
+      properties:
+        encryptedPayload:
+          $ref: '#/components/schemas/EncryptedPayload'
+    EncryptedPayload:
+      required:
+        - publicKeyFingerprint
+        - encryptedKey
+        - encryptedData
+      properties:
+        encryptedData:
+          $ref: '#/components/schemas/FundingAccount'
+        publicKeyFingerprint:
+          type: string
+          description: >-
+            Refer to Breaking the Encrypted Payload Down >
+            [publicKeyFingerprint](https://developer.mastercard.com/platform/documentation/security-and-authentication/securing-sensitive-data-using-payload-encryption/#breaking-the-encrypted-payload-down)
+          example: 243e6992ea467f1cbb9973facfcc3bf17b5cd007
+        encryptedKey:
+          type: string
+          description: >-
+            Refer to Breaking the Encrypted Payload Down >
+            [encryptedKey](https://developer.mastercard.com/platform/documentation/security-and-authentication/securing-sensitive-data-using-payload-encryption/#breaking-the-encrypted-payload-down)
+          example: d5112fa08e554e3dbc455d0628(...)52e826dd10311cf0d63bbfb231a1a63ecc13
+        oaepHashingAlgorithm:
+          type: string
+          description: >-
+            Refer to Breaking the Encrypted Payload Down >
+            [oaepPaddingDigestAlgorithm](https://developer.mastercard.com/platform/documentation/security-and-authentication/securing-sensitive-data-using-payload-encryption/#breaking-the-encrypted-payload-down)
+          example: SHA512
+        iv:
+          type: string
+          description: >-
+            Refer to Breaking the Encrypted Payload Down >
+            [iv](https://developer.mastercard.com/platform/documentation/security-and-authentication/securing-sensitive-data-using-payload-encryption/#breaking-the-encrypted-payload-down)
+          example: 1b9396c98ab2bfd195de661d70905a45
+    FundingAccount:
+      type: object
+      properties:
+        dataValidUntilTimestamp:
+          type: string
+          description: >
+            The date/time after which this encrypted payload object is
+            considered invalid. If present, all systems must reject this
+            encrypted object after this time and treat it as invalid data. Must
+            be a value no more than 30 days in the future. Mastercard recommends
+            using a value of (CurrentTime + 30 minutes). Must be expressed in ISO 8601 extended format as one of the following:
+              * YYYY-MM-DDThh:mm:ss[.sss]Z
+              * YYYY-MM-DDThh:mm:ss[.sss]±hh:mm
+            where [.sss] is optional and can be 1 to 3 digits.
+          minLength: 20
+          maxLength: 29
+          example: '2019-07-04T12:09:56.123-07:00'
+        cardAccountData:
+          $ref: '#/components/schemas/CardAccount'
+        financialAccountData:
+          $ref: '#/components/schemas/FinancialAccount'
+        accountHolderData:
+          $ref: '#/components/schemas/AccountHolder'
+    CardAccount:
+      type: object
+      required:
+        - accountNumber
+      properties:
+        accountNumber:
+          type: string
+          description: |
+            The Account Primary Account Number of the card to be digitized.
+          minLength: 9
+          maxLength: 19
+          example: '5412346789012345'
+        expiryMonth:
+          type: string
+          description: >
+            The month of the expiration date of the card to be digitized. Note
+            that the expiry date may not be in the past. May be omitted if the
+            card does not have an expiry date.
+          minLength: 2
+          maxLength: 2
+          example: '12'
+        expiryYear:
+          type: string
+          description: >
+            The year of the expiration date of the card to be digitized. Note
+            that the expiry date may not be in the past. May be omitted if the
+            card does not have an expiry date.
+          minLength: 2
+          maxLength: 2
+          example: '21'
+    FinancialAccount:
+      type: object
+      required:
+        - financialAccountId
+        - interbankCardAssociationId
+        - countryCode
+      properties:
+        financialAccountId:
+          type: string
+          description: >
+            The identifier of the financial account being tokenized.This could
+            be a bank account number or other types of financial accounts.
+          minLength: 9
+          maxLength: 64
+          example: '1123456789012345'
+        interbankCardAssociationId:
+          type: string
+          description: >
+            The identifier (ICA) assigned by Mastercard to the financial
+            institution.
+          minLength: 3
+          maxLength: 11
+          example: '1234'
+        countryCode:
+          type: string
+          description: >
+            The country of the financial account. Expressed as a 3-letter
+            (alpha-3) country code as defined in ISO 3166-1.
+          minLength: 3
+          maxLength: 3
+          example: GBR
+    AccountHolder:
+      type: object
+      properties:
+        accountHolderName:
+          type: string
+          description: >
+            __Optional.__ The name of the account holder in the format
+            LASTNAME/FIRSTNAME or FIRSTNAME LASTNAME.
+          minLength: 1
+          maxLength: 27
+          example: John Doe
+        accountHolderAddress:
+          $ref: '#/components/schemas/BillingAddress'
+        accountHolderEmailAddress:
+          type: string
+          description: |
+            __Optional.__ The e-mail address of the account holder.
+          minLength: 6
+          maxLength: 320
+          example: john.doe@anymail.com
+        accountHolderMobilePhoneNumber:
+          $ref: '#/components/schemas/PhoneNumber'
+    BillingAddress:
+      type: object
+      properties:
+        line1:
+          type: string
+          description: |
+            First line of the billing address.
+          minLength: 1
+          maxLength: 64
+          example: 100 1st Street
+        line2:
+          type: string
+          description: |
+            Second line of the billing address.
+          minLength: 1
+          maxLength: 64
+          example: Apt. 4B
+        city:
+          type: string
+          description: |
+            The city of the billing address.
+          minLength: 1
+          maxLength: 32
+          example: St. Louis
+        countrySubdivision:
+          type: string
+          description: >
+            The country subdivision (for example, the state in the U.S.) of the
+            billing address.
+          minLength: 1
+          maxLength: 12
+          example: MO
+        postalCode:
+          type: string
+          description: >
+            The postal code (for example, zipcode in the U.S.) of the billing
+            address.
+          minLength: 1
+          maxLength: 16
+          example: '61000'
+        country:
+          type: string
+          description: >
+            The country of the billing address. Expressed as a 3-letter
+            (alpha-3) country code as defined in ISO 3166-1.
+          minLength: 3
+          maxLength: 3
+          example: USA
+    PhoneNumber:
+      type: object
+      required:
+        - countryDialInCode
+        - phoneNumber
+      properties:
+        countryDialInCode:
+          type: string
+          description: >
+            The international dial-in prefix code associated with the country.
+            For instance: "1" for USA, "44" for UK, etc.
+          minLength: 1
+          maxLength: 4
+          example: '1'
+        phoneNumber:
+          type: string
+          description: >
+            The Phone number to be dialed after the international prefix –
+            hence, excluding any domestic prefix if any.
+          minLength: 1
+          maxLength: 20
+          example: '7181234567'
+    PushMethod:
+      required:
+        - type
+        - uri
+      properties:
+        type:
+          type: string
+          description: >
+            The push method type corresponding to the URI supported by the Token
+            Requestor. The array is absent if the Token Requestor does not
+            support MDES Token Connect. Possible values are:
+              * "ANDROID": The URI is an Android app intent.
+              * "IOS": The URI is an iOS app intent.
+              * "WEB": The URI is a browser URL.
+          minLength: 1
+          maxLength: 32
+          example: WEB
+        uri:
+          type: string
+          description: >
+            The URI to open the Token Requestor's application or website. Please
+            refer to the Issuer Interface Implementation Guide for the detail of
+            how to send the data to the Token Requestor.
+          minLength: 11
+          maxLength: 128
+          example: 'http://www.tokenrequestor1.com/pushtoken'
+    pushAccountSignatureData:
+      type: object
+      properties:
+        callbackURL:
+          type: string
+          description: >
+            The URL encoded URL for the token requestor to use to pass control back to the Issuer.
+            This needs to be an absolute URL containing the scheme.
+            Both iOS and Android support custom schemes that allow the browser to open an application.
+
+            __Max Length:__ 256
+          example: 'http://www.tokenIssuer1.com/pushtoken'
+        completeIssuerAppActivation:
+          type: boolean
+          description: >
+            This is a Boolean value used to indicate the behavior of the token requestor if a provisioning request receives a decision of REQUIRE_ADDITIONAL_AUTHENTICATION and the cardholder chooses the CARDHOLDER_TO_USE_ISSUER_MOBILE_APP Authentication Method from the list of supplied methods.
+            A default of  should be assumed if this parameter is not supplied. This field should not be case sensitive.
+              * True: The Token Requestor should perform activation using the IssuerMobileApp returned in the Authentication Method.
+              * False: The token requestor should NOT invoke the issuer application specified in the IssuerMobileApp object returned in the Authentication Method.  The token requestor should return control to the Issuer via the callback URL after all tokenizations are completed.
+          minLength: 4
+          maxLength: 5
+          example: false
+        completeWebsiteActivation:
+          type: boolean
+          description: >
+            This is a Boolean value used to indicate the behavior of the token requestor if a provisioning request receives a decision of REQUIRE_ADDITIONAL_AUTHENTICATION and the cardholder chooses the CARDHOLDER_TO_VISIT_WEBSITE Authentication Method from the list of supplied methods.
+            A default of true should be assumed if this parameter is not supplied. This field should not be case sensitive.
+              * True: The token requestor should perform activation using the URL returned in the authentication method.
+              * False: The token requestor should not invoke the URL returned in the Authentication method. The token requestor should return control to the Issuer via the callback URL after all tokenizations are completed.
+          minLength: 4
+          maxLength: 5
+          example: false
+        accountHolderDataSupplied:
+          type: boolean
+          description: >
+            This is a Boolean value used to indicate if the cardholder information was stored in MDES along with the funding account information.
+            MDES will return the cardholder information to the token requestor in certain scenarios.
+            A default value of false should be assumed if this parameter is not supplied. This field should not be case sensitive.
+              * True: Cardholder data was passed to MDES.
+              * False: Cardholder data was not passed to MDES.
+          minLength: 4
+          maxLength: 5
+          example: false
+        locale:
+          type: string
+          description: >
+            Consumer preferred locale (language and country).
+            This information will be useful to the Token Requestor to offer the best consumer experience during digitization.
+            __Format__: Two letter ISO 639-1 language in lowercase, with a underscore (”_”), followed by two letter ISO 3166-1 country code in uppercase.
+          minLength: 4
+          maxLength: 5
+          example: en_US
+        tokenRequestorSessionId:
+          type: string
+          description: The session Id provided by the token requestor in pull provisioning use case.
+          minLength: 3
+          maxLength: 64
+          example: "dbc55444-496a-4896-b41c-5d5e2dd431e2"
+    PushMultipleAccountsData:
+      required:
+        - pushAccountId
+      properties:
+        pushAccountId:
+          type: string
+          description: >
+            The identifier for the account that is being pushed.  Should be unique within a PushMultipleAccounts request.
+          minLength: 1
+          maxLength: 36
+          example: 'CA-132d72d4fcb2f4136a0532d3093ff1ab'
+        pushAccountReceipt:
+          type: string
+          description: >
+            Receipt value to be passed to the Token Requestor. The
+            pushAccountReceipt represents the pushed account details and expires
+            after 15 minutes.
+
+            __Conditional.__ Required unless error is returned.
+
+            When valid, the receipt will consist of a 3-character prefix
+            identifying the product associated to the funding account
+            concatenated with a universally unique identifier, in the form
+            prefix-UUID. The prefix is needed by some Token Requestors in
+            preparation of performing a tokenization. Prefix values are:
+             * MCC: Mastercard Credit
+             * DMC: Mastercard Debit
+             * MSI: Maestro
+             * PVL: Private Label
+          minLength: 1
+          maxLength: 64
+          example: MCC-C307F0AE-298E-48EB-AA43-A7C40B32DDDE
+        issuerInitiatedDigitizationData:
+          type: string
+          description: >
+            Base64Encoded String of fundingAccountInfo object that issuer can pass to Token Requestor propritary communication.
+            __Conditional.__ Present if requestIssuerInitiatedDigitizationData value is true in the request.
+          minLength: 1
+          maxLength: 5000
+          example: eyJmdW5kaW5nQWNjb3VudEluZm8iOnsicHVzaEFjY291bnRSZWNlaXB0IjoiTUNDLVNUTC00OTZCNjNBOC02OTQzLTRFM0YtOEYzNi1DMjU0M0Q4OTg1ODQifX0=
+        errors:
+          type: array
+          description: >
+            Element encapsulating a collection of errors that occurred during a
+            single request.
+
+            __Conditional.__ Required if one or more errors occurred while
+            performing the operation. Not present if the operation was
+            successful.
+          items:
+            $ref: '#/components/schemas/Error'
+    PushMultipleFundingAccounts:
+      type: array
+      description: >
+        Encrypted object containing array of Push Multiple Funding Account objects containing the account information to be pushed by the Issuer.
+      items:
+        $ref: '#/components/schemas/PushMultipleFundingAccount'
+    PushMultipleFundingAccount:
+      type: object
+      required:
+        - pushAccountId
+        - fundingAccountData
+      properties:
+        pushAccountId:
+          type: string
+          description: >
+            The identifier for the account that is being pushed. Should be unique within a PushMultipleAccounts request.
+          minLength: 1
+          maxLength: 36
+          example: 'CA-132d72d4fcb2f4136a0532d3093ff1ab'
+        fundingAccountData:
+          $ref: '#/components/schemas/FundingAccount'
+    EncryptedPayloadForMultiplePushData:
+      type: object
+      required:
+        - publicKeyFingerprint
+        - encryptedKey
+        - encryptedData
+      properties:
+        encryptedData:
+          $ref: '#/components/schemas/PushMultipleFundingAccounts'
+        publicKeyFingerprint:
+          type: string
+          description: The fingerprint of the public key used to encrypt the ephemeral
+            AES key. Hex-encoded Data (case-insensitive).
+          minLength: 32
+          maxLength: 64
+          example: 4c4ead5927f0df8117f178eea9308daa58e27c2b
+        encryptedKey:
+          type: string
+          description: One-time use AES key encrypted by the Mastercard public key
+            (as identified by 'publicKeyFingerprint') using the OAEP or RSA Encryption
+            Standard PKCS 1 v1.5 (depending on the value of 'oaepHashingAlgorithm').
+            Requirement is for a 128-bit key (with 256-bit key supported as an option).
+            Data Type - String. Hex-encoded data (case-insensitive).
+          minLength: 32
+          maxLength: 512
+          example: A1B2C3D4E5F611223344556678965434
+        oaepHashingAlgorithm:
+          type: string
+          description: Hashing algorithm used with the OAEP scheme. If omitted, then
+            the RSA Encryption Standard PKCS 1 v1.5 will be used. You must use one
+            of the following algorithms; SHA256 - Use the SHA-256 algorithm | SHA512
+            - Use the SHA-512 algorithm.
+          minLength: 6
+          maxLength: 6
+          example: SHA512
+        iv:
+          type: string
+          description: The initialization vector used when encrypting data using the
+            one-time use AES key. Must be exactly 12 bytes (24 character hex string)
+            when using GCM and 16 bytes (32 character hex string) when using CBC to
+            match the block size. If not present, an IV of zero is assumed.
+          minLength: 24
+          maxLength: 32
+          example: "313233343536373839303132"
+        algorithmCipherMode:
+          type: string
+          description: The AES cipher mode used for the encrypted data. Must be one of the following value:<br>CBC - When CBC cipher mode to be used<br>GCM - When GCM cipher mode to be used
+          minLength: 3
+          maxLength: 3
+          example: "GCM"
+        tag:
+          type: string
+          description: Tag to verify during data decryption. Required when algorithmCipherMode used is GCM, not present otherwise.
+          minLength: 1
+          maxLength: 36
+          example: "a1b2c3d4e5f6789"
+        aad:
+          type: string
+          description: Additional authentication data used in GCM mode. Hex-encoded data (case-insensitive). Required when algorithmCipherMode used is GCM, not present otherwise.
+          minLength: 1
+          maxLength: 36
+          example: "4a6f686e446f654"

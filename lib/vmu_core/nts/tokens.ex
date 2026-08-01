@@ -12,7 +12,8 @@ defmodule VmuCore.NTS.Tokens do
   alias VmuCore.NTS.Token
 
   @transitions %{
-    "PENDING"   => ~w[ACTIVE DELETED],
+    "PENDING"   => ~w[PUSHED ACTIVE DELETED],
+    "PUSHED"    => ~w[ACTIVE DELETED],
     "ACTIVE"    => ~w[SUSPENDED DELETED],
     "SUSPENDED" => ~w[ACTIVE DELETED],
     "DELETED"   => ~w[]
@@ -83,9 +84,9 @@ defmodule VmuCore.NTS.Tokens do
     :ok
   end
 
-  # provisioned_at is stamped only on first activation (PENDING -> ACTIVE) —
-  # a later resume (SUSPENDED -> ACTIVE) must not overwrite it.
-  defp stamp(attrs, "PENDING", "ACTIVE"), do: Map.put(attrs, "provisioned_at", now())
+  # provisioned_at is stamped only on first real activation (PENDING/PUSHED
+  # -> ACTIVE) — a later resume (SUSPENDED -> ACTIVE) must not overwrite it.
+  defp stamp(attrs, old, "ACTIVE") when old in ["PENDING", "PUSHED"], do: Map.put(attrs, "provisioned_at", now())
   defp stamp(attrs, _old_status, "SUSPENDED"), do: Map.put(attrs, "suspended_at", now())
   defp stamp(attrs, _old_status, "DELETED"), do: Map.put(attrs, "deleted_at", now())
   defp stamp(attrs, _old_status, _new_status), do: attrs

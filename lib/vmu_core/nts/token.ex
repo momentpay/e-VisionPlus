@@ -22,7 +22,16 @@ defmodule VmuCore.NTS.Token do
 
   @schemes ~w[MASTERCARD VISA]
   @wallets ~w[GOOGLE_PAY APPLE_PAY SAMSUNG_PAY]
-  @statuses ~w[PENDING ACTIVE SUSPENDED DELETED]
+  # PUSHED (2026-07-31, NTS Phase B) — Mastercard's real MDES Token Connect
+  # "Push Provisioning" flow (issuer pushes the account to a Token
+  # Requestor like Google Pay from the issuer's own app) is asynchronous:
+  # the pushMultipleAccounts call returns a receipt, not a DPAN. The DPAN
+  # only exists once the Token Requestor's own app finishes the actual
+  # tokenization — which the issuer isn't always told about. PUSHED means
+  # "handed off, DPAN not yet confirmed" — distinct from ACTIVE ("DPAN
+  # confirmed, this really is a live token"). See `NTS.Tokens.
+  # @transitions` and `MastercardMdes.provision_token/3`.
+  @statuses ~w[PENDING PUSHED ACTIVE SUSPENDED DELETED]
 
   schema "nts_tokens" do
     field :card_id,            :binary_id

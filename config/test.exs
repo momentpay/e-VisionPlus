@@ -45,3 +45,8 @@ config :vmu_core, :kyc_ocr_http_plug,
 # v6 API calls (DPS-P5, re-ported 2026-07-29 from Avenza/apps/vmu_dps).
 config :vmu_core, :mastercom_http_plug,
   {Req.Test, VmuCore.DPS.NetworkAdapter.MastercomClient}
+
+# Same reasoning for VmuCore.NTS.MastercardMdesClient's MDES Token Connect
+# calls (NTS Phase B, 2026-07-31).
+config :vmu_core, :mdes_http_plug,
+  {Req.Test, VmuCore.NTS.MastercardMdesClient}

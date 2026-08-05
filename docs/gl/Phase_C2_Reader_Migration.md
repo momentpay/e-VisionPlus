@@ -210,6 +210,35 @@ in the same change. Omitting them would have silently demoted those accounts
 from authoritative back to fail-safe shadow — engine failures would stop
 aborting the legacy posting and start being swallowed.
 
+### History relabelled, not left split (2026-08-06)
+
+The 135 existing HCS postings were relabelled onto the new products by
+`priv/repo/relabel_hcs_history.exs`, rather than leaving a cutover date with the
+same company's history split across two sets of accounts.
+
+| | |
+|---|---|
+| Posting sets relabelled | **135** (all resolvable, 0 without a rule) |
+| Accounts actually moved | **36** — purchases, payments, dispute credits |
+| Label-only | 99 — fee and interest post to the same accounts under both products by design |
+| `1001` reduced by | 78,500.00 dr / 44,439.99 cr |
+| `1006`/`1009`/`2002` gained | exactly those amounts |
+| Journal total | **unchanged**, 1,757,635.51 over 2,301 rows |
+
+New accounts are derived **from `posting_rules`**, not from a hardcoded mapping,
+so relabelled history is by construction identical to what a fresh posting would
+produce today. `gl_ledger_entries` is a pure aggregate and was rebuilt afterwards
+by `repair_gl_consolidation.exs`.
+
+**This was only safe because the data is seed data.** These postings fall in
+CLOSED periods, and restating a closed period in place is not something a
+production system may do — the correct treatment there is a dated
+reclassification entry in the current open period, leaving history intact so the
+prior period's reported figures stay reproducible. The script says so, and
+refuses outright to touch any GL entry carrying an `extracted_at` timestamp: at
+that point the old value has already been handed to an external consumer that
+has acted on it.
+
 ### The resolver is an overlay, not a new source
 
 HCS card tables carry no `sys_id`/`bank_id`; they hold the id of a

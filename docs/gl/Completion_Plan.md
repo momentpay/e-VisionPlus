@@ -50,6 +50,11 @@ HCS now carries the same six concerns every other product does: chart accounts
 `HCS_CORPORATE`, a resolver overlay, a `Cutover` entry, seed data, and tests.
 **That set is the template for adding the next product.**
 
+Its 135 historical postings were relabelled onto the new accounts rather than
+left split across a cutover date — see `Phase_C2_Reader_Migration.md`. That was
+only safe because the periods involved hold seed data; in production the same
+correction is a dated reclassification entry, not a restatement.
+
 ---
 
 ## 2. What the GL programme actually closed

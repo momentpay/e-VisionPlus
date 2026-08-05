@@ -13,7 +13,7 @@ defmodule VmuCore.HCS.FleetReport do
   """
 
   alias VmuCore.HCS.{FleetCard, Vehicle, DriverAssignmentCommand}
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.Repo
   import Ecto.Query
   alias Decimal, as: D
@@ -66,25 +66,22 @@ defmodule VmuCore.HCS.FleetReport do
     start_dt = DateTime.new!(period_from, ~T[00:00:00], "Etc/UTC")
     end_dt   = DateTime.new!(period_to,   ~T[23:59:59], "Etc/UTC")
 
-    # NOT migrated to GL.LedgerQuery in Phase C2 — see below.
+    # GL Phase C2 — see `GL.LedgerQuery`.
     #
-    # HCS accounts are invisible to the new posting engine.
-    # `GL.InstitutionResolver` resolves an account against four product tables
-    # (cms_accounts, cms_debit_accounts, cms_prepaid_accounts,
-    # cms_wallet_accounts). HCS employee and fleet cards are in
-    # `hcs_employee_cards` / `hcs_fleet_cards`, so `Posting.Shadow` cannot
-    # resolve them, never mirrors their postings, and `journal_entries`
-    # contains no HCS rows at all (verified 2026-08-05: 0 of 2,271).
+    # `inserted_from`/`inserted_to` and not `from`/`to`: this window has always
+    # been over **row-write time**, not posting date, and the two differ for
+    # any backdated posting. Migrating it onto `posting_date` would silently
+    # change which activity a fleet report covers.
     #
-    # Migrating this reader would therefore return zero for every fleet card.
-    # HCS must be added to the resolver and given posting rules first — see
-    # docs/gl/Phase_C2_Reader_Migration.md §7.
-    from(l in LedgerEntry,
-      where: l.account_id == ^account_id
-        and l.inserted_at >= ^start_dt
-        and l.inserted_at <= ^end_dt,
-      select: coalesce(sum(l.dr_amount), 0))
-    |> Repo.one()
-    |> Kernel.||(D.new(0))
+    # HCS rides on `cms_accounts` — `HCS.FleetOnboarding` provisions a real
+    # `CMS.Account` per vehicle and stores its id here — so these accounts
+    # resolve as product `CREDIT` and their postings were mirrored like any
+    # other. Verified against live data 2026-08-05: 135 legacy rows, 135
+    # journal entries, totals equal per account.
+    LedgerQuery.sum_amount(
+      account_ref: account_id,
+      inserted_from: start_dt,
+      inserted_to: end_dt
+    )
   end
 end

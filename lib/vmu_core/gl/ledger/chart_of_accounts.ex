@@ -145,7 +145,13 @@ defmodule VmuCore.GL.ChartOfAccounts do
       %{code: "1007", name: "ITS Interchange Receivable", account_class: "asset", owner_module: "vmu_its",
         description: "Interchange owed to the issuer by the scheme network, pending clearing."},
       %{code: "1008", name: "ITS FAR Receivable", account_class: "asset", owner_module: "vmu_its",
-        description: "Financial Adjustment Request amount owed to the issuer (positive FAR)."}
+        description: "Financial Adjustment Request amount owed to the issuer (positive FAR)."},
+      %{code: "1009", name: "HCS Fleet Receivable", account_class: "asset", owner_module: "vmu_hcs",
+        description: "Fuel and fleet card spend receivable from the operating company. " <>
+                     "Separate from 1001 Card Receivables so corporate fleet exposure is " <>
+                     "reportable apart from consumer card exposure — they are different " <>
+                     "credit risks and finance bucket them separately. Added 2026-08-05 " <>
+                     "when HCS gained its own product labels."}
     ]
   end
 

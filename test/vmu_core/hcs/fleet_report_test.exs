@@ -10,7 +10,9 @@ defmodule VmuCore.HCS.FleetReportTest do
   import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.GLFixtures
+  alias VmuCore.GL.InstitutionResolver
+  alias VmuCore.Posting.{JournalEntry, RuleEngine}
   alias VmuCore.HCS.{CompanyOnboarding, DriverAssignmentCommand, FleetOnboarding, FleetReport}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
   alias Decimal, as: D
@@ -18,6 +20,17 @@ defmodule VmuCore.HCS.FleetReportTest do
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
     Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+
+    # GL Phase C2: `FleetReport` reads the posting tables, so the chart and
+    # rules have to exist — they are reference data the sandbox does not carry.
+    # See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+
+    # The resolver caches product per account across tests, and these fixtures
+    # create fresh accounts each run.
+    InstitutionResolver.reset()
+    on_exit(&InstitutionResolver.reset/0)
+
     :ok
   end
 
@@ -57,28 +70,50 @@ defmodule VmuCore.HCS.FleetReportTest do
     company
   end
 
+  # Posts through `Posting.RuleEngine`, the same path production uses, rather
+  # than inserting a `cms_ledger_entries` row directly.
+  #
+  # The old version hand-built a ledger row with GL accounts "1000"/"4000",
+  # neither of which is in the chart of accounts at all. That was invisible
+  # while `FleetReport` read the legacy table — which has no foreign key to the
+  # chart — and became a real signal the moment it did not.
   defp post_purchase(account_id, amount, posting_date) do
-    entry =
-      %LedgerEntry{}
-      |> LedgerEntry.changeset(%{
-        account_id: account_id, idempotency_key: "fleet-rpt-#{System.unique_integer([:positive])}",
-        transaction_code: "PURCHASE", dr_amount: amount, cr_amount: amount,
-        gl_account_dr: "1000", gl_account_cr: "4000",
-        posting_date: posting_date, value_date: posting_date
-      })
-      |> Repo.insert!()
+    # The institution comes from the account, exactly as `Posting.Shadow` gets
+    # it in production — which also means this exercises the HCS overlay:
+    # `resolve_product/1` must return HCS_FLEET for a fleet card's account.
+    {:ok, {sys_id, bank_id}} = InstitutionResolver.resolve(account_id, "HCS_FLEET")
+    assert {:ok, "HCS_FLEET"} = InstitutionResolver.resolve_product(account_id)
 
-    # inserted_at is set to real "now" by timestamps() regardless of
-    # posting_date — backdate it directly so period-range filtering
-    # (which reads inserted_at, matching ConsolidatedStatementGenerator's
-    # own convention) can be exercised with an out-of-window entry.
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
+
+    {:ok, set} =
+      RuleEngine.execute(%{
+        event_type: "PURCHASE",
+        product: "HCS_FLEET",
+        account_ref: account_id,
+        amount: amount,
+        idempotency_key: "fleet-rpt-#{System.unique_integer([:positive])}",
+        sys_id: sys_id,
+        bank_id: bank_id,
+        posting_date: posting_date,
+        gl_date: posting_date,
+        transaction_date: posting_date,
+        source_module: "FleetReportTest"
+      })
+
+    # `inserted_at` is real "now" regardless of posting_date, and `FleetReport`
+    # windows on row-write time — so backdate it to exercise the out-of-window
+    # case. Same reasoning as before; the table it applies to has moved.
     if Date.diff(Date.utc_today(), posting_date) > 0 do
       backdated = NaiveDateTime.new!(posting_date, ~T[12:00:00])
-      Repo.update_all(from(l in LedgerEntry, where: l.entry_id == ^entry.entry_id),
-        set: [inserted_at: backdated])
+
+      Repo.update_all(
+        from(j in JournalEntry, where: j.posting_set_id == ^set.id),
+        set: [inserted_at: backdated]
+      )
     end
 
-    entry
+    set
   end
 
   test "spend_by_vehicle/3 sums ledger purchases within the period per vehicle" do

@@ -144,4 +144,54 @@ defmodule VmuCore.GL.ChartOfAccountsIntegrityTest do
              "retired codes still posted to: #{inspect(offenders)}"
     end
   end
+  describe "HCS product labels (added 2026-08-05)" do
+    # HCS cards hang off `cms_accounts`, so they resolved as CREDIT and posted
+    # to the consumer accounts 1001/2001 until they were given their own
+    # labels. These guard the two things that make that relabel safe.
+
+    test "HCS covers every event CREDIT covers" do
+      # This is the safety property, not a nice-to-have. `Posting.Cutover` makes
+      # the engine authoritative for these products, so a missing rule returns
+      # {:error, :no_rule} and **aborts the real posting**. Relabelling an
+      # account onto a product with a narrower event set would turn working
+      # posting paths into failing ones.
+      credit_events =
+        Rules.all(product: "CREDIT") |> Enum.map(& &1.event_type) |> MapSet.new()
+
+      for product <- ["HCS_FLEET", "HCS_CORPORATE"] do
+        hcs_events = Rules.all(product: product) |> Enum.map(& &1.event_type) |> MapSet.new()
+
+        missing = MapSet.difference(credit_events, hcs_events)
+
+        assert MapSet.size(missing) == 0,
+               "#{product} is missing #{inspect(MapSet.to_list(missing))}, which CREDIT handles — " <>
+                 "any account relabelled onto it would start failing those postings"
+      end
+    end
+
+    test "HCS receivables are distinct from consumer card receivables" do
+      # The entire point of the split: corporate fleet exposure must be
+      # separable from consumer card exposure on the balance sheet.
+      for {product, receivable} <- [{"HCS_FLEET", "1009"}, {"HCS_CORPORATE", "1006"}] do
+        purchase = Enum.find(Rules.all(product: product), &(&1.event_type == "PURCHASE"))
+
+        assert purchase.dr_account == receivable
+        refute purchase.dr_account == "1001", "#{product} must not use the consumer receivable"
+
+        account = ChartOfAccounts.get(receivable)
+        assert account.owner_module == "vmu_hcs"
+        assert account.account_class == "asset"
+      end
+    end
+
+    test "every HCS rule references accounts that exist in the chart" do
+      for product <- ["HCS_FLEET", "HCS_CORPORATE"],
+          rule <- Rules.all(product: product),
+          code <- [rule.dr_account, rule.cr_account] do
+        assert ChartOfAccounts.valid?(code),
+               "#{product}/#{rule.event_type} references #{code}, which is not in the chart"
+      end
+    end
+  end
+
 end

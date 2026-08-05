@@ -23,7 +23,15 @@ defmodule VmuCore.Posting.Rule do
     ADJUSTMENT_CREDIT ADJUSTMENT_DEBIT DISPUTE_CREDIT
   ]
 
-  @products ~w[CREDIT CREDIT_CARD DEBIT PREPAID WALLET]
+  # `PostingSet` and `JournalEntry` both validate against `products/0`, so this
+  # list is the one place a product becomes legal across the whole engine.
+  #
+  # HCS_FLEET and HCS_CORPORATE are overlays on `cms_accounts` rather than
+  # separate account tables — see `GL.InstitutionResolver` — but they are real
+  # products here, with their own receivables, because corporate fleet exposure
+  # and consumer card exposure are different credit risks and finance reports
+  # them separately.
+  @products ~w[CREDIT CREDIT_CARD HCS_FLEET HCS_CORPORATE DEBIT PREPAID WALLET]
 
   schema "posting_rules" do
     field :event_type,             :string

@@ -47,13 +47,28 @@ defmodule VmuCore.GL.InstitutionResolver do
   @table :vmu_gl_institution_cache
 
   # product => {table, primary key column}
+  #
+  # HCS_FLEET and HCS_CORPORATE point at `cms_accounts` deliberately. HCS cards
+  # are an **overlay**, not a separate account table: `hcs_fleet_cards` and
+  # `hcs_employee_cards` carry no `sys_id`/`bank_id` of their own, they hold the
+  # id of a real `CMS.Account` that does. So the institution comes from
+  # `cms_accounts` exactly as it does for CREDIT — only the *product label*
+  # differs, and that is decided by `hcs_overlay/1` below.
   @sources %{
     "CREDIT" => {"cms_accounts", :account_id},
     "CREDIT_CARD" => {"cms_accounts", :account_id},
+    "HCS_FLEET" => {"cms_accounts", :account_id},
+    "HCS_CORPORATE" => {"cms_accounts", :account_id},
     "DEBIT" => {"cms_debit_accounts", :debit_account_id},
     "PREPAID" => {"cms_prepaid_accounts", :prepaid_account_id},
     "WALLET" => {"cms_wallet_accounts", :wallet_account_id}
   }
+
+  # account_ref => product, for accounts an HCS card table claims.
+  @overlay_sources [
+    {"hcs_fleet_cards", :account_id, "HCS_FLEET"},
+    {"hcs_employee_cards", :employee_account_id, "HCS_CORPORATE"}
+  ]
 
   # ---------------------------------------------------------------------------
   # API
@@ -92,19 +107,37 @@ defmodule VmuCore.GL.InstitutionResolver do
   def resolve_product(account_ref) when is_binary(account_ref) do
     case cached(account_ref) do
       {:ok, table, _institution} ->
-        {:ok, product_for_table(table)}
+        {:ok, refine(table, account_ref)}
 
       :miss ->
         case resolve(account_ref) do
           {:ok, _} ->
             case cached(account_ref) do
-              {:ok, table, _} -> {:ok, product_for_table(table)}
+              {:ok, table, _} -> {:ok, refine(table, account_ref)}
               :miss -> {:error, :not_found}
             end
 
           error ->
             error
         end
+    end
+  end
+
+  @doc """
+  Which HCS card table, if any, claims this account.
+
+  Exposed so callers can ask the question directly rather than inferring it
+  from a product string.
+  """
+  @spec hcs_overlay(String.t()) :: {:ok, String.t()} | :none
+  def hcs_overlay(account_ref) when is_binary(account_ref) do
+    case cached_overlay(account_ref) do
+      # The cached-negative clause must come first: a cached "not HCS" is
+      # stored as `{:ok, nil}`, which would otherwise match `{:ok, product}`
+      # and hand back `{:ok, nil}` as though nil were a product.
+      {:ok, nil} -> :none
+      {:ok, product} -> {:ok, product}
+      :miss -> lookup_overlay(account_ref)
     end
   end
 
@@ -193,6 +226,63 @@ defmodule VmuCore.GL.InstitutionResolver do
     end
 
     {:ok, institution}
+  end
+
+  # `cms_accounts` backs four product labels. CREDIT and CREDIT_CARD are the
+  # consumer pair; HCS_FLEET and HCS_CORPORATE are decided by whether an HCS
+  # card table claims the account. Only `cms_accounts` needs refining — the
+  # stored-value tables map one-to-one.
+  defp refine("cms_accounts", account_ref) do
+    case hcs_overlay(account_ref) do
+      {:ok, product} -> product
+      :none -> "CREDIT"
+    end
+  end
+
+  defp refine(table, _account_ref), do: product_for_table(table)
+
+  # Cached separately from the institution, and cached on the negative result
+  # too: the overwhelming majority of accounts are not HCS, and without a
+  # negative cache every one of them would pay two extra queries on the posting
+  # path to learn that again.
+  defp lookup_overlay(account_ref) do
+    product =
+      Enum.find_value(@overlay_sources, fn {table, key_column, product} ->
+        if overlay_claims?(account_ref, table, key_column), do: product
+      end)
+
+    if :ets.whereis(@table) != :undefined do
+      :ets.insert(@table, {{:overlay, account_ref}, product})
+    end
+
+    if product, do: {:ok, product}, else: :none
+  end
+
+  defp cached_overlay(account_ref) do
+    if :ets.whereis(@table) == :undefined do
+      :miss
+    else
+      case :ets.lookup(@table, {:overlay, account_ref}) do
+        [{_key, product}] -> {:ok, product}
+        [] -> :miss
+      end
+    end
+  end
+
+  defp overlay_claims?(account_ref, table, key_column) do
+    case Ecto.UUID.cast(account_ref) do
+      {:ok, uuid} ->
+        Repo.exists?(
+          from(c in table, where: field(c, ^key_column) == type(^uuid, Ecto.UUID))
+        )
+
+      :error ->
+        false
+    end
+  rescue
+    e in Postgrex.Error ->
+      Logger.debug("[GL] InstitutionResolver skipped overlay #{table}: #{Exception.message(e)}")
+      false
   end
 
   # cms_accounts backs both CREDIT and CREDIT_CARD; CREDIT is the product the

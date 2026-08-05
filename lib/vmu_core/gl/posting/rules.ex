@@ -84,7 +84,10 @@ defmodule VmuCore.Posting.Rules do
 
   @doc "Every rule transcribed from live code. See moduledoc for coverage limits."
   @spec default_rules() :: [map()]
-  def default_rules, do: credit_rules() ++ card_rules() ++ debit_rules() ++ prepaid_rules() ++ wallet_rules()
+  def default_rules,
+    do:
+      credit_rules() ++ card_rules() ++ debit_rules() ++ prepaid_rules() ++ wallet_rules() ++
+        hcs_rules()
 
   # --- CMS credit ledger (InternalGlPoster) ----------------------------------
   defp credit_rules do
@@ -213,6 +216,96 @@ defmodule VmuCore.Posting.Rules do
       deposit:    {"DEPOSIT",    "Wallet account load: {channel}"},
       spend:      {"WITHDRAWAL", "{narrative}"},
       adjustments: false)
+  end
+
+  # --- HCS corporate and fleet cards -----------------------------------------
+  #
+  # HCS cards hang off real `cms_accounts` rows — `HCS.CompanyOnboarding` and
+  # `HCS.FleetOnboarding` each provision one — so before 2026-08-05 they
+  # resolved as product `CREDIT` and posted to the consumer card accounts,
+  # `1001` / `2001`. That worked, but it meant corporate fleet exposure was
+  # indistinguishable from a consumer credit card on the balance sheet, and the
+  # two HCS accounts already registered in the chart (`1006`, `2002`) had never
+  # received a single posting.
+  #
+  # `InstitutionResolver` now labels these accounts `HCS_FLEET` and
+  # `HCS_CORPORATE`, and these are their rules.
+  #
+  # ## Why this mirrors the CREDIT event set exactly
+  #
+  # All eight CREDIT events are covered, not just the six the live data happens
+  # to show. `Posting.Cutover` makes the engine authoritative for these
+  # products, so a `{:error, :no_rule}` **aborts the real posting** — a partial
+  # event set would turn a working posting path into a failing one the moment
+  # an account was relabelled. The rule set has to be a superset of what the
+  # old label could handle before the relabel is safe.
+  #
+  # ## What changes per event
+  #
+  # The receivable moves from `1001` to the product's own account, and the
+  # liability from `2001` (owed by a consumer cardholder) to `2002` (owed by
+  # the operating company — which is what central-liability HCS billing means).
+  # Fee and interest are untouched: fee revenue is fee revenue regardless of who
+  # holds the card.
+  defp hcs_rules do
+    hcs_product("HCS_FLEET", "1009", "fleet") ++
+      hcs_product("HCS_CORPORATE", "1006", "corporate")
+  end
+
+  defp hcs_product(product, receivable, label) do
+    payable = "2002"
+
+    [
+      %{event_type: "PURCHASE", product: product,
+        dr_account: receivable, cr_account: payable,
+        legacy_transaction_code: "PURCHASE",
+        narrative_template: "HCS #{label} card purchase", source_module: @igp,
+        notes: "Mirrors CREDIT PURCHASE (1001/2001) with the HCS receivable and the " <>
+               "parent company payable."},
+
+      %{event_type: "CASH_ADV", product: product,
+        dr_account: "1002", cr_account: payable,
+        legacy_transaction_code: "CASH_ADV",
+        narrative_template: "HCS #{label} cash advance", source_module: @igp,
+        notes: "Cash advance receivable 1002 is shared across products; only the " <>
+               "liability side is HCS-specific."},
+
+      %{event_type: "PAYMENT", product: product,
+        dr_account: "3001", cr_account: receivable,
+        legacy_transaction_code: "PAYMENT",
+        narrative_template: "HCS #{label} settlement", source_module: @igp,
+        notes: "Company settles the receivable through payment clearing."},
+
+      %{event_type: "FEE", product: product,
+        dr_account: "1004", cr_account: "4001",
+        legacy_transaction_code: "FEE",
+        narrative_template: "HCS #{label} fee: {fee_type}", source_module: @igp,
+        notes: "Identical to CREDIT — fee revenue does not depend on who holds the card."},
+
+      %{event_type: "INTEREST", product: product,
+        dr_account: "1003", cr_account: "4002",
+        legacy_transaction_code: "INTEREST",
+        narrative_template: "HCS #{label} interest accrual", source_module: @igp,
+        notes: "Identical to CREDIT — interest income does not depend on who holds the card."},
+
+      %{event_type: "DISPUTE_CREDIT", product: product,
+        dr_account: "3003", cr_account: receivable,
+        legacy_transaction_code: "DISPUTE_CREDIT",
+        narrative_template: "HCS #{label} dispute credit", source_module: @igp,
+        notes: "Mirrors CREDIT DISPUTE_CREDIT against the HCS receivable."},
+
+      %{event_type: "ADJUSTMENT_CREDIT", product: product,
+        dr_account: "9001", cr_account: receivable,
+        legacy_transaction_code: "ADJUSTMENT",
+        narrative_template: "HCS #{label} adjustment (credit)", source_module: @igp,
+        notes: "Mirrors CREDIT ADJUSTMENT_CREDIT against the HCS receivable."},
+
+      %{event_type: "ADJUSTMENT_DEBIT", product: product,
+        dr_account: receivable, cr_account: "9001",
+        legacy_transaction_code: "ADJUSTMENT",
+        narrative_template: "HCS #{label} adjustment (debit)", source_module: @igp,
+        notes: "Mirrors CREDIT ADJUSTMENT_DEBIT against the HCS receivable."}
+    ]
   end
 
   # The stored-value products share one posting shape: cash clearing on one

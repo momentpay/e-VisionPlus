@@ -63,8 +63,22 @@ config :vmu_core, VmuCore.Posting.Shadow,
 # carry interest, fees and statements, all of which post from EOD. Gate was a
 # full EOD cycle running clean under shadow — AccrueInterest 10/10,
 # AgeBuckets 10/10, GenerateStatement 10/10, 6/6 postings matched.
+# HCS_FLEET / HCS_CORPORATE must be listed here alongside CREDIT. HCS cards
+# hang off `cms_accounts`, so before they had their own labels they were
+# cut over *as* CREDIT. Relabelling them without adding them here would
+# silently demote those accounts from authoritative back to fail-safe shadow —
+# engine failures would stop aborting the legacy posting and start being
+# swallowed, which is the one regression this list exists to prevent.
 config :vmu_core, VmuCore.Posting.Cutover,
-  products: ["WALLET", "PREPAID", "DEBIT", "CREDIT", "CREDIT_CARD"]
+  products: [
+    "WALLET",
+    "PREPAID",
+    "DEBIT",
+    "CREDIT",
+    "CREDIT_CARD",
+    "HCS_FLEET",
+    "HCS_CORPORATE"
+  ]
 
 # Closed-period policy (Phase C0).
 #

@@ -13,16 +13,17 @@
 | | Status |
 |---|---|
 | **C1** — engine authoritative for writes | done, all 5 products |
-| **C2** — migrate readers off `cms_ledger_entries` | **done 2026-08-05** — 16 call sites across 14 modules; 3 readers deliberately not migrated |
-| **C3** — stop writing the legacy table, delete `InternalGlPoster` | **blocked on those 3** |
+| **C2** — migrate readers off `cms_ledger_entries` | **done 2026-08-05** — 18 call sites across 16 modules; 2 readers deliberately not migrated |
+| **C3** — stop writing the legacy table, delete `InternalGlPoster` | **blocked on those 2** |
 
-C2 is complete for every reader that *can* migrate. Three remain, each blocked on something real rather than on effort — see `Phase_C2_Reader_Migration.md` §6:
+C2 is complete for every reader that *can* migrate. Two remain, each blocked on something real rather than on effort — see `Phase_C2_Reader_Migration.md` §6:
 
 | Reader | Blocked on |
 |---|---|
 | `CMS.CoreBankingAdapter` | needs a per-posting-set extraction-state table; `gl_ledger_entries.extracted_at` is the wrong grain |
-| `HCS.FleetReport`, `HCS.ConsolidatedStatementGenerator` | **HCS is invisible to the posting engine** — 0 HCS rows in `journal_entries`. Needs posting rules and an `InstitutionResolver` entry first |
 | `CMS.AccountStateCoordinator.query_today_velocity/2` | the query is **dead** and fixing it changes authorization outcomes — a business decision |
+
+**HCS was on this list and should not have been.** The claim that it was invisible to the posting engine rested on a query that counted `product = "HCS"` — a product that does not exist. HCS cards hang off real `cms_accounts` rows and had 135 journal entries all along, matching their 135 legacy rows exactly. Both readers migrated 2026-08-05. See `Phase_C2_Reader_Migration.md` §6a.
 
 ### C2 found a real accounting defect
 
@@ -33,9 +34,21 @@ C2 is complete for every reader that *can* migrate. Three remain, each blocked o
 ### What C3 needs
 
 1. Build the `CoreBankingAdapter` extraction-state table (small, self-contained).
-2. Register HCS in `InstitutionResolver` and add its posting rules — then migrate its two readers.
-3. Get a decision on the velocity defect.
-4. Then stop writing `cms_ledger_entries` and delete `InternalGlPoster`.
+2. Get a decision on the velocity defect.
+3. Then stop writing `cms_ledger_entries` and delete `InternalGlPoster`.
+
+### HCS is now a first-class product (2026-08-05)
+
+Migrating the HCS readers exposed a modelling gap rather than a blocker: HCS
+posted to the **consumer** card accounts `1001`/`2001`, so corporate fleet
+exposure was indistinguishable from a consumer credit card on the balance
+sheet — while the two HCS accounts already in the chart had never received a
+posting.
+
+HCS now carries the same six concerns every other product does: chart accounts
+(`1006`, new `1009`, `2002`), 16 posting rules across `HCS_FLEET` and
+`HCS_CORPORATE`, a resolver overlay, a `Cutover` entry, seed data, and tests.
+**That set is the template for adding the next product.**
 
 ---
 

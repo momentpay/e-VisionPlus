@@ -86,7 +86,26 @@ case institution do
       {"PURCHASE", "CREDIT_CARD", "credit-0001", "2750.00", %{}, 0},
       {"CASH_ADV", "CREDIT_CARD", "credit-0002", "500.00", %{}, 1},
       {"INTEREST", "CREDIT_CARD", "credit-0002", "31.25", %{}, 1},
-      {"DISPUTE_CREDIT", "CREDIT_CARD", "credit-0001", "220.00", %{}, 0}
+      {"DISPUTE_CREDIT", "CREDIT_CARD", "credit-0001", "220.00", %{}, 0},
+
+      # HCS corporate and fleet. Added 2026-08-05 when HCS gained its own
+      # product labels — the point is that the trial balance can now separate
+      # corporate fleet exposure (1009) and employee-pool exposure (1006) from
+      # consumer card receivables (1001), and that the company payable (2002)
+      # finally carries something. Both accounts had been in the chart with
+      # zero postings since it was written.
+      {"PURCHASE", "HCS_FLEET", "hcs-fleet-0001", "410.60", %{}, 0},
+      {"PURCHASE", "HCS_FLEET", "hcs-fleet-0001", "288.15", %{}, 1},
+      {"CASH_ADV", "HCS_FLEET", "hcs-fleet-0001", "200.00", %{}, 1},
+      {"PAYMENT", "HCS_FLEET", "hcs-fleet-0001", "700.00", %{}, 0},
+      {"FEE", "HCS_FLEET", "hcs-fleet-0001", "45.00", %{"fee_type" => "FLEET_CARD_FEE"}, 1},
+
+      {"PURCHASE", "HCS_CORPORATE", "hcs-corp-0001", "1250.00", %{}, 0},
+      {"PURCHASE", "HCS_CORPORATE", "hcs-corp-0002", "640.25", %{}, 1},
+      {"PAYMENT", "HCS_CORPORATE", "hcs-corp-0001", "1000.00", %{}, 0},
+      {"INTEREST", "HCS_CORPORATE", "hcs-corp-0001", "18.90", %{}, 1},
+      {"FEE", "HCS_CORPORATE", "hcs-corp-0002", "60.00", %{"fee_type" => "CORPORATE_ANNUAL"}, 1},
+      {"DISPUTE_CREDIT", "HCS_CORPORATE", "hcs-corp-0001", "75.00", %{}, 0}
     ]
 
     results =

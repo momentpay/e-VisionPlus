@@ -28,7 +28,7 @@ defmodule VmuCore.TRAMS.Reconciliation do
   alias VmuCore.Repo
   alias VmuCore.TRAMS.{Transaction, ClearingRecord}
   alias VmuCore.FAS.AuthorizationRecord
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.GL.LedgerQuery
 
   @break_list_limit 100
   @posted_states ~w[POSTED STATEMENTED PAID DISPUTED CHARGEBACKED RESOLVED CLOSED ARCHIVED]
@@ -69,14 +69,11 @@ defmodule VmuCore.TRAMS.Reconciliation do
           select: count(c.clearing_id)
       )
 
-    {ledger_count, ledger_amount} =
-      Repo.one(
-        from e in LedgerEntry,
-          where: like(e.idempotency_key, "settlement:%")
-             and e.posting_date >= ^from_date
-             and e.posting_date <= ^to_date,
-          select: {count(e.entry_id), coalesce(sum(e.dr_amount), 0)}
-      )
+    # GL Phase C2 — see `GL.LedgerQuery`. Settlement postings are identified by
+    # key prefix, as they were before: TRAMS writes "settlement:<approval>:<rrn>".
+    ledger_filters = [idempotency_key_prefix: "settlement:", from: from_date, to: to_date]
+    ledger_count = LedgerQuery.count(ledger_filters)
+    ledger_amount = LedgerQuery.sum_amount(ledger_filters)
 
     posted_no_ledger = posted_without_ledger(window_from, window_to)
     matched_stale    = matched_not_posted(from_date, to_date)
@@ -106,22 +103,33 @@ defmodule VmuCore.TRAMS.Reconciliation do
   # ---------------------------------------------------------------------------
 
   # TRAM POSTED in window, but the settlement ledger key does not exist
+  # GL Phase C2. The settlement key was previously rebuilt inside the query, as
+  # a `left_join ... on e.idempotency_key = 'settlement:' || approval || ':' ||
+  # rrn` with an `is_nil` anti-join. The key now lives on `posting_sets`, one
+  # join further out, and reconstructing it in SQL across that join buys
+  # nothing: the candidate set is bounded by the settlement window, so it is
+  # cheaper and far clearer to build the expected keys in Elixir — the same
+  # shape `FAS.GL.GlReconciliation` uses — and take the set difference.
   defp posted_without_ledger(window_from, window_to) do
-    Repo.all(
-      from t in Transaction,
-        join: a in AuthorizationRecord, on: a.id == t.fas_authorization_id,
-        where: t.state in ^@posted_states
-           and t.posted_at >= ^window_from
-           and t.posted_at <= ^window_to
-           and not is_nil(a.approval_code)
-           and not is_nil(a.rrn),
-        left_join: e in LedgerEntry,
-          on: e.idempotency_key ==
-              fragment("'settlement:' || ? || ':' || ?", a.approval_code, a.rrn),
-        where: is_nil(e.entry_id),
-        select: %{transaction_id: t.transaction_id, account_id: t.account_id,
-                  amount: coalesce(t.settled_amount, t.amount), posted_at: t.posted_at}
-    )
+    candidates =
+      Repo.all(
+        from t in Transaction,
+          join: a in AuthorizationRecord, on: a.id == t.fas_authorization_id,
+          where: t.state in ^@posted_states
+             and t.posted_at >= ^window_from
+             and t.posted_at <= ^window_to
+             and not is_nil(a.approval_code)
+             and not is_nil(a.rrn),
+          select: %{transaction_id: t.transaction_id, account_id: t.account_id,
+                    amount: coalesce(t.settled_amount, t.amount), posted_at: t.posted_at,
+                    settlement_key: fragment("'settlement:' || ? || ':' || ?", a.approval_code, a.rrn)}
+      )
+
+    posted = LedgerQuery.posted_keys(Enum.map(candidates, & &1.settlement_key))
+
+    candidates
+    |> Enum.reject(&MapSet.member?(posted, &1.settlement_key))
+    |> Enum.map(&Map.delete(&1, :settlement_key))
   end
 
   # Clearing matched to a TRAM transaction that never reached POSTED

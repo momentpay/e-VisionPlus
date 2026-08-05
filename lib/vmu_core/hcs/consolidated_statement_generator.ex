@@ -86,6 +86,10 @@ defmodule VmuCore.HCS.ConsolidatedStatementGenerator do
     start_dt = DateTime.new!(period_from, ~T[00:00:00], "UTC")
     end_dt   = DateTime.new!(period_to,   ~T[23:59:59], "UTC")
 
+    # NOT migrated to GL.LedgerQuery in Phase C2 — HCS accounts are invisible
+    # to the new posting engine (no HCS rows exist in journal_entries; see
+    # FleetReport for the full explanation and
+    # docs/gl/Phase_C2_Reader_Migration.md §7).
     entries =
       from(l in LedgerEntry,
         where: l.account_id in ^account_ids

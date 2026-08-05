@@ -462,6 +462,32 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
     Process.send_after(self(), :midnight_reset, ms_until_midnight)
   end
 
+  # ⚠️ DEFECT, found 2026-08-05 during the GL Phase C2 reader migration.
+  # NOT migrated to `GL.LedgerQuery` deliberately — migrating a query that can
+  # never match would only entrench the bug.
+  #
+  # This looks for `cms_ledger_entries` rows with `transaction_code`
+  # "AUTH_ECOM" / "AUTH_POS" / etc. Two reasons it always returns {0, 0}:
+  #
+  #   1. `LedgerEntry`'s changeset validates `transaction_code` against a fixed
+  #      list of 11 codes. None begins with "AUTH_", so such a row cannot be
+  #      inserted. `SELECT count(*) ... WHERE transaction_code LIKE 'AUTH_%'`
+  #      returns 0 and always will.
+  #
+  #   2. More fundamentally, **authorizations never post to the GL** — by
+  #      design. An auth is a reservation, not a financial event; only
+  #      settlement posts. So the ledger is the wrong source for velocity.
+  #
+  # Consequence: `enforce_velocity/3` reads today_count = 0 and
+  # today_amount = 0 on every call, so the daily COUNT limit never triggers,
+  # and the daily AMOUNT check degrades to "is this single transaction over
+  # the limit" — cumulative daily spend is not tracked at all.
+  #
+  # Correct source is `fas_authorizations` (account_id, channel, amount,
+  # inserted_at), which is where authorizations actually land. Not changed here
+  # because it alters authorization outcomes on the hot path: transactions that
+  # pass today would begin to decline. That is a business decision, not a
+  # refactor. See docs/gl/Phase_C2_Reader_Migration.md §6.
   defp query_today_velocity(account_id, channel_str) do
     today = Date.utc_today()
 

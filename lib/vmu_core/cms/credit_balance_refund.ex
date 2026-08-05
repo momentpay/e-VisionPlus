@@ -32,6 +32,7 @@ defmodule VmuCore.CMS.CreditBalanceRefund do
 
   alias VmuCore.{Repo, CMS.Account, CMS.Payment, CMS.LedgerEntry, CMS.InternalGlPoster}
   alias Decimal, as: D
+  alias VmuCore.GL.LedgerQuery
 
   @doc "Current refundable credit balance for the account."
   @spec credit_balance(Ecto.UUID.t()) :: Decimal.t()
@@ -49,12 +50,12 @@ defmodule VmuCore.CMS.CreditBalanceRefund do
   @doc "Sum of refunds already paid out (from the ledger's refund keys)."
   @spec total_refunded(Ecto.UUID.t()) :: Decimal.t()
   def total_refunded(account_id) do
-    Repo.one(
-      from e in LedgerEntry,
-        where: e.account_id == ^account_id
-           and like(e.idempotency_key, ^"refund:#{account_id}:%"),
-        select: coalesce(sum(e.dr_amount), 0)
-    ) || D.new(0)
+    # GL Phase C2 — see `GL.LedgerQuery`. Refunds are identified by key prefix
+    # rather than by event type: `refund/3` writes "refund:<account>:<ref>".
+    LedgerQuery.sum_amount(
+      account_ref: account_id,
+      idempotency_key_prefix: "refund:#{account_id}:"
+    )
   end
 
   @doc """

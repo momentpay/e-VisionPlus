@@ -276,7 +276,7 @@ defmodule VmuCore.DPS.Dispute do
         transaction_code: "DISPUTE_CREDIT",
         dr_amount:        d.dispute_amount,
         cr_amount:        d.dispute_amount,
-        gl_account_dr:    "3001",
+        gl_account_dr:    "3003",
         gl_account_cr:    "1001",
         posting_date:     Date.utc_today(),
         value_date:       Date.utc_today(),
@@ -320,7 +320,7 @@ defmodule VmuCore.DPS.Dispute do
         dr_amount:        d.dispute_amount,
         cr_amount:        d.dispute_amount,
         gl_account_dr:    "1001",
-        gl_account_cr:    "3001",
+        gl_account_cr:    "3003",
         posting_date:     Date.utc_today(),
         value_date:       Date.utc_today(),
         narrative:        "Dispute #{String.downcase(status_label(status))} — provisional credit reversed, dispute #{d.dispute_id}"
@@ -339,7 +339,7 @@ defmodule VmuCore.DPS.Dispute do
   end
 
   # CLOSED_WIN — the scheme reimburses the issuer: clear the Disputed
-  # Receivable (3001) against a new scheme-recovery clearing account (3002).
+  # Receivable (3003) against the scheme-recovery clearing account (3004).
   # No customer-balance impact — the cardholder keeps the provisional credit
   # permanently, which is the correct outcome of winning a dispute.
   defp post_resolution_gl(%__MODULE__{status: "CLOSED_WIN"} = d) do
@@ -351,8 +351,8 @@ defmodule VmuCore.DPS.Dispute do
       transaction_code: "DISPUTE_RECOVERY",
       dr_amount:        d.dispute_amount,
       cr_amount:        d.dispute_amount,
-      gl_account_dr:    "3002",
-      gl_account_cr:    "3001",
+      gl_account_dr:    "3004",
+      gl_account_cr:    "3003",
       posting_date:     Date.utc_today(),
       value_date:       Date.utc_today(),
       narrative:        "Dispute won — recovered from scheme, dispute #{d.dispute_id}"

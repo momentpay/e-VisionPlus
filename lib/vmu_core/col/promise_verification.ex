@@ -23,14 +23,14 @@ defmodule VmuCore.COL.PromiseVerification do
   """
 
   require Logger
-  import Ecto.Query
 
   alias VmuCore.COL.CollectionCase
   alias Decimal, as: D
 
   # M2 (2026-07-17): config-injected — CMS isn't extracted yet.
   @repo Application.compile_env(:vmu_col, :repo, VmuCore.Repo)
-  @ledger_entry_schema Application.compile_env(:vmu_col, :cms_ledger_entry_schema, VmuCore.CMS.LedgerEntry)
+
+  alias VmuCore.GL.LedgerQuery
 
   @doc "Log a promise-to-pay against a case: status → PROMISED, promise_status → PENDING."
   @spec log_promise(Ecto.UUID.t(), Decimal.t(), Date.t()) ::
@@ -89,14 +89,15 @@ defmodule VmuCore.COL.PromiseVerification do
     payments_since(account_id, DateTime.new!(~D[1970-01-01], ~T[00:00:00]), promise_date)
   end
 
+  # GL Phase C2 — see `GL.LedgerQuery`. This drops the `@ledger_entry_schema`
+  # injection seam, which no config ever set: the only value it could take was
+  # its own default.
   defp payments_since(account_id, since_datetime, promise_date) do
-    since_date = DateTime.to_date(since_datetime)
-
-    @repo.one(
-      from e in @ledger_entry_schema,
-        where: e.account_id == ^account_id and e.transaction_code == "PAYMENT"
-           and e.posting_date >= ^since_date and e.posting_date <= ^promise_date,
-        select: coalesce(sum(e.cr_amount), 0)
-    ) || D.new(0)
+    LedgerQuery.sum_amount(
+      account_ref: account_id,
+      transaction_code: "PAYMENT",
+      from: DateTime.to_date(since_datetime),
+      to: promise_date
+    )
   end
 end

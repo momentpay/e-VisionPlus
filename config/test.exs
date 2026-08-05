@@ -50,3 +50,28 @@ config :vmu_core, :mastercom_http_plug,
 # calls (NTS Phase B, 2026-07-31).
 config :vmu_core, :mdes_http_plug,
   {Req.Test, VmuCore.NTS.MastercardMdesClient}
+
+# No ISO 8583 listeners under test.
+#
+# `DaIssuer.ListenerSupervisor` binds the Mastercard MIP (7585) and Visa VAP
+# (8600) ports from this list. Binding real ports in the test env means the
+# suite cannot run while a dev server is up — it fails at boot with
+# :eaddrinuse before a single test executes, which is a poor reason to be
+# unable to run tests.
+#
+# The switch's message handling is exercised through the protocol modules
+# directly; nothing in the suite needs a live socket.
+config :da_issuer, :issuer_listeners, []
+
+# GL Phase C2 — the posting engine must write under test.
+#
+# Readers have begun migrating onto `GL.LedgerQuery`, which reads
+# `journal_entries`. With shadow off, nothing would populate that table and a
+# migrated reader would silently return zero in every test — passing tests
+# that prove nothing. Enabling it here makes the test environment mirror
+# production, where all five products are cut over.
+#
+# `:allow` because test fixtures post to arbitrary dates that need not fall in
+# an open period; the exception is still recorded either way.
+config :vmu_core, VmuCore.Posting.Shadow, enabled: true
+config :vmu_core, VmuCore.Posting.RuleEngine, on_closed_period: :allow

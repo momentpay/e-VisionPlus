@@ -29,12 +29,13 @@ defmodule VmuCore.CMS.PaymentIntake do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.LedgerEntry,
+  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket,
                  CMS.InternalGlPoster, CMS.RepaymentDistributor,
                  CMS.AccountStateCoordinator, CMS.Payment, CMS.PaymentAllocation,
                  CMS.Notification}
   alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
+  alias VmuCore.GL.LedgerQuery
 
   @valid_channels ~w[gateway direct_debit mobile_wallet branch_cash branch transfer agency]
 
@@ -173,8 +174,12 @@ defmodule VmuCore.CMS.PaymentIntake do
       Repo.exists?(from p in Payment, where: p.reference == ^reference) ->
         {:error, :duplicate_payment}
 
-      # Belt-and-braces: pre-register ledger entries (G1-era payments)
-      Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^ledger_key(reference)) ->
+      # Belt-and-braces: pre-register ledger entries (G1-era payments).
+      # GL Phase C2 — reads the posting tables via `GL.LedgerQuery`. Safe only
+      # because the history backfill ran first: a duplicate guard that cannot
+      # see pre-shadow postings would stop guarding against exactly the G1-era
+      # payments this clause exists for.
+      LedgerQuery.exists?(idempotency_key: ledger_key(reference)) ->
         {:error, :duplicate_payment}
 
       true ->

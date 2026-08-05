@@ -45,7 +45,8 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   alias VmuCore.Repo
   alias VmuCore.FAS.{AuthLookup, PendingHold}
   alias VmuCore.FAS.GL.{CardAccountCodes, VmuCoreGlAdapter}
-  alias VmuCore.CMS.{LedgerEntry, PurchasePosting, DebitAuthorization, PrepaidLedger, InternalGlPoster}
+  alias VmuCore.CMS.{PurchasePosting, DebitAuthorization, PrepaidLedger, InternalGlPoster}
+  alias VmuCore.GL.LedgerQuery
   alias WalletGl.GlPostingRecord
   alias WalletSharedKernel.Money
 
@@ -227,9 +228,8 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
       auth, settled_amount, settled_date)
   end
 
-  defp already_posted?(key) do
-    Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^key)
-  end
+  # GL Phase C2 — see `GL.LedgerQuery`.
+  defp already_posted?(key), do: LedgerQuery.exists?(idempotency_key: key)
 
   # FR-067 — the real outstanding-balance side of a purchase, previously
   # missing entirely. "atm" channel = cash advance (same convention

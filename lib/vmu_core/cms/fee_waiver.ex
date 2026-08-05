@@ -63,6 +63,7 @@ defmodule VmuCore.CMS.FeeWaiver do
 
   alias VmuCore.{Repo, CMS.LedgerEntry, CMS.BalanceBucket}
   alias VmuCore.CMS.InternalGlPoster
+  alias VmuCore.GL.LedgerQuery
   alias Decimal, as: D
 
   @doc """
@@ -94,35 +95,33 @@ defmodule VmuCore.CMS.FeeWaiver do
   end
 
   @doc """
-  Waive a fee identified by its ledger `entry_id` UUID.
+  Fee entries for an account, newest first — the list an operator picks from.
 
-  Same options as `waive/1`, replacing `:original_idempotency_key` with `:entry_id`.
+  GL Phase C2. Each entry is identified by its `:idempotency_key`, which is
+  what `waive/1` takes.
+
+  **This replaces the previous `entry_id` identifier.** `cms_ledger_entries`
+  had a surrogate primary key; the posting tables have no single column that
+  means the same thing, and the idempotency key is the better identifier in any
+  case — it is stable across the two models, it is what the backfill joined on,
+  and it is meaningful to read in an audit trail.
   """
-  @spec waive_by_entry_id(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
-  def waive_by_entry_id(opts) do
-    entry_id   = Keyword.fetch!(opts, :entry_id)
-    account_id = Keyword.fetch!(opts, :account_id)
-
-    case find_fee_entry_by_id(account_id, entry_id) do
-      nil ->
-        {:error, {:fee_entry_not_found, entry_id}}
-
-      entry ->
-        do_waive(entry, opts)
-    end
+  @spec list_fee_entries(binary(), keyword()) :: [map()]
+  def list_fee_entries(account_id, opts \\ []) do
+    LedgerQuery.entries(
+      account_ref: account_id,
+      transaction_code: "FEE",
+      limit: Keyword.get(opts, :limit, 30)
+    )
   end
 
   @doc """
   List all fee waivers (REVERSAL entries) for an account, newest first.
   """
-  @spec list_for(binary()) :: [LedgerEntry.t()]
+  @spec list_for(binary()) :: [map()]
   def list_for(account_id) do
-    Repo.all(
-      from e in LedgerEntry,
-        where: e.account_id == ^account_id
-          and e.transaction_code == "REVERSAL",
-        order_by: [desc: e.posting_date, desc: e.inserted_at]
-    )
+    # GL Phase C2 — see `GL.LedgerQuery`. Returns maps, not LedgerEntry structs.
+    LedgerQuery.entries(account_ref: account_id, transaction_code: "REVERSAL")
   end
 
   # ---------------------------------------------------------------------------
@@ -151,11 +150,14 @@ defmodule VmuCore.CMS.FeeWaiver do
           account_id:       account_id,
           idempotency_key:  waiver_key,
           transaction_code: "REVERSAL",
-          dr_amount:        original_entry.dr_amount,
-          cr_amount:        original_entry.cr_amount,
+          # `amount` serves both sides: under double entry the legacy row's
+          # dr_amount and cr_amount were always equal, and the posting tables
+          # keep the single value.
+          dr_amount:        original_entry.amount,
+          cr_amount:        original_entry.amount,
           # Reverse the original: credit the receivable, debit the income
-          gl_account_dr:    original_entry.gl_account_cr,
-          gl_account_cr:    original_entry.gl_account_dr,
+          gl_account_dr:    original_entry.cr_gl_account,
+          gl_account_cr:    original_entry.dr_gl_account,
           posting_date:     posting_date,
           value_date:       posting_date,
           narrative:        narrative,
@@ -165,7 +167,7 @@ defmodule VmuCore.CMS.FeeWaiver do
         case result do
           {:ok, reversal_entry} ->
             # Decrement balance_bucket.unpaid_fees by the waived amount
-            decrement_unpaid_fees(account_id, original_entry.dr_amount)
+            decrement_unpaid_fees(account_id, original_entry.amount)
             reversal_entry
 
           {:error, :duplicate} ->
@@ -197,24 +199,19 @@ defmodule VmuCore.CMS.FeeWaiver do
     end
   end
 
+  # GL Phase C2 — see `GL.LedgerQuery`. The account and the FEE event type are
+  # both still matched even though the idempotency key is unique on its own:
+  # this is the lookup that decides what gets reversed, and it should not be
+  # able to reverse another account's posting, or a non-fee one, on a key
+  # collision.
   defp find_fee_entry(account_id, idempotency_key) do
-    Repo.one(
-      from e in LedgerEntry,
-        where: e.account_id       == ^account_id
-          and  e.idempotency_key  == ^idempotency_key
-          and  e.transaction_code == "FEE",
-        limit: 1
+    LedgerQuery.entries(
+      account_ref: account_id,
+      transaction_code: "FEE",
+      idempotency_key: idempotency_key,
+      limit: 1
     )
-  end
-
-  defp find_fee_entry_by_id(account_id, entry_id) do
-    Repo.one(
-      from e in LedgerEntry,
-        where: e.entry_id         == ^entry_id
-          and  e.account_id       == ^account_id
-          and  e.transaction_code == "FEE",
-        limit: 1
-    )
+    |> List.first()
   end
 
   # Decrement the most recent balance_bucket.unpaid_fees by the waived amount.

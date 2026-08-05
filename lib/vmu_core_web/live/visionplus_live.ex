@@ -18,6 +18,7 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
 
   alias VmuCore.Repo
   alias VmuCore.CMS.{Account, BalanceBucket}
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.Shared.{Customer, ParameterEngine, ParameterWriter,
                           SysParameter, BankParameter, LogoParameter, BlockParameter}
   # CMS operator modules (referenced in new event handlers)
@@ -263,40 +264,23 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
   end
 
   def handle_event("cms_gl_browse", %{"account_id" => aid, "date_from" => from, "date_to" => to}, socket) do
-    base = from e in "cms_ledger_entries",
-             order_by: [desc: e.posting_date],
-             limit: 50,
-             select: %{
-               posting_date:     e.posting_date,
-               transaction_code: e.transaction_code,
-               dr_amount:        e.dr_amount,
-               cr_amount:        e.cr_amount,
-               narrative:        e.narrative,
-               idempotency_key:  e.idempotency_key
-             }
+    # GL Phase C2 — see `GL.LedgerQuery`. The date bounds are parsed rather
+    # than interpolated as strings: the legacy query compared a `date` column
+    # against raw form text, which Postgres cast for it, so a malformed date
+    # raised out of the query instead of being reported to the operator.
+    filters =
+      [limit: 50]
+      |> maybe_put(:account_ref, blank_to_nil(aid))
+      |> maybe_put(:from, parse_date(from))
+      |> maybe_put(:to, parse_date(to))
 
-    q =
-      if String.trim(aid) != "" do
-        from e in base, where: e.account_id == ^String.trim(aid)
-      else
-        base
+    rows =
+      try do
+        LedgerQuery.entries(filters)
+      rescue
+        _ -> []
       end
 
-    q =
-      if String.trim(from) != "" do
-        from e in q, where: e.posting_date >= ^from
-      else
-        q
-      end
-
-    q =
-      if String.trim(to) != "" do
-        from e in q, where: e.posting_date <= ^to
-      else
-        q
-      end
-
-    rows = safe_query(q, [])
     {:noreply, assign(socket, results: {:cms_gl, rows})}
   end
 
@@ -381,18 +365,24 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
 
   # ── CMS02 enhanced: fee waiver with 4-eyes ────────────────────────────────
   def handle_event("cms_fee_waiver",
-    %{"account_id" => aid, "amount" => amt, "reason" => reason,
+    %{"account_id" => aid, "original_idempotency_key" => key, "reason" => reason,
       "operator_id" => op_id, "supervisor_id" => sup_id}, socket) do
 
+    # This handler never worked. It passed a **map** to `FeeWaiver.waive/1`,
+    # which does `Keyword.fetch!/2`, so every submission raised and the rescue
+    # below turned it into a generic error message. It also passed `:amount`,
+    # which the module has no concept of — a waiver reverses the original fee
+    # entry in full, and there is no partial-waiver path to pass an amount to.
+    # Corrected during GL Phase C2, when `waive_by_entry_id/1` was retired.
     result =
       try do
-        VmuCore.CMS.FeeWaiver.waive(%{
-          account_id:    String.trim(aid),
-          amount:        Decimal.new(amt),
-          reason:        reason,
-          operator_id:   String.trim(op_id),
-          supervisor_id: String.trim(sup_id)
-        })
+        VmuCore.CMS.FeeWaiver.waive(
+          account_id:               String.trim(aid),
+          original_idempotency_key: String.trim(key),
+          reason:                   reason,
+          operator_id:              String.trim(op_id),
+          supervisor_id:            String.trim(sup_id)
+        )
       rescue
         e -> {:error, Exception.message(e)}
       end
@@ -1902,12 +1892,8 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
               <input name="account_id" placeholder="Account UUID" required style={inp()} autocomplete="off" />
             </div>
             <div style={form_row()}>
-              <%= field_label("Fee Entry ID (ledger entry_id to waive)") %>
-              <input name="entry_id" placeholder="Ledger entry UUID" required style={inp()} />
-            </div>
-            <div style={form_row()}>
-              <%= field_label("Waive Amount (AED) — leave blank for full amount") %>
-              <input name="amount" placeholder="Leave blank = full fee" style={inp()} />
+              <%= field_label("Fee Posting Key (idempotency key of the FEE entry)") %>
+              <input name="original_idempotency_key" placeholder="e.g. FEE:<account>:ANNUAL:2026-08-01" required style={inp()} />
             </div>
             <div style={form_row()}>
               <%= field_label("Reason") %>
@@ -2025,7 +2011,7 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
       <% {:cms_gl, rows} -> %>
         <%= data_table(
             ["Date", "Code", "DR (AED)", "CR (AED)", "Narrative", "Idempotency Key"],
-            Enum.map(rows, fn r -> [r.posting_date, r.transaction_code, r.dr_amount, r.cr_amount, r.narrative, r.idempotency_key] end)
+            Enum.map(rows, fn r -> [r.posting_date, r.event_type, r.amount, r.amount, r.narrative, r.idempotency_key] end)
         ) %>
       <% _ -> %>
         <%= hint("Filter by account UUID and/or date range, then click Browse GL.") %>
@@ -5144,4 +5130,27 @@ defmodule VmuCoreWeb.Live.VisionPlusLiveLegacy do
     mod_str = if module, do: String.upcase(to_string(module)), else: "this module"
     {:error, "Unknown command '#{cmd}' — type 'help' for #{mod_str} commands"}
   end
+
+  # --- GL browse helpers (Phase C2) -----------------------------------------
+
+  defp maybe_put(kw, _key, nil), do: kw
+  defp maybe_put(kw, key, value), do: Keyword.put(kw, key, value)
+
+  defp blank_to_nil(s) do
+    case String.trim(to_string(s)) do
+      "" -> nil
+      v -> v
+    end
+  end
+
+  defp parse_date(s) do
+    case blank_to_nil(s) do
+      nil -> nil
+      v -> case Date.from_iso8601(v) do
+             {:ok, d} -> d
+             _ -> nil
+           end
+    end
+  end
+
 end

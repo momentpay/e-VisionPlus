@@ -66,6 +66,19 @@ defmodule VmuCore.HCS.FleetReport do
     start_dt = DateTime.new!(period_from, ~T[00:00:00], "Etc/UTC")
     end_dt   = DateTime.new!(period_to,   ~T[23:59:59], "Etc/UTC")
 
+    # NOT migrated to GL.LedgerQuery in Phase C2 — see below.
+    #
+    # HCS accounts are invisible to the new posting engine.
+    # `GL.InstitutionResolver` resolves an account against four product tables
+    # (cms_accounts, cms_debit_accounts, cms_prepaid_accounts,
+    # cms_wallet_accounts). HCS employee and fleet cards are in
+    # `hcs_employee_cards` / `hcs_fleet_cards`, so `Posting.Shadow` cannot
+    # resolve them, never mirrors their postings, and `journal_entries`
+    # contains no HCS rows at all (verified 2026-08-05: 0 of 2,271).
+    #
+    # Migrating this reader would therefore return zero for every fleet card.
+    # HCS must be added to the resolver and given posting rules first — see
+    # docs/gl/Phase_C2_Reader_Migration.md §7.
     from(l in LedgerEntry,
       where: l.account_id == ^account_id
         and l.inserted_at >= ^start_dt

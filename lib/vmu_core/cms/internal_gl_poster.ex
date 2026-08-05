@@ -3,35 +3,57 @@ defmodule VmuCore.CMS.InternalGlPoster do
   Posts double-entry journal entries to cms_ledger_entries.
   Idempotency key prevents duplicate postings on job retry.
 
-  GL account code conventions (chart of accounts):
-    1001 — Cardholder retail receivable
-    1002 — Cardholder cash advance receivable
-    1003 — Accrued interest receivable
-    1004 — Fee receivable
-    2001 — Interest income
-    2002 — Fee income
-    3001 — Cardholder payment liability
-    4001 — Interchange income
+  ## Chart of accounts
 
-  Debit (Way4 parity plan Phase 1 item 4) posts in the OPPOSITE direction
-  from every code above — a debit account's balance is a deposit
-  *liability* (amount the bank owes the depositor), not a receivable
-  asset, so a deposit increases a liability account, not a receivable:
-    1006 — Bank cash/clearing account (asset)
-    5001 — Debit deposit liability
+  **Remapped 2026-08-02 (Phase 4A) onto the single reconciled chart**,
+  `VmuCore.GL.ChartOfAccounts`. This module previously defined its own code
+  set inline, which conflicted with `FAS.GL.CardAccountCodes` while both
+  wrote to `cms_ledger_entries` — 2001 meant "interest income" here and
+  "Customer Credit Liability" there, 5001 meant a liability here and an
+  expense there. See `docs/gl/Phase_4A_Account_Code_Remap.md`.
 
-  Prepaid (Way4 parity plan Phase 1 item 5) is liability-direction too,
-  but its own distinct code — a different product for chart-of-accounts
-  purposes even though the mechanism (stored value the bank owes the
-  cardholder) is the same shape as Debit's:
-    5002 — Prepaid stored-value liability
+    1001 — Card Receivables            (asset)
+    1002 — Cash Advance Receivable     (asset)
+    1003 — Accrued Interest Receivable (asset)
+    1004 — Fee Receivable              (asset)
+    3001 — Payment / Adjustment Clearing (asset)
+    4001 — Fee Revenue                 (revenue)
+    4002 — Interest Income             (revenue)
 
-  Digital Wallet (Way4 parity plan Phase 2, Phase W1, 2026-07-28) is the
-  same liability shape again, its own code — a wallet balance is stored
-  value the bank owes the customer, same mechanism as Debit/Prepaid,
-  different product:
-    5003 — Wallet stored-value liability
+  Stored value — Debit, Prepaid and Wallet — posts in the opposite
+  direction from the receivable accounts above. A stored-value balance is
+  money the bank **owes** the customer, so it is a liability, not a
+  receivable (VMU-ADR-005):
+
+    3005 — Bank Cash / Funding Clearing    (asset)   — was 1006
+    2004 — Debit Deposit Liability         (liability) — was 5001
+    2005 — Prepaid Stored-Value Liability  (liability) — was 5002
+    2006 — Wallet Stored-Value Liability   (liability) — was 5003
+
+  The old codes put stored value in the 5xxx expense range, where 5001 and
+  5002 were already occupied by real expense accounts with the opposite
+  normal balance, and 5003 was registered in no chart at all.
+
+  Codes are referenced through module attributes rather than inline
+  literals so a future change happens in one place; `test/gl/no_hardcoded_
+  gl_codes_test.exs` enforces that no new literals appear elsewhere.
   """
+
+  # Receivables / clearing
+  @card_receivable      "1001"
+  @interest_receivable  "1003"
+  @fee_receivable       "1004"
+  @payment_clearing     "3001"
+  @cash_clearing        "3005"
+
+  # Revenue
+  @fee_revenue     "4001"
+  @interest_income "4002"
+
+  # Stored-value liabilities
+  @debit_liability   "2004"
+  @prepaid_liability "2005"
+  @wallet_liability  "2006"
 
   require Logger
   alias VmuCore.{Repo, CMS.LedgerEntry}
@@ -54,7 +76,33 @@ defmodule VmuCore.CMS.InternalGlPoster do
 
         if persisted.entry_id == entry.entry_id do
           Logger.debug("[GL] Posted #{entry.transaction_code} #{entry.dr_amount} key=#{entry.idempotency_key}")
-          {:ok, persisted}
+
+          # GL Phase B/C — run the new posting engine.
+          #
+          # Phase B (shadow): `mirror/1` returns :ok whatever happens, so this
+          # cannot change what the function returns or whether the posting
+          # stands. Off unless
+          # `config :vmu_core, VmuCore.Posting.Shadow, enabled: true`.
+          #
+          # Phase C (cutover): for a product in
+          # `config :vmu_core, VmuCore.Posting.Cutover, products: [...]` the
+          # engine is authoritative and a failure must abort. The legacy row is
+          # deleted rather than left behind — twelve modules still read this
+          # table, and a row the engine rejected must not be visible to them.
+          case VmuCore.Posting.Shadow.mirror(attrs) do
+            :ok ->
+              {:ok, persisted}
+
+            {:error, reason} ->
+              Repo.delete!(persisted)
+
+              Logger.error(
+                "[GL] cutover posting REJECTED, legacy row rolled back. " <>
+                  "key=#{entry.idempotency_key} reason=#{inspect(reason)}"
+              )
+
+              {:error, reason}
+          end
         else
           {:error, :duplicate}
         end
@@ -72,8 +120,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "INTEREST",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1003",
-      gl_account_cr:    "2001",
+      gl_account_dr:    @interest_receivable,
+      gl_account_cr:    @interest_income,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Monthly interest accrual"
@@ -88,8 +136,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "FEE",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1004",
-      gl_account_cr:    "2002",
+      gl_account_dr:    @fee_receivable,
+      gl_account_cr:    @fee_revenue,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Fee: #{fee_type}"
@@ -104,8 +152,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "PAYMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "3001",
-      gl_account_cr:    "1001",
+      gl_account_dr:    @payment_clearing,
+      gl_account_cr:    @card_receivable,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Cardholder payment",
@@ -127,8 +175,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "DEPOSIT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1006",
-      gl_account_cr:    "5001",
+      gl_account_dr:    @cash_clearing,
+      gl_account_cr:    @debit_liability,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Debit account funding: #{channel}"
@@ -138,8 +186,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
   @doc """
   Post a cleared purchase against a debit account (Way4 parity plan
   Phase 1 item 4, D4) — the exact reverse direction of
-  `post_debit_deposit/5`: the deposit liability (5001) decreases (DR),
-  the offsetting credit is the bank's own cash position (1006) paying
+  `post_debit_deposit/5`: the deposit liability (2004) decreases (DR),
+  the offsetting credit is the bank's own cash position (3005) paying
   out to the network/merchant settlement. `available_balance` itself is
   NOT touched here — `CMS.DebitAuthorization.authorize/2` already
   decremented it in real time at approval (Debit has no OTB-then-settle
@@ -154,8 +202,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "PURCHASE",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "5001",
-      gl_account_cr:    "1006",
+      gl_account_dr:    @debit_liability,
+      gl_account_cr:    @cash_clearing,
       currency:         currency || "AED",
       posting_date:     posting_date,
       value_date:       posting_date,
@@ -177,8 +225,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "ADJUSTMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1006",
-      gl_account_cr:    "5001",
+      gl_account_dr:    @cash_clearing,
+      gl_account_cr:    @debit_liability,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        narrative
@@ -192,8 +240,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "ADJUSTMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "5001",
-      gl_account_cr:    "1006",
+      gl_account_dr:    @debit_liability,
+      gl_account_cr:    @cash_clearing,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        narrative
@@ -203,7 +251,7 @@ defmodule VmuCore.CMS.InternalGlPoster do
   @doc """
   Post a load into a prepaid account (Way4 parity plan Phase 1 item 5,
   P1) — same liability-direction shape as `post_debit_deposit/5`, its
-  own GL code (5002, not 5001 — a different product).
+  own GL code (2005, not 2004 — a different product).
   """
   def post_prepaid_load(prepaid_account_id, amount, posting_date, channel, idempotency_key) do
     post(%{
@@ -212,8 +260,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "DEPOSIT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1006",
-      gl_account_cr:    "5002",
+      gl_account_dr:    @cash_clearing,
+      gl_account_cr:    @prepaid_liability,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Prepaid account load: #{channel}"
@@ -233,8 +281,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "PURCHASE",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "5002",
-      gl_account_cr:    "1006",
+      gl_account_dr:    @prepaid_liability,
+      gl_account_cr:    @cash_clearing,
       currency:         currency || "AED",
       posting_date:     posting_date,
       value_date:       posting_date,
@@ -257,8 +305,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "ADJUSTMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1006",
-      gl_account_cr:    "5002",
+      gl_account_dr:    @cash_clearing,
+      gl_account_cr:    @prepaid_liability,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        narrative
@@ -272,8 +320,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "ADJUSTMENT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "5002",
-      gl_account_cr:    "1006",
+      gl_account_dr:    @prepaid_liability,
+      gl_account_cr:    @cash_clearing,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        narrative
@@ -283,7 +331,7 @@ defmodule VmuCore.CMS.InternalGlPoster do
   @doc """
   Post a load into a Digital Wallet account (Way4 parity plan Phase 2,
   Phase W1, 2026-07-28) — same liability-direction shape as
-  `post_debit_deposit/5`/`post_prepaid_load/5`, its own GL code (5003).
+  `post_debit_deposit/5`/`post_prepaid_load/5`, its own GL code (2006).
   """
   def post_wallet_load(wallet_account_id, amount, posting_date, channel, idempotency_key) do
     post(%{
@@ -292,8 +340,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "DEPOSIT",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "1006",
-      gl_account_cr:    "5003",
+      gl_account_dr:    @cash_clearing,
+      gl_account_cr:    @wallet_liability,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        "Wallet account load: #{channel}"
@@ -322,8 +370,8 @@ defmodule VmuCore.CMS.InternalGlPoster do
       transaction_code: "PURCHASE",
       dr_amount:        amount,
       cr_amount:        amount,
-      gl_account_dr:    "5003",
-      gl_account_cr:    "1006",
+      gl_account_dr:    @wallet_liability,
+      gl_account_cr:    @cash_clearing,
       posting_date:     posting_date,
       value_date:       posting_date,
       narrative:        narrative

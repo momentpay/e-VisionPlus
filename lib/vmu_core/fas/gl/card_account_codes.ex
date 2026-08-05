@@ -26,7 +26,9 @@ defmodule VmuCore.FAS.GL.CardAccountCodes do
 
     INTEREST (monthly interest charge):
       DR 2001 Customer Credit Liability
-      CR 4001 Fee Revenue                ← interest is booked as revenue
+      CR 4002 Interest Income            ← corrected 2026-08-02: was 4001 Fee
+                                           Revenue, which commingled interest
+                                           and fee income. See journal_pair/1.
 
     PAYMENT (customer pays):
       DR bank/NOSTRO clearing account (external)
@@ -49,16 +51,18 @@ defmodule VmuCore.FAS.GL.CardAccountCodes do
   @card_receivables    "1001"
   @credit_liability    "2001"
   @fee_revenue         "4001"
+  @interest_income     "4002"
   @interchange_expense "5001"
   @suspense            "9001"
 
   def card_receivables,    do: @card_receivables
   def credit_liability,    do: @credit_liability
   def fee_revenue,         do: @fee_revenue
+  def interest_income,     do: @interest_income
   def interchange_expense, do: @interchange_expense
   def suspense,            do: @suspense
 
-  @all_codes [@card_receivables, @credit_liability, @fee_revenue,
+  @all_codes [@card_receivables, @credit_liability, @fee_revenue, @interest_income,
               @interchange_expense, @suspense]
 
   @doc "Returns true when `code` is a known vmu_core card account code."
@@ -77,7 +81,17 @@ defmodule VmuCore.FAS.GL.CardAccountCodes do
   def journal_pair("PURCHASE"),       do: {@card_receivables, @credit_liability}
   def journal_pair("CASH_ADV"),       do: {@card_receivables, @credit_liability}
   def journal_pair("FEE"),            do: {@credit_liability,  @fee_revenue}
-  def journal_pair("INTEREST"),       do: {@credit_liability,  @fee_revenue}
+  # Interest credits 4002 Interest Income, NOT 4001 Fee Revenue (2026-08-02).
+  # Two defects in one line before this change:
+  #   1. Misclassification — interest revenue booked into the fee revenue
+  #      account, so the two could not be separated in the trial balance.
+  #   2. FEE and INTEREST returned an identical pair, which made INTEREST
+  #      unreachable in `VmuCoreGlAdapter.infer_transaction_code/2` (it scans
+  #      FEE first), silently labelling any interest entry arriving through
+  #      that adapter as "FEE".
+  # 4002 is registered in @all_codes above so `valid?/1` accepts it — omitting
+  # that would make the adapter reject every entry posting to the new account.
+  def journal_pair("INTEREST"),       do: {@credit_liability,  @interest_income}
   def journal_pair("REVERSAL"),       do: {@credit_liability,  @card_receivables}
   def journal_pair("DISPUTE_CREDIT"), do: {@credit_liability,  @card_receivables}
   def journal_pair(_),                do: nil

@@ -35,8 +35,9 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
 
   require Logger
   import Ecto.Query
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.FeeEngine, CMS.LedgerEntry}
+  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.FeeEngine}
   alias VmuCore.COL.{CollectionCase, PromiseVerification, WorkoutCommand}
+  alias VmuCore.GL.LedgerQuery
 
   @dpd_buckets [0, 30, 60, 90, 120, 150, 180]
 
@@ -148,14 +149,15 @@ defmodule VmuCore.CMS.EOD.AgeBucketsJob do
 
   # Sum all PAYMENT credits posted since cycle_start (inclusive) through eod_date
   defp sum_payments_since(account_id, cycle_start, eod_date) do
+    # GL Phase C2 — see GL.LedgerQuery. cr_amount equals dr_amount on every
+    # row (double entry), so `sum_amount/1` answers the same question and
+    # already returns a zero Decimal rather than nil.
     result =
-      Repo.one(
-        from e in LedgerEntry,
-          where: e.account_id    == ^account_id
-             and e.transaction_code == "PAYMENT"
-             and e.posting_date  >= ^cycle_start
-             and e.posting_date  <= ^eod_date,
-          select: coalesce(sum(e.cr_amount), ^Decimal.new(0))
+      LedgerQuery.sum_amount(
+        account_ref: account_id,
+        transaction_code: "PAYMENT",
+        from: cycle_start,
+        to: eod_date
       )
 
     result || Decimal.new(0)

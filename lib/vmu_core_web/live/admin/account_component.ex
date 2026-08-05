@@ -8,7 +8,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   alias VmuCore.CMS.{
     Account, BalanceBucket, BlockCodeHistory, NonMonetaryEvent,
     SupplementaryCard, PlanSegment, TempLimit, FeeWaiver, FinancialAdjustment,
-    LedgerEntry, AccountStateCoordinator, EmiSchedule, Arrangements
+    AccountStateCoordinator, EmiSchedule, Arrangements
   }
   alias VmuCore.Shared.{Customer, BankParameter, LogoParameter, BlockParameter}
   alias VmuCore.CTA.{Cards, CardLifecycle, CredentialVault}
@@ -240,9 +240,9 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       else
         []
       end
-      fees = Repo.all(from e in LedgerEntry,
-        where: e.account_id == ^account_id and e.transaction_code == "FEE",
-        order_by: [desc: e.posting_date], limit: 30)
+      # GL Phase C2 — the waiver list comes from FeeWaiver itself, so the
+      # entries offered are exactly the ones `waive/1` can find.
+      fees = FeeWaiver.list_fee_entries(account_id)
       adjs = FinancialAdjustment.list_for(account_id)
       tlim  = TempLimit.active_for(account_id)
       stmts = Repo.all(from b in BalanceBucket,
@@ -893,8 +893,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     # (waivers are bounded by the fee entry itself, not free-form input)
     result =
       with {:ok, checker} <- resolve_checker(socket, params["supervisor_id"], nil) do
-        FeeWaiver.waive_by_entry_id(
-          entry_id:      params["entry_id"],
+        FeeWaiver.waive(
+          original_idempotency_key: params["original_idempotency_key"],
           account_id:    acc.account_id,
           reason:        params["reason"] || "",
           operator_id:   maker_id(socket),
@@ -2052,11 +2052,11 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           <%= if @fee_entries == [] do %>
             <div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No FEE ledger entries found for this account.</div>
           <% else %>
-            <select class="input" name="action[entry_id]" required>
+            <select class="input" name="action[original_idempotency_key]" required>
               <option value="">— Select a fee entry —</option>
               <%= for e <- @fee_entries do %>
-                <option value={e.entry_id}>
-                  <%= date_s(e.posting_date) %> · <%= money(e.dr_amount) %> · <%= e.narrative || e.idempotency_key %>
+                <option value={e.idempotency_key}>
+                  <%= date_s(e.posting_date) %> · <%= money(e.amount) %> · <%= e.narrative || e.idempotency_key %>
                 </option>
               <% end %>
             </select>
@@ -2580,15 +2580,15 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
               <tr>
                 <td><%= date_s(e.posting_date) %></td>
                 <td>
-                  <%= if Decimal.compare(e.dr_amount, Decimal.new(0)) == :gt and e.gl_account_dr == "1001" do %>
+                  <%= if e.direction == "DEBIT" do %>
                     <span class="badge badge-red">DEBIT</span>
                   <% else %>
                     <span class="badge badge-green">CREDIT</span>
                   <% end %>
                 </td>
-                <td class="mono"><%= money(e.dr_amount) %></td>
+                <td class="mono"><%= money(e.amount) %></td>
                 <td style="font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;"><%= e.narrative %></td>
-                <td style="font-size:11px;color:var(--text-secondary);"><%= e.source_ref %></td>
+                <td style="font-size:11px;color:var(--text-secondary);"><%= e.reference %></td>
               </tr>
             <% end %>
           </tbody>

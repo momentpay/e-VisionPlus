@@ -48,7 +48,7 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.LedgerEntry}
+  alias VmuCore.{Repo, CMS.LedgerEntry, GL.ExportMap}
 
   @type extract_result :: {:ok, %{count: integer(), total_amount: Decimal.t()}} | {:error, term()}
 
@@ -130,11 +130,15 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
       account_id:  account_id,
       posting_date: Date.to_iso8601(eod_date),
       entries: Enum.map(entries, fn e ->
+        # Account codes go out through VmuCore.GL.ExportMap (Phase 4A.1), so the
+        # internal chart and a bank's own chart can diverge without a second
+        # remap. Identity by default — with no mapping configured this payload
+        # is byte-identical to what it was before the layer existed.
         %{
           ledger_entry_id:  e.id,
           transaction_code: e.transaction_code,
-          gl_account_dr:    e.gl_account_dr,
-          gl_account_cr:    e.gl_account_cr,
+          gl_account_dr:    ExportMap.translate(e.gl_account_dr),
+          gl_account_cr:    ExportMap.translate(e.gl_account_cr),
           dr_amount:        Decimal.to_string(e.dr_amount || Decimal.new(0)),
           cr_amount:        Decimal.to_string(e.cr_amount || Decimal.new(0)),
           posting_date:     Date.to_iso8601(e.posting_date),

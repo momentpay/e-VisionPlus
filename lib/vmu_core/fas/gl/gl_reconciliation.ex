@@ -23,7 +23,7 @@ defmodule VmuCore.FAS.GL.GlReconciliation do
 
   alias VmuCore.Repo
   alias VmuCore.FAS.AuthorizationRecord
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.GL.LedgerQuery
 
   @type gap :: {AuthorizationRecord.t(), nil}
 
@@ -46,17 +46,11 @@ defmodule VmuCore.FAS.GL.GlReconciliation do
             and a.inserted_at <= ^to_dt
       )
 
+    # GL Phase C2 — see `GL.LedgerQuery`.
     posted_keys =
       approved_auths
       |> Enum.map(fn a -> "settlement:#{a.approval_code}:#{a.rrn}" end)
-      |> then(fn keys ->
-        Repo.all(
-          from e in LedgerEntry,
-            where: e.idempotency_key in ^keys,
-            select: e.idempotency_key
-        )
-      end)
-      |> MapSet.new()
+      |> LedgerQuery.posted_keys()
 
     gaps =
       Enum.filter(approved_auths, fn auth ->

@@ -35,7 +35,7 @@ defmodule VmuCore.TRAMS.Oban.PostingCycleJob do
   alias VmuCore.Repo
   alias VmuCore.TRAMS.{Transaction, ClearingRecord, MatchingEngine, MaintenanceAction, EventStore}
   alias VmuCore.FAS.{AuthorizationRecord, SettlementPostingAdapter}
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.GL.LedgerQuery
 
   @batch_limit 500
 
@@ -137,7 +137,8 @@ defmodule VmuCore.TRAMS.Oban.PostingCycleJob do
   end
 
   defp ledger_posted?(key) do
-    Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^key)
+    # GL Phase C2 — see `GL.LedgerQuery`.
+    LedgerQuery.exists?(idempotency_key: key)
   end
 
   defp append_posted(txn, source) do

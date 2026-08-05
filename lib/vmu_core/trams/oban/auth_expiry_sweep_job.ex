@@ -36,7 +36,8 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
 
   alias VmuCore.Repo
   alias VmuCore.FAS.{PendingHold, AuthorizationRecord}
-  alias VmuCore.CMS.{AccountStateCoordinator, LedgerEntry}
+  alias VmuCore.CMS.AccountStateCoordinator
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.TRAMS.EventStore
 
   @batch_limit 500
@@ -95,9 +96,9 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
         true
 
       auth && auth.approval_code && auth.rrn ->
-        Repo.exists?(
-          from e in LedgerEntry,
-            where: e.idempotency_key == ^"settlement:#{auth.approval_code}:#{auth.rrn}"
+        # GL Phase C2 — see `GL.LedgerQuery`.
+        LedgerQuery.exists?(
+          idempotency_key: "settlement:#{auth.approval_code}:#{auth.rrn}"
         )
 
       true ->

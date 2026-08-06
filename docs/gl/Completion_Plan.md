@@ -2,7 +2,7 @@
 
 | Property | Value |
 |---|---|
-| Date | 2026-08-05 |
+| Date | 2026-08-06 |
 | Baseline | `compare/Kosa_Handbook_Alignment_Assessment.md` (2026-08-01) |
 | Purpose | What the GL programme closed, what it did not, and what to do next |
 
@@ -13,47 +13,39 @@
 | | Status |
 |---|---|
 | **C1** — engine authoritative for writes | done, all 5 products |
-| **C2** — migrate readers off `cms_ledger_entries` | **done 2026-08-05** — 18 call sites across 16 modules; 2 readers deliberately not migrated |
-| **C3** — stop writing the legacy table, delete `InternalGlPoster` | **blocked on those 2** |
+| **C2** — migrate readers off `cms_ledger_entries` | done 2026-08-05 |
+| **HCS as a first-class product** | done 2026-08-06 |
+| **C3** — stop writing the legacy table | **done 2026-08-06** |
 
-C2 is complete for every reader that *can* migrate. Two remain, each blocked on something real rather than on effort — see `Phase_C2_Reader_Migration.md` §6:
+**The GL programme is complete.** `cms_ledger_entries` has no writer and no
+reader. It still holds 2,272 historical rows; dropping it is a data-retention
+decision, not an engineering one.
 
-| Reader | Blocked on |
+`InternalGlPoster` survives as a **legacy-shaped façade** over
+`Posting.RuleEngine` rather than being deleted. Thirty-five modules call it and
+none knows its own institution, so the translation has to live somewhere —
+`Posting.LegacyEvent` — and one place beats thirty-five. See
+`Phase_C3_Legacy_Retirement.md` §2.
+
+### Both C2 stragglers resolved
+
+| Reader | Resolution |
 |---|---|
-| `CMS.CoreBankingAdapter` | needs a per-posting-set extraction-state table; `gl_ledger_entries.extracted_at` is the wrong grain |
-| `CMS.AccountStateCoordinator.query_today_velocity/2` | the query is **dead** and fixing it changes authorization outcomes — a business decision |
+| `CMS.CoreBankingAdapter` | `GL.Extraction` — extraction state keyed on `(journal_entry_id, destination)`, beside the immutable journal rather than stamped into it. The adapter had **never run**: it referenced `e.id` on a schema whose key is `entry_id` |
+| `AccountStateCoordinator.query_today_velocity/2` | The dead read is gone. Returning `{0, 0}` literally is exactly behaviour-preserving and removes a DB round-trip from the authorization hot path. **The velocity defect itself is still open** and still a business decision |
 
-**HCS was on this list and should not have been.** The claim that it was invisible to the posting engine rested on a query that counted `product = "HCS"` — a product that does not exist. HCS cards hang off real `cms_accounts` rows and had 135 journal entries all along, matching their 135 legacy rows exactly. Both readers migrated 2026-08-05. See `Phase_C2_Reader_Migration.md` §6a.
+### What the C3 inversion exposed
 
-### C2 found a real accounting defect
+Three defects, all invisible while callers passed raw account codes:
 
-`RuleEngine.consolidate/4` accumulated the GL with a read-modify-write, and lost updates under concurrency: `journal_entries` totalled 1,737,568.84 against `gl_ledger_entries`' 1,728,263.33, a **9,305.51 shortfall over 19 postings**. The journal — the customer-facing view — was correct throughout; only the bank's books were short, and nothing raised. Fixed with an atomic upsert, historical rows repaired, invariant now asserted by tests.
-
-**This is the argument for finishing C3 rather than living with two ledgers.** The defect was invisible for as long as nothing compared the two representations. The trial balance found it in its first run.
-
-### What C3 needs
-
-1. Build the `CoreBankingAdapter` extraction-state table (small, self-contained).
-2. Get a decision on the velocity defect.
-3. Then stop writing `cms_ledger_entries` and delete `InternalGlPoster`.
-
-### HCS is now a first-class product (2026-08-05)
-
-Migrating the HCS readers exposed a modelling gap rather than a blocker: HCS
-posted to the **consumer** card accounts `1001`/`2001`, so corporate fleet
-exposure was indistinguishable from a consumer credit card on the balance
-sheet — while the two HCS accounts already in the chart had never received a
-posting.
-
-HCS now carries the same six concerns every other product does: chart accounts
-(`1006`, new `1009`, `2002`), 16 posting rules across `HCS_FLEET` and
-`HCS_CORPORATE`, a resolver overlay, a `Cutover` entry, seed data, and tests.
-**That set is the template for adding the next product.**
-
-Its 135 historical postings were relabelled onto the new accounts rather than
-left split across a cutover date — see `Phase_C2_Reader_Migration.md`. That was
-only safe because the periods involved hold seed data; in production the same
-correction is a dated reclassification entry, not a restatement.
+1. **Legacy narratives were being discarded** — a wallet load recorded the
+   literal `"Wallet account load: {channel}"`, placeholder included.
+2. **Recovery would have credited the receivable, not recovery income** — the
+   legacy enum has no `RECOVERY` code, so `post_recovery` labelled itself
+   `PAYMENT`. Fixed with a real event type and an explicit `:event_type` escape
+   hatch for callers the coarse enum cannot express.
+3. **`CoreBankingAdapter` had never worked** — third instance of the same
+   `.id`-vs-named-primary-key slip.
 
 ---
 
@@ -73,7 +65,7 @@ Two of four Tier-1 patterns closed, including both of the ones called highest-le
 
 ### Also delivered along the way
 
-**Fifteen real defects**, none of which were on any plan.
+**Twenty-one real defects**, none of which were on any plan.
 
 From Phases A–C1: the interest→4001 misclassification, two conflicting charts writing one table, account `5003` used but registered nowhere, my own `3002`/DPS collision, `statement_reversal` treating a liability as income, 11 seed rows violating double entry, statement generation broken by a schemaless UUID cast **and** a call to a function that never existed, and a `posting_rules` coverage gap that only a history backfill could have exposed.
 
@@ -85,13 +77,11 @@ Plus: the admin menu standard, `config/test.exs` no longer binding production po
 
 ## 3. What remains, in priority order
 
-### Now — finish what is started
+### Now — A3, effective-dated configuration
 
-**C3**, and the three C2 stragglers it depends on. See §1. Nothing else should start first — two dual-written ledgers is the state in which the concurrency defect above stayed invisible.
-
-### Next — A3, effective-dated configuration
-
-Still the retrofit whose cost compounds. It is also a **prerequisite** for three Tier-2 domains: Tax, Pricing and a Fee catalog all need "what did this rule say on date X".
+The GL programme is finished (§1), so the next compounding-cost item is the one
+to take. A3 is also a **prerequisite** for three Tier-2 domains: Tax, Pricing and
+a Fee catalog all need "what did this rule say on date X".
 
 Doing it after Tax rather than before means building Tax twice.
 
@@ -154,4 +144,4 @@ Pricing should follow Fee's restructure so the two share a shape. Treasury is ne
 8. Pricing, Treasury
 ```
 
-Step 2 is finishing work. Step 3 is the last compounding-cost item. Everything from 4 onward is net-new capability and can be reordered on business priority without penalty.
+Steps 1–2 are done. Step 3 is the last compounding-cost item. Everything from 4 onward is net-new capability and can be reordered on business priority without penalty.

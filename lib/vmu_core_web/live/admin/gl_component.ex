@@ -388,20 +388,23 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
           <p :if={@journal_entries == []} class="cell-note">No journal entries yet.</p>
 
         <% "shadow" -> %>
-          <div :if={!@shadow_enabled} class="alert">
-            <strong>Shadow posting is off.</strong>
-            Enable with <code>config :vmu_core, VmuCore.Posting.Shadow, enabled: true</code>.
-            While off, the legacy poster runs alone and nothing new is written for comparison.
+          <div class="alert">
+            <strong>Historical.</strong>
+            GL Phase C3 completed on 2026-08-06: nothing writes
+            <code>cms_ledger_entries</code> any more, so this comparison is a
+            record of how the cutover was validated, not a live control. The
+            mirrored count stops growing by design.
           </div>
 
           <p class="cell-note">
-            Legacy <code>cms_ledger_entries</code> compared against the new posting engine,
+            Legacy <code>cms_ledger_entries</code> compared against the posting engine,
             joined on idempotency key, for postings since <%= @shadow_since %>.
             Only postings the shadow itself mirrored are compared — sets the engine
-            wrote directly (demo seed data, and Phase C call sites once cut over)
-            legitimately have no legacy counterpart and are excluded.
-            Cutover is defensible when <strong>mismatch</strong> and
-            <strong>orphan</strong> are zero over a meaningful <strong>mirrored</strong> sample.
+            wrote directly (demo seed data, and every posting since C3)
+            legitimately have no legacy counterpart and are excluded, which is why
+            this tab does not fill with false mismatches now that the engine writes alone.
+            The cutover was judged on <strong>mismatch</strong> and
+            <strong>orphan</strong> reaching zero over a meaningful <strong>mirrored</strong> sample.
           </p>
 
           <div class="stat-row">

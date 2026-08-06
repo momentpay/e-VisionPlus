@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
   import Phoenix.LiveViewTest
 
   alias VmuCore.Repo
+  alias VmuCore.GLFixtures
   alias VmuCore.ASM.{Authz, Operator}
   alias VmuCore.CMS.{WalletAccount, WalletProductOpening, WalletFundingCommand}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
@@ -53,6 +54,14 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "606060", description: "test"}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 

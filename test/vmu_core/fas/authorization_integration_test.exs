@@ -12,6 +12,7 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   use VmuCore.DataCase, async: false
 
   alias VmuCore.FAS.Authorization
+  alias VmuCore.GLFixtures
   alias VmuCore.FAS.STIP
   alias VmuCore.CMS.{Account, AccountStateCoordinator}
   alias VmuCore.CTA.Cards
@@ -162,6 +163,13 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   setup do
     seed_parameter_hierarchy()
     STIP.init_cache()
+
+    # GL Phase C3: settlement posts through `Posting.RuleEngine` now, which
+    # needs the chart, the rules, and an open banking date for the institution.
+    # See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!("0001", "0010")
+
     :ok
   end
 

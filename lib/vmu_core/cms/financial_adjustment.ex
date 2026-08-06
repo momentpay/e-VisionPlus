@@ -44,8 +44,8 @@ defmodule VmuCore.CMS.FinancialAdjustment do
       )
   """
 
-  alias VmuCore.CMS.LedgerEntry
   alias VmuCore.CMS.InternalGlPoster
+  alias VmuCore.Posting.JournalEntry
   alias VmuCore.GL.LedgerQuery
   alias Decimal, as: D
 
@@ -62,9 +62,10 @@ defmodule VmuCore.CMS.FinancialAdjustment do
     - `:supervisor_id` — (required) UUID of approving supervisor (must differ from operator)
     - `:posting_date`  — `Date.t()` (default: `Date.utc_today/0`)
 
-  Returns `{:ok, %LedgerEntry{}}` or `{:error, reason}`.
+  Returns `{:ok, %Posting.JournalEntry{}}` or `{:error, reason}` — GL Phase C3
+  changed the posting return from a `cms_ledger_entries` row to the journal entry.
   """
-  @spec post_credit(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
+  @spec post_credit(keyword()) :: {:ok, JournalEntry.t()} | {:error, term()}
   def post_credit(opts) do
     post_adjustment(:credit, opts)
   end
@@ -73,9 +74,10 @@ defmodule VmuCore.CMS.FinancialAdjustment do
   Post a debit adjustment — increases the cardholder's outstanding balance.
 
   Same options as `post_credit/1`.
-  Returns `{:ok, %LedgerEntry{}}` or `{:error, reason}`.
+  Returns `{:ok, %Posting.JournalEntry{}}` or `{:error, reason}` — GL Phase C3
+  changed the posting return from a `cms_ledger_entries` row to the journal entry.
   """
-  @spec post_debit(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
+  @spec post_debit(keyword()) :: {:ok, JournalEntry.t()} | {:error, term()}
   def post_debit(opts) do
     post_adjustment(:debit, opts)
   end

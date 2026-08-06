@@ -87,7 +87,7 @@ defmodule VmuCore.Posting.Rules do
   def default_rules,
     do:
       credit_rules() ++ card_rules() ++ debit_rules() ++ prepaid_rules() ++ wallet_rules() ++
-        hcs_rules()
+        hcs_rules() ++ recovery_rules()
 
   # --- CMS credit ledger (InternalGlPoster) ----------------------------------
   defp credit_rules do
@@ -216,6 +216,31 @@ defmodule VmuCore.Posting.Rules do
       deposit:    {"DEPOSIT",    "Wallet account load: {channel}"},
       spend:      {"WITHDRAWAL", "{narrative}"},
       adjustments: false)
+  end
+
+  # --- Post-charge-off recovery ----------------------------------------------
+  #
+  # Added 2026-08-06 during C3. `COL.WriteOffProcessor.post_recovery/3` labels
+  # its posting `PAYMENT`, because `cms_ledger_entries.transaction_code` has no
+  # RECOVERY member — but a recovery credits **recovery income**, where a
+  # payment credits the receivable. While the caller passed raw account codes
+  # that distinction survived by accident; once the rule decides the accounts it
+  # has to be a rule.
+  #
+  # The pair is the same for every product: money arrives through payment
+  # clearing and lands in recovery income. Only the receivable differs between
+  # products, and a recovery does not touch it — the balance was already
+  # written off.
+  defp recovery_rules do
+    for product <- ~w[CREDIT CREDIT_CARD HCS_FLEET HCS_CORPORATE] do
+      %{event_type: "RECOVERY", product: product,
+        dr_account: "3001", cr_account: "4004",
+        legacy_transaction_code: "PAYMENT",
+        narrative_template: "Post-charge-off recovery", source_module: @igp,
+        notes: "Recovery income 4004, not the receivable. The legacy enum has no " <>
+               "RECOVERY code, so the caller names the event explicitly — see " <>
+               "Posting.LegacyEvent."}
+    end
   end
 
   # --- HCS corporate and fleet cards -----------------------------------------

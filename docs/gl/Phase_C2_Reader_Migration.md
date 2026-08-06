@@ -3,7 +3,7 @@
 | Property | Value |
 |---|---|
 | Date | 2026-08-05 |
-| Status | **Complete. HCS migrated 2026-08-05; one reader remains, for a stated reason (§6).** |
+| Status | **Complete.** Both remaining readers resolved by C3 — see `Phase_C3_Legacy_Retirement.md` |
 | Depends on | C1 complete: all five products authoritative, 1,703 postings compared with zero disagreements |
 
 ---
@@ -140,12 +140,15 @@ Any test whose subject touches the posting engine calls `GLFixtures.seed_posting
 
 ---
 
-## 6. Not migrated, and why
+## 6. Not migrated here — resolved by C3
 
-| Reader | Reason |
-|---|---|
-| `CMS.CoreBankingAdapter` | Needs per-entry `extracted_at` extraction state. `gl_ledger_entries` *has* an `extracted_at` column, but at **consolidated GL grain** — one row per (institution, gl_date, dr, cr) — while the adapter extracts per account, per posting date, per entry. Not the same thing. Needs its own extraction-state table keyed by posting set |
-| `CMS.AccountStateCoordinator.query_today_velocity/2` | **The query is dead.** It filters `transaction_code == "AUTH_<channel>"`, but `LedgerEntry`'s changeset permits eleven codes and none is `AUTH_*` — and authorizations never post to GL by design. Consequence: the daily velocity **count** limit never fires, and the amount check degrades to a single-transaction check. Documented in place; not migrated and **not fixed**, because fixing it changes authorization outcomes. That is a business decision, not a migration step |
+Two readers were left at the end of C2, each blocked on something real. **Both
+were resolved in C3 the following day** (`Phase_C3_Legacy_Retirement.md` §3):
+
+| Reader | Why it was blocked | Resolution |
+|---|---|---|
+| `CMS.CoreBankingAdapter` | Needed per-entry `extracted_at` state. `gl_ledger_entries` has that column but at **consolidated GL grain** — one row per (institution, GL date, debit, credit) — while the adapter extracts per account, per posting date, per entry | `GL.Extraction`, keyed on `(journal_entry_id, destination)`. Also revealed the adapter had **never run**: it referenced `e.id` on a schema whose primary key is `entry_id` |
+| `CMS.AccountStateCoordinator.query_today_velocity/2` | The query is **dead** — it filters `transaction_code == "AUTH_*"`, which the changeset does not permit, against a table authorizations never post to by design. Fixing it changes authorization outcomes | The dead read was removed; returning `{0, 0}` literally is exactly behaviour-preserving and drops a DB round-trip from the hot path. **The defect itself remains open** — fixing velocity properly is still a business decision |
 
 ---
 
@@ -260,6 +263,6 @@ them would pay two extra queries on the posting path to learn that again.
 
 ## 8. Status
 
-**Complete.** Every reader has migrated except `CMS.CoreBankingAdapter`, which needs an extraction-state table built (§6), and `AccountStateCoordinator.query_today_velocity/2`, which is a dead query whose fix is a business decision.
+**Complete.** Every reader has migrated. The two listed in §6 were resolved by C3 on 2026-08-06, which also stopped all writes to `cms_ledger_entries`.
 
-**C3 now has two blockers, not three.** `cms_ledger_entries` is still written by `InternalGlPoster` and still read by those two, so the table cannot be dropped yet.
+The table now has **no writer and no reader**. See `Phase_C3_Legacy_Retirement.md`.

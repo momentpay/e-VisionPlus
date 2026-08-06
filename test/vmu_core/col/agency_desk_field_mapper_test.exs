@@ -10,6 +10,7 @@ defmodule VmuCore.COL.AgencyDeskFieldMapperTest do
   use ExUnit.Case, async: false
 
   alias VmuCore.Repo
+  alias VmuCore.GLFixtures
   alias VmuCore.CMS.{Account, BalanceBucket}
   alias VmuCore.COL.{AgencyDesk, CollectionCase}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter,
@@ -37,6 +38,14 @@ defmodule VmuCore.COL.AgencyDeskFieldMapperTest do
       payment_channels_enabled: "gateway,direct_debit,agency"
     })
     |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
 
     %LogoParameter{}
     |> LogoParameter.changeset(%{

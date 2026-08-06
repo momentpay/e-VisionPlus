@@ -21,10 +21,15 @@ defmodule VmuCore.CMS.FeeWaiver do
   A fee waiver is implemented as a **REVERSAL** GL entry that mirrors the
   original FEE posting with reversed debit/credit accounts:
 
-  | Step | GL debit         | GL credit        |
-  |------|------------------|------------------|
-  | Original fee  | 1004 (fee recv) | 2002 (fee income) |
-  | Waiver reversal | 2002 (fee income) | 1004 (fee recv) |
+  | Step | GL debit | GL credit |
+  |------|----------|-----------|
+  | Original fee    | 1004 Fee Receivable | 4001 Fee Revenue |
+  | Waiver reversal | 4001 Fee Revenue | 1004 Fee Receivable |
+
+  The accounts are read from the original entry, not hardcoded — this table
+  describes the usual pair. It previously named 2002 as "fee income", which the
+  Phase 4A remap made wrong twice over: fee revenue is 4001, and 2002 is the
+  HCS Parent Account Payable.
 
   After posting the reversal, `balance_bucket.unpaid_fees` is decremented by
   the waived amount within the same database transaction.
@@ -49,19 +54,16 @@ defmodule VmuCore.CMS.FeeWaiver do
         supervisor_id:          supervisor_id
       )
 
-      # Waive a specific fee by its ledger entry_id
-      {:ok, reversal} = FeeWaiver.waive_by_entry_id(
-        entry_id:     "6a4f...",
-        account_id:   acc.account_id,
-        reason:       "System error — fee incorrectly applied",
-        operator_id:  agent_id,
-        supervisor_id: supervisor_id
-      )
+  `waive_by_entry_id/1` was retired in GL Phase C2: `cms_ledger_entries` had a
+  surrogate primary key and the posting tables have no equivalent, so entries
+  are identified by idempotency key. `list_fee_entries/2` gives an operator the
+  list to choose from.
   """
 
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.LedgerEntry, CMS.BalanceBucket}
+  alias VmuCore.{Repo, CMS.BalanceBucket}
+  alias VmuCore.Posting.JournalEntry
   alias VmuCore.CMS.InternalGlPoster
   alias VmuCore.GL.LedgerQuery
   alias Decimal, as: D
@@ -78,9 +80,10 @@ defmodule VmuCore.CMS.FeeWaiver do
     - `:supervisor_id`            — (required) UUID of approving supervisor (must differ)
     - `:posting_date`             — `Date.t()` (default: `Date.utc_today/0`)
 
-  Returns `{:ok, %LedgerEntry{}}` or `{:error, reason}`.
+  Returns `{:ok, %Posting.JournalEntry{}}` or `{:error, reason}` — GL Phase C3
+  changed the posting return from a `cms_ledger_entries` row to the journal entry.
   """
-  @spec waive(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
+  @spec waive(keyword()) :: {:ok, JournalEntry.t()} | {:error, term()}
   def waive(opts) do
     original_key = Keyword.fetch!(opts, :original_idempotency_key)
     account_id   = Keyword.fetch!(opts, :account_id)

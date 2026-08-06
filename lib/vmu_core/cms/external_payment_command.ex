@@ -83,7 +83,7 @@ defmodule VmuCore.CMS.ExternalPaymentCommand do
       {:ok, %{ledger_entry: ledger_entry}} ->
         payment
         |> ExternalPayment.changeset(%{
-          "ledger_entry_id" => ledger_entry.entry_id, "status" => "submitted",
+          "ledger_entry_id" => ledger_entry.id, "status" => "submitted",
           "submitted_at" => DateTime.utc_now() |> DateTime.truncate(:second)
         })
         |> Repo.update!()

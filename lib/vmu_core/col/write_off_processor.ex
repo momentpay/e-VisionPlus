@@ -105,6 +105,11 @@ defmodule VmuCore.COL.WriteOffProcessor do
       account_id:       account_id,
       idempotency_key:  "RECOVERY-#{source_ref}",
       transaction_code: "PAYMENT",
+      # GL Phase C3: the engine picks accounts from the posting rule, and
+      # PAYMENT would credit the receivable (1001). A recovery credits recovery
+      # income (4004) — it is a distinct event that the legacy transaction_code
+      # enum has no member for, so it is named explicitly here.
+      event_type:       "RECOVERY",
       dr_amount:        amount,
       cr_amount:        amount,
       gl_account_dr:    "3001",   # Cash/settlement account (Payment / Adjustment Clearing)

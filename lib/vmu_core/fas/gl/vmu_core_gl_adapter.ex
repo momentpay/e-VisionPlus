@@ -38,7 +38,7 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
   require Logger
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.CMS.InternalGlPoster
   alias VmuCore.GL.LedgerQuery
   alias VmuCore.FAS.GL.CardAccountCodes
   alias WalletGl.GlPostingRecord
@@ -77,13 +77,26 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
         source_ref:       to_string(record.correlation_id)
       }
 
-      case Repo.insert(LedgerEntry.changeset(%LedgerEntry{}, attrs),
-                       on_conflict: :nothing,
-                       conflict_target: :idempotency_key) do
-        {:ok, _entry}    -> {:ok, key}
-        {:error, cs}     ->
-          Logger.error("[VmuCoreGlAdapter] post_entry failed #{key}: #{inspect(cs.errors)}")
-          {:error, :posting_failed, inspect(cs.errors)}
+      # GL Phase C3 — routed through `InternalGlPoster`, which now translates to
+      # `Posting.RuleEngine`, rather than inserting into `cms_ledger_entries`
+      # directly. This was the last direct writer of that table.
+      #
+      # The attrs above are already in the legacy shape the façade expects, so
+      # this is a call-target change and nothing more.
+      case InternalGlPoster.post(attrs) do
+        {:ok, _entry} ->
+          {:ok, key}
+
+        # Previously `on_conflict: :nothing` made a replayed key look like a
+        # successful insert, so duplicates returned {:ok, key}. Preserved:
+        # posting the same journal reference twice is not an error to a caller
+        # that only wants the entry to exist.
+        {:error, :duplicate} ->
+          {:ok, key}
+
+        {:error, reason} ->
+          Logger.error("[VmuCoreGlAdapter] post_entry failed #{key}: #{inspect(reason)}")
+          {:error, :posting_failed, inspect(reason)}
       end
     else
       {:error, reason} ->

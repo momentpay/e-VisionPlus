@@ -9,6 +9,7 @@ defmodule VmuCore.CMS.WalletW1Test do
   use ExUnit.Case, async: false
 
   alias VmuCore.Repo
+  alias VmuCore.GLFixtures
   alias VmuCore.CMS.{
     WalletAccount, WalletProductOpening, WalletFundingCommand,
     WalletWithdrawalCommand, WalletAccountClosure, WalletBlockHistory,
@@ -34,6 +35,14 @@ defmodule VmuCore.CMS.WalletW1Test do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "606060", description: "test"}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 
@@ -80,8 +89,11 @@ defmodule VmuCore.CMS.WalletW1Test do
              })
 
     assert D.equal?(funding.amount, D.new("250.00"))
-    assert entry.gl_account_dr == "1006"
-    assert entry.gl_account_cr == "5003"
+  # Account codes remapped by GL Phase 4A (VMU-ADR-005): stored value moved
+  # out of the 5xxx expense range into 2xxx liabilities, and cash clearing
+  # from 1006 (an HCS receivable) to 3005.
+    assert entry.dr_gl_account == "3005"
+    assert entry.cr_gl_account == "2006"
 
     updated = Repo.get!(WalletAccount, account.wallet_account_id)
     assert D.equal?(updated.available_balance, D.new("250.00"))

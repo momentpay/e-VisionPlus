@@ -8,7 +8,9 @@ defmodule VmuCore.CMS.DebitFundingCommandTest do
   use ExUnit.Case, async: false
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.{DebitAccount, DebitAccountOpening, DebitFundingCommand, LedgerEntry}
+  alias VmuCore.GLFixtures
+  alias VmuCore.CMS.{DebitAccount, DebitAccountOpening, DebitFundingCommand}
+  alias VmuCore.Posting.JournalEntry
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
   alias Decimal, as: D
 
@@ -27,6 +29,14 @@ defmodule VmuCore.CMS.DebitFundingCommandTest do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "555555", description: "test", product_type: "DEBIT"}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 
@@ -53,8 +63,10 @@ defmodule VmuCore.CMS.DebitFundingCommandTest do
                channel: "INTERNAL_TRANSFER", posted_by: "operator1"
              })
 
-    assert funding.ledger_entry_id == entry.entry_id
-    assert entry.transaction_code == "DEPOSIT"
+    assert funding.ledger_entry_id == entry.id
+    # GL Phase C3: the journal entry carries the engine vocabulary; the legacy
+    # transaction_code lives on the posting rule.
+    assert entry.posting_set.event_type == "DEPOSIT"
 
     reloaded = Repo.get!(DebitAccount, account.debit_account_id)
     assert D.equal?(reloaded.available_balance, D.new("500.00"))
@@ -133,9 +145,15 @@ defmodule VmuCore.CMS.DebitFundingCommandTest do
         channel: "INTERNAL_TRANSFER", posted_by: "operator1"
       })
 
-    reloaded = Repo.get!(LedgerEntry, entry.entry_id)
-    assert D.equal?(reloaded.dr_amount, reloaded.cr_amount)
-    assert reloaded.gl_account_dr == "1006"
-    assert reloaded.gl_account_cr == "5001"
+    # GL Phase C3: the posting lands in `journal_entries`, which keeps a single
+    # `amount` — the two sides being equal is enforced by construction rather
+    # than asserted.
+    reloaded = Repo.get!(JournalEntry, entry.id)
+    assert %Decimal{} = reloaded.amount
+  # Account codes remapped by GL Phase 4A (VMU-ADR-005): stored value moved
+  # out of the 5xxx expense range into 2xxx liabilities, and cash clearing
+  # from 1006 (an HCS receivable) to 3005.
+    assert reloaded.dr_gl_account == "3005"
+    assert reloaded.cr_gl_account == "2004"
   end
 end

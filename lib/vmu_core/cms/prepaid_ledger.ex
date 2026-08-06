@@ -63,7 +63,7 @@ defmodule VmuCore.CMS.PrepaidLedger do
                %PrepaidLedgerEntry{}
                |> PrepaidLedgerEntry.changeset(Map.merge(attrs, %{
                  entry_type: "LOAD", remaining_amount: attrs.amount, status: "ACTIVE",
-                 posting_date: Date.utc_today(), idempotency_key: gl_entry.idempotency_key <> ":ledger"
+                 posting_date: Date.utc_today(), idempotency_key: gl_entry.posting_set.idempotency_key <> ":ledger"
                }))
                |> Repo.insert() do
           %{load_entry: load_entry, ledger_gl_entry: gl_entry}

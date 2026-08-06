@@ -488,21 +488,23 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
   # because it alters authorization outcomes on the hot path: transactions that
   # pass today would begin to decline. That is a business decision, not a
   # refactor. See docs/gl/Phase_C2_Reader_Migration.md §6.
-  defp query_today_velocity(account_id, channel_str) do
-    today = Date.utc_today()
-
-    result =
-      Repo.one(
-        from e in VmuCore.CMS.LedgerEntry,
-          where: e.account_id == ^account_id
-            and e.posting_date == ^today
-            and e.transaction_code == ^"AUTH_#{String.upcase(channel_str)}",
-          select: %{count: count(e.entry_id), total: coalesce(sum(e.dr_amount), 0)}
-      )
-
-    count  = if result, do: result.count  || 0, else: 0
-    total  = if result, do: result.total  || Decimal.new(0), else: Decimal.new(0)
-    {count, total}
+  # GL Phase C3: the query is gone, the defect is not.
+  #
+  # It provably returned {0, 0} on every call, so returning that literally is
+  # **exactly behaviour-preserving** — no authorization outcome changes. What it
+  # also removes is a database round-trip per authorization on the hot path,
+  # which `CLAUDE.md` prohibits outright, in service of a result that was always
+  # a constant.
+  #
+  # Keeping the dead query alive purely to preserve a legacy table read would
+  # have been the worst of both: the defect, plus the cost, plus a reason not to
+  # drop `cms_ledger_entries`.
+  #
+  # **Fixing velocity properly is still open**, and is still a business
+  # decision, because the correct source (`fas_authorizations`) would start
+  # declining transactions that pass today.
+  defp query_today_velocity(_account_id, _channel_str) do
+    {0, Decimal.new(0)}
   end
 
   # ---------------------------------------------------------------------------

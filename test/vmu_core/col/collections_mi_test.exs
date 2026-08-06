@@ -12,6 +12,7 @@ defmodule VmuCore.COL.CollectionsMiTest do
   use ExUnit.Case, async: false
 
   alias VmuCore.Repo
+  alias VmuCore.GLFixtures
   alias VmuCore.CMS.{Account, BalanceBucket, ChargeOffRecovery}
   alias VmuCore.COL.{CollectionCase, CollectionsMi, DpdBucketHistory, PromiseVerification, WriteOffProcessor}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
@@ -32,6 +33,14 @@ defmodule VmuCore.COL.CollectionsMiTest do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C2: `ChargeOffRecovery.total_recovered/1` now reads
+    # `GL.LedgerQuery`, so the posting engine has to accept writes for this
+    # institution or the reader silently sees nothing — the chart and rules are
+    # reference data the sandbox does not carry, and the period gate rejects a
+    # date with no open banking day. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
 
     %LogoParameter{}
     |> LogoParameter.changeset(%{

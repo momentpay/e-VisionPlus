@@ -9,6 +9,7 @@ defmodule VmuCore.CMS.PrepaidLedgerTest do
   use ExUnit.Case, async: false
 
   alias VmuCore.Repo
+  alias VmuCore.GLFixtures
   alias VmuCore.CMS.{PrepaidAccountOpening, PrepaidLedger, PrepaidLedgerEntry}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
   alias Decimal, as: D
@@ -28,6 +29,14 @@ defmodule VmuCore.CMS.PrepaidLedgerTest do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "606060", description: "test", product_type: "PREPAID"}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 
@@ -57,8 +66,11 @@ defmodule VmuCore.CMS.PrepaidLedgerTest do
 
       assert entry.entry_type == "LOAD"
       assert D.equal?(entry.remaining_amount, D.new("200.00"))
-      assert gl.gl_account_dr == "1006"
-      assert gl.gl_account_cr == "5002"
+  # Account codes remapped by GL Phase 4A (VMU-ADR-005): stored value moved
+  # out of the 5xxx expense range into 2xxx liabilities, and cash clearing
+  # from 1006 (an HCS receivable) to 3005.
+      assert gl.dr_gl_account == "3005"
+      assert gl.cr_gl_account == "2005"
 
       assert D.equal?(PrepaidLedger.balance(account.prepaid_account_id), D.new("200.00"))
     end

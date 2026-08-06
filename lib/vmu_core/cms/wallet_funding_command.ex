@@ -68,7 +68,7 @@ defmodule VmuCore.CMS.WalletFundingCommand do
              ),
            {:ok, funding} <-
              %WalletFunding{}
-             |> WalletFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.entry_id))
+             |> WalletFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.id))
              |> Repo.insert() do
         {1, _} =
           Repo.update_all(

@@ -47,7 +47,7 @@ defmodule VmuCore.CMS.PrepaidAdjustmentCommand do
                ),
              {:ok, record} <-
                changeset
-               |> Ecto.Changeset.put_change(:ledger_entry_id, gl_entry.entry_id)
+               |> Ecto.Changeset.put_change(:ledger_entry_id, gl_entry.id)
                |> Repo.insert() do
           record
         else

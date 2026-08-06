@@ -30,7 +30,8 @@ defmodule VmuCore.CMS.CreditBalanceRefund do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.Payment, CMS.LedgerEntry, CMS.InternalGlPoster}
+  alias VmuCore.{Repo, CMS.Account, CMS.Payment, CMS.InternalGlPoster}
+  alias VmuCore.Posting.JournalEntry
   alias Decimal, as: D
   alias VmuCore.GL.LedgerQuery
 
@@ -67,7 +68,7 @@ defmodule VmuCore.CMS.CreditBalanceRefund do
   Returns `{:ok, ledger_entry}` or `{:error, reason}`.
   """
   @spec refund(Ecto.UUID.t(), Decimal.t(), keyword()) ::
-          {:ok, LedgerEntry.t()} | {:error, term()}
+          {:ok, JournalEntry.t()} | {:error, term()}
   def refund(account_id, amount, opts) do
     reference     = Keyword.fetch!(opts, :reference)
     operator_id   = Keyword.get(opts, :operator_id, "SYSTEM")

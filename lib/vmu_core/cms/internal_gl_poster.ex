@@ -1,7 +1,33 @@
 defmodule VmuCore.CMS.InternalGlPoster do
   @moduledoc """
-  Posts double-entry journal entries to cms_ledger_entries.
-  Idempotency key prevents duplicate postings on job retry.
+  Legacy-shaped façade over `Posting.RuleEngine` (GL Phase C3).
+
+  ## What changed in C3
+
+  This used to insert a row into `cms_ledger_entries` and then mirror it to the
+  posting engine. **It no longer writes that table at all.** `post/1` translates
+  its legacy attrs into an engine event via `Posting.LegacyEvent` and returns
+  the resulting journal entry.
+
+  The module survives, rather than being deleted, because **thirty-five modules
+  call it and none of them knows its own institution**. The engine needs
+  `sys_id`/`bank_id`; a legacy call supplies an account id and nothing else.
+  Deleting this façade would mean pushing `InstitutionResolver` into
+  thirty-five call sites and changing every one of their signatures — more
+  churn, more places to get it wrong, and no benefit. The name is now
+  misleading (it posts to the engine, not to an internal table); renaming is
+  deferred under VMU-ADR-003 along with every other rename.
+
+  ## Return contract
+
+  `{:ok, %Posting.JournalEntry{}}` with `posting_set` preloaded, instead of the
+  old `{:ok, %CMS.LedgerEntry{}}`. The journal entry is the subledger row and so
+  the true analogue. `{:error, :duplicate}` on a replayed idempotency key is
+  preserved exactly — callers such as `PurchasePosting` branch on it.
+
+  Callers that stored `entry.entry_id` in a `ledger_entry_id` column now store
+  `entry.id`, a `journal_entries` id. Those columns carry no foreign key, so
+  nothing breaks structurally, but the row they point at has moved.
 
   ## Chart of accounts
 
@@ -55,61 +81,65 @@ defmodule VmuCore.CMS.InternalGlPoster do
   @prepaid_liability "2005"
   @wallet_liability  "2006"
 
+  import Ecto.Query, warn: false
+
   require Logger
-  alias VmuCore.{Repo, CMS.LedgerEntry}
+
+  alias VmuCore.Repo
+  alias VmuCore.Posting.{JournalEntry, LegacyEvent, RuleEngine}
 
   @doc """
   Post a journal entry. Returns {:ok, entry} or {:error, :duplicate} if
   the idempotency_key was already posted, or {:error, changeset} on validation failure.
   """
   def post(attrs) do
-    cs = LedgerEntry.changeset(%LedgerEntry{}, attrs)
+    with {:ok, event} <- LegacyEvent.from_attrs(attrs) do
+      case RuleEngine.execute(event) do
+        {:ok, set} ->
+          Logger.debug(
+            "[GL] posted #{attrs[:transaction_code]} #{attrs[:dr_amount]} " <>
+              "key=#{attrs[:idempotency_key]}"
+          )
 
-    case Repo.insert(cs, on_conflict: :nothing, conflict_target: :idempotency_key) do
-      {:ok, entry} ->
-        # entry_id is a CLIENT-generated binary_id, so the returned struct
-        # carries an id even when ON CONFLICT DO NOTHING skipped the insert —
-        # the old `entry_id: nil` duplicate check never fired (latent bug
-        # found 2026-07-05: duplicates reported {:ok, phantom_entry}).
-        # Read back by key: same id ⇒ we inserted it; different ⇒ duplicate.
-        persisted = Repo.get_by!(LedgerEntry, idempotency_key: entry.idempotency_key)
+          {:ok, journal_entry(set)}
 
-        if persisted.entry_id == entry.entry_id do
-          Logger.debug("[GL] Posted #{entry.transaction_code} #{entry.dr_amount} key=#{entry.idempotency_key}")
-
-          # GL Phase B/C — run the new posting engine.
-          #
-          # Phase B (shadow): `mirror/1` returns :ok whatever happens, so this
-          # cannot change what the function returns or whether the posting
-          # stands. Off unless
-          # `config :vmu_core, VmuCore.Posting.Shadow, enabled: true`.
-          #
-          # Phase C (cutover): for a product in
-          # `config :vmu_core, VmuCore.Posting.Cutover, products: [...]` the
-          # engine is authoritative and a failure must abort. The legacy row is
-          # deleted rather than left behind — twelve modules still read this
-          # table, and a row the engine rejected must not be visible to them.
-          case VmuCore.Posting.Shadow.mirror(attrs) do
-            :ok ->
-              {:ok, persisted}
-
-            {:error, reason} ->
-              Repo.delete!(persisted)
-
-              Logger.error(
-                "[GL] cutover posting REJECTED, legacy row rolled back. " <>
-                  "key=#{entry.idempotency_key} reason=#{inspect(reason)}"
-              )
-
-              {:error, reason}
-          end
-        else
+        # A replayed key is not an error to the engine, but it is to every
+        # caller here: the legacy contract was {:error, :duplicate}, and callers
+        # such as `PurchasePosting` branch on it. Preserved exactly.
+        {:ok, :duplicate, _set} ->
           {:error, :duplicate}
-        end
 
-      {:error, cs} ->
-        {:error, cs}
+        {:error, :quarantined, exception} ->
+          Logger.error(
+            "[GL] posting quarantined key=#{attrs[:idempotency_key]} " <>
+              "reason=#{exception.reason}"
+          )
+
+          {:error, {:quarantined, exception.reason}}
+
+        {:error, reason} ->
+          Logger.error(
+            "[GL] posting REJECTED key=#{attrs[:idempotency_key]} reason=#{inspect(reason)}"
+          )
+
+          {:error, reason}
+      end
     end
+  end
+
+  # The journal entry is the subledger row, and so the true analogue of the
+  # `cms_ledger_entries` row this used to return. `posting_set` is preloaded
+  # because the idempotency key lives there and callers read it.
+  #
+  # A posting set can hold several journal entries — one per product account —
+  # but every legacy posting is single-account by construction, so there is
+  # exactly one here.
+  defp journal_entry(set) do
+    JournalEntry
+    |> where([j], j.posting_set_id == ^set.id)
+    |> limit(1)
+    |> preload(:posting_set)
+    |> Repo.one()
   end
 
   @doc "Post interest charge for an account on a given date."

@@ -12,7 +12,9 @@ defmodule VmuCore.FAS.SettlementPostingAdapterPrepaidTest do
   import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.{PrepaidAccountOpening, PrepaidLedger, PrepaidLedgerEntry, LedgerEntry}
+  alias VmuCore.GLFixtures
+  alias VmuCore.CMS.{PrepaidAccountOpening, PrepaidLedger, PrepaidLedgerEntry}
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.FAS.{AuthorizationRecord, PendingHold, SettlementPostingAdapter}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
   alias Decimal, as: D
@@ -32,6 +34,14 @@ defmodule VmuCore.FAS.SettlementPostingAdapterPrepaidTest do
 
     %SysParameter{} |> SysParameter.changeset(%{sys_id: sys_id, description: "test"}) |> Repo.insert!()
     %BankParameter{} |> BankParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, description: "test"}) |> Repo.insert!()
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. Production gets
+    # all three from `seed_gl.exs`; a test that mints an institution inline has
+    # to supply them. See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(sys_id, bank_id)
     %LogoParameter{} |> LogoParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, bin_prefix: "606060", description: "test", product_type: "PREPAID"}) |> Repo.insert!()
     %BlockParameter{} |> BlockParameter.changeset(%{sys_id: sys_id, bank_id: bank_id, logo_id: logo_id, block_id: block_id}) |> Repo.insert!()
 
@@ -95,12 +105,19 @@ defmodule VmuCore.FAS.SettlementPostingAdapterPrepaidTest do
              })
 
     key = "settlement:#{auth.approval_code}:#{auth.rrn}"
-    entry = Repo.get_by!(LedgerEntry, idempotency_key: key)
+    # GL Phase C3: postings live in `journal_entries`, keyed through their
+    # posting set's idempotency key. `LedgerQuery` is the read API for that.
+    entry = LedgerQuery.entries(idempotency_key: key) |> List.first()
+    assert entry, "no posting found for #{key}"
 
-    assert entry.transaction_code == "PURCHASE"
-    assert entry.gl_account_dr == "5002"
-    assert entry.gl_account_cr == "1006"
-    assert D.equal?(entry.dr_amount, entry.cr_amount)
+    assert entry.event_type == "PURCHASE"
+  # Account codes remapped by GL Phase 4A (VMU-ADR-005): stored value moved
+  # out of the 5xxx expense range into 2xxx liabilities, and cash clearing
+  # from 1006 (an HCS receivable) to 3005.
+    assert entry.dr_gl_account == "2005"
+    assert entry.cr_gl_account == "3005"
+    # GL Phase C3: a single `amount`; the two sides are equal by construction.
+    assert %Decimal{} = entry.amount
 
     hold = Repo.get_by!(PendingHold, fas_authorization_id: auth.id)
     refute is_nil(hold.cleared_at)
@@ -132,7 +149,7 @@ defmodule VmuCore.FAS.SettlementPostingAdapterPrepaidTest do
     assert :ok = SettlementPostingAdapter.confirm_one(item)
 
     key = "settlement:#{auth.approval_code}:#{auth.rrn}"
-    assert Repo.aggregate(from(e in LedgerEntry, where: e.idempotency_key == ^key), :count) == 1
+    assert LedgerQuery.count(idempotency_key: key) == 1
   end
 
   test "an expired hold released by the sweep restores balance via a REFUND row, not the original load" do

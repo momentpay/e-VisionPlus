@@ -35,7 +35,7 @@ defmodule VmuCore.CMS.DebitFundingCommand do
                ),
              {:ok, funding} <-
                %DebitFunding{}
-               |> DebitFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.entry_id))
+               |> DebitFunding.changeset(Map.put(attrs, :ledger_entry_id, ledger_entry.id))
                |> Repo.insert() do
           {1, _} =
             Repo.update_all(

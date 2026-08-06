@@ -183,6 +183,14 @@ defmodule VmuCore.GL.ChartOfAccounts do
 
   defp clearing do
     [
+      %{code: "2007", name: "WPS Salary Disbursement Liability", account_class: "liability",
+        owner_module: "vmu_wps",
+        description: "Wages disbursed to workers under a Wage Protection System scheme and " <>
+                     "not yet spent. Separate from 2005 Prepaid Stored-Value Liability " <>
+                     "because salary float is regulated money with a reporting obligation " <>
+                     "to a labour authority, and a regulator asking what we hold on behalf " <>
+                     "of workers must not be answered with a number that also includes gift " <>
+                     "cards. Added 2026-08-06 (Phase W1)."},
       %{code: "3001", name: "Payment / Adjustment Clearing", account_class: "asset", owner_module: "vmu_cms",
         description: "Cash received from cardholder payments, financial adjustments, and COL " <>
                      "settlement/recovery payments, awaiting reconciliation to a real bank account."},

@@ -87,7 +87,7 @@ defmodule VmuCore.Posting.Rules do
   def default_rules,
     do:
       credit_rules() ++ card_rules() ++ debit_rules() ++ prepaid_rules() ++ wallet_rules() ++
-        hcs_rules() ++ recovery_rules()
+        hcs_rules() ++ recovery_rules() ++ wps_rules()
 
   # --- CMS credit ledger (InternalGlPoster) ----------------------------------
   defp credit_rules do
@@ -216,6 +216,80 @@ defmodule VmuCore.Posting.Rules do
       deposit:    {"DEPOSIT",    "Wallet account load: {channel}"},
       spend:      {"WITHDRAWAL", "{narrative}"},
       adjustments: false)
+  end
+
+  # --- WPS salary disbursement -----------------------------------------------
+  #
+  # Added 2026-08-06 (Phase W1). WPS workers hold ordinary
+  # `cms_prepaid_accounts` rows, so before this they resolved as `PREPAID` and
+  # their balances were indistinguishable from gift-card float. That matters
+  # more here than it did for HCS: salary float is **regulated money** with a
+  # reporting obligation to a labour authority, and a regulator asking what the
+  # bank holds on behalf of workers cannot be answered with a number that also
+  # includes prepaid top-ups. Hence account 2007, and hence its own product.
+  #
+  # ## WITHDRAWAL exists even though its account pair matches PURCHASE
+  #
+  # Both move money out of the salary liability into cash clearing, so the debit
+  # and credit are identical. The event is still separate because this
+  # population is **cash-out heavy** — that is the single most important thing
+  # to be able to report on for a WPS programme, and `posting_sets.event_type`
+  # is what makes it queryable. A shared account pair is not a reason to
+  # collapse two events that answer different questions.
+  #
+  # ## Superset of PREPAID
+  #
+  # Every PREPAID event is covered, because `InstitutionResolver` relabels
+  # existing prepaid accounts once they join a roster and `Posting.Cutover`
+  # makes the engine authoritative — a narrower set would turn a working
+  # posting path into a failing one at the moment of relabelling. Same
+  # invariant HCS established, asserted by the same test.
+  defp wps_rules do
+    liability = "2007"
+    cash = "3005"
+
+    [
+      %{event_type: "DEPOSIT", product: "WPS_PREPAID",
+        dr_account: cash, cr_account: liability,
+        legacy_transaction_code: "DEPOSIT",
+        narrative_template: "WPS salary credit: {pay_period}", source_module: @igp,
+        notes: "The salary credit itself. Employer money arrives through cash clearing " <>
+               "and becomes a liability to the worker."},
+
+      %{event_type: "PURCHASE", product: "WPS_PREPAID",
+        dr_account: liability, cr_account: cash,
+        legacy_transaction_code: "PURCHASE",
+        narrative_template: "WPS card purchase", source_module: @igp,
+        notes: "Retail spend against disbursed wages."},
+
+      %{event_type: "WITHDRAWAL", product: "WPS_PREPAID",
+        dr_account: liability, cr_account: cash,
+        legacy_transaction_code: "PURCHASE",
+        narrative_template: "WPS cash withdrawal: {channel}", source_module: @igp,
+        notes: "ATM cash-out. Same account pair as PURCHASE by design — see the " <>
+               "module comment. Kept separate because cash-out volume is the " <>
+               "headline metric for a WPS programme."},
+
+      %{event_type: "REVERSAL", product: "WPS_PREPAID",
+        dr_account: liability, cr_account: cash,
+        legacy_transaction_code: "REVERSAL",
+        narrative_template: "WPS employer refund: {reason}", source_module: @igp,
+        notes: "Employer refund of a salary credit that should not have been paid — " <>
+               "an overpayment or a worker who had already left. Distinct from a " <>
+               "worker withdrawal because the money returns to the employer."},
+
+      %{event_type: "ADJUSTMENT_CREDIT", product: "WPS_PREPAID",
+        dr_account: cash, cr_account: liability,
+        legacy_transaction_code: "ADJUSTMENT",
+        narrative_template: "WPS adjustment (credit): {narrative}", source_module: @igp,
+        notes: "Correction increasing the worker's balance."},
+
+      %{event_type: "ADJUSTMENT_DEBIT", product: "WPS_PREPAID",
+        dr_account: liability, cr_account: cash,
+        legacy_transaction_code: "ADJUSTMENT",
+        narrative_template: "WPS adjustment (debit): {narrative}", source_module: @igp,
+        notes: "Correction reducing the worker's balance."}
+    ]
   end
 
   # --- Post-charge-off recovery ----------------------------------------------

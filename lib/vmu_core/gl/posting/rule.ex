@@ -31,7 +31,7 @@ defmodule VmuCore.Posting.Rule do
   # products here, with their own receivables, because corporate fleet exposure
   # and consumer card exposure are different credit risks and finance reports
   # them separately.
-  @products ~w[CREDIT CREDIT_CARD HCS_FLEET HCS_CORPORATE DEBIT PREPAID WALLET]
+  @products ~w[CREDIT CREDIT_CARD HCS_FLEET HCS_CORPORATE DEBIT PREPAID WPS_PREPAID WALLET]
 
   schema "posting_rules" do
     field :event_type,             :string

@@ -61,14 +61,30 @@ defmodule VmuCore.GL.InstitutionResolver do
     "HCS_CORPORATE" => {"cms_accounts", :account_id},
     "DEBIT" => {"cms_debit_accounts", :debit_account_id},
     "PREPAID" => {"cms_prepaid_accounts", :prepaid_account_id},
+    "WPS_PREPAID" => {"cms_prepaid_accounts", :prepaid_account_id},
     "WALLET" => {"cms_wallet_accounts", :wallet_account_id}
   }
 
-  # account_ref => product, for accounts an HCS card table claims.
-  @overlay_sources [
-    {"hcs_fleet_cards", :account_id, "HCS_FLEET"},
-    {"hcs_employee_cards", :employee_account_id, "HCS_CORPORATE"}
-  ]
+  # Overlays: a product whose accounts live in another product's table, claimed
+  # by a membership row elsewhere.
+  #
+  # Keyed by the **base table** the account actually lives in, because that is
+  # what `resolve/1` caches and what decides which overlay can possibly apply.
+  # Probing every overlay for every account would mean a WPS lookup on every
+  # credit posting, and vice versa.
+  #
+  #   base table => [{claiming table, its account column, resulting product}]
+  @overlay_sources %{
+    "cms_accounts" => [
+      {"hcs_fleet_cards", :account_id, "HCS_FLEET"},
+      {"hcs_employee_cards", :employee_account_id, "HCS_CORPORATE"}
+    ],
+    "cms_prepaid_accounts" => [
+      # A WPS worker holds an ordinary prepaid account; joining an employer's
+      # roster is what makes it salary float. See `VmuCore.WPS.BeneficiaryLink`.
+      {"wps_beneficiary_links", :prepaid_account_id, "WPS_PREPAID"}
+    ]
+  }
 
   # ---------------------------------------------------------------------------
   # API
@@ -124,22 +140,45 @@ defmodule VmuCore.GL.InstitutionResolver do
   end
 
   @doc """
-  Which HCS card table, if any, claims this account.
+  Which overlay product, if any, claims this account.
 
-  Exposed so callers can ask the question directly rather than inferring it
-  from a product string.
+  `table` is the base product table the account lives in — overlays are scoped
+  to it, so a prepaid account is never tested against the HCS card tables.
+
+  Exposed so callers can ask directly rather than inferring from a product
+  string.
   """
-  @spec hcs_overlay(String.t()) :: {:ok, String.t()} | :none
-  def hcs_overlay(account_ref) when is_binary(account_ref) do
-    case cached_overlay(account_ref) do
-      # The cached-negative clause must come first: a cached "not HCS" is
-      # stored as `{:ok, nil}`, which would otherwise match `{:ok, product}`
-      # and hand back `{:ok, nil}` as though nil were a product.
-      {:ok, nil} -> :none
-      {:ok, product} -> {:ok, product}
-      :miss -> lookup_overlay(account_ref)
+  @spec overlay(String.t(), String.t()) :: {:ok, String.t()} | :none
+  def overlay(table, account_ref) when is_binary(table) and is_binary(account_ref) do
+    case Map.get(@overlay_sources, table) do
+      nil ->
+        :none
+
+      sources ->
+        case cached_overlay(table, account_ref) do
+          # The cached-negative clause must come first: a cached "no overlay" is
+          # stored as `{:ok, nil}`, which would otherwise match `{:ok, product}`
+          # and hand back `{:ok, nil}` as though nil were a product.
+          {:ok, nil} -> :none
+          {:ok, product} -> {:ok, product}
+          :miss -> lookup_overlay(table, account_ref, sources)
+        end
     end
   end
+
+  @doc """
+  Which HCS card table, if any, claims this account.
+
+  Retained for callers that ask the HCS question specifically.
+  """
+  @spec hcs_overlay(String.t()) :: {:ok, String.t()} | :none
+  def hcs_overlay(account_ref) when is_binary(account_ref),
+    do: overlay("cms_accounts", account_ref)
+
+  @doc "Which WPS roster, if any, claims this prepaid account."
+  @spec wps_overlay(String.t()) :: {:ok, String.t()} | :none
+  def wps_overlay(account_ref) when is_binary(account_ref),
+    do: overlay("cms_prepaid_accounts", account_ref)
 
   @doc """
   Resolves without knowing the product, searching every product table.
@@ -232,37 +271,43 @@ defmodule VmuCore.GL.InstitutionResolver do
   # consumer pair; HCS_FLEET and HCS_CORPORATE are decided by whether an HCS
   # card table claims the account. Only `cms_accounts` needs refining — the
   # stored-value tables map one-to-one.
-  defp refine("cms_accounts", account_ref) do
-    case hcs_overlay(account_ref) do
+  defp refine(table, account_ref) do
+    case overlay(table, account_ref) do
       {:ok, product} -> product
-      :none -> "CREDIT"
+      :none -> product_for_table(table)
     end
   end
-
-  defp refine(table, _account_ref), do: product_for_table(table)
 
   # Cached separately from the institution, and cached on the negative result
   # too: the overwhelming majority of accounts are not HCS, and without a
   # negative cache every one of them would pay two extra queries on the posting
   # path to learn that again.
-  defp lookup_overlay(account_ref) do
+  defp lookup_overlay(base_table, account_ref, sources) do
     product =
-      Enum.find_value(@overlay_sources, fn {table, key_column, product} ->
+      Enum.find_value(sources, fn {table, key_column, product} ->
         if overlay_claims?(account_ref, table, key_column), do: product
       end)
 
     if :ets.whereis(@table) != :undefined do
-      :ets.insert(@table, {{:overlay, account_ref}, product})
+      :ets.insert(@table, {{:overlay, base_table, account_ref}, product})
     end
 
     if product, do: {:ok, product}, else: :none
   end
 
-  defp cached_overlay(account_ref) do
+  # Keyed by `{base_table, account_ref}`, not by the reference alone.
+  #
+  # Keying on the reference was a real defect, caught by
+  # `WPS.RosterTest` before it shipped: asking the HCS question about a prepaid
+  # account cached a negative under that reference, and the WPS question then
+  # got the cached `nil` and answered `:none`. It is the same shape as the
+  # institution-cache bug this module's moduledoc describes — a cache whose key
+  # is narrower than its question.
+  defp cached_overlay(base_table, account_ref) do
     if :ets.whereis(@table) == :undefined do
       :miss
     else
-      case :ets.lookup(@table, {:overlay, account_ref}) do
+      case :ets.lookup(@table, {:overlay, base_table, account_ref}) do
         [{_key, product}] -> {:ok, product}
         [] -> :miss
       end

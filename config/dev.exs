@@ -77,7 +77,8 @@ config :vmu_core, VmuCore.Posting.Cutover,
     "CREDIT",
     "CREDIT_CARD",
     "HCS_FLEET",
-    "HCS_CORPORATE"
+    "HCS_CORPORATE",
+    "WPS_PREPAID"
   ]
 
 # Closed-period policy (Phase C0).

@@ -97,3 +97,22 @@ config :vmu_core, VmuCore.Posting.Cutover,
 config :vmu_core, VmuCore.Posting.RuleEngine,
   on_closed_period: :allow
 
+# Phase 10 (end-to-end test topology, PIN translation): raw test ZPK
+# SoftHSM.verify_pin/3 decrypts an incoming DE52 under, before its
+# existing PAN-XOR/ISO 9564-1 Format-0 check. Must be the exact same raw
+# key as HsmSimulator.Keys.raw_zpk()
+# (D:\momentPay\Products\Acuiring-Switch\hsm_simulator) — that simulator
+# is the acquirer-side counterpart translating into this key, standing in
+# for the real, currently-blocked Verisec/payShield ZPK.
+config :vmu_core, :soft_hsm,
+  zpk: String.duplicate("44", 8) <> String.duplicate("55", 8),
+  # Phase 12 Part B (real EMV chip cryptography): raw test IMK, real 3-stage
+  # EMV Book 2 Annex A1 derivation (ICC Master Key -> Session Key ->
+  # Application Cryptogram). Must be the exact same raw key as
+  # TerminalEmulator.Emv.test_imk() (da_terminal_emulator) — that module is
+  # the terminal-side "virtual chip" independently computing the same real
+  # ARQC this decrypts/verifies against.
+  arqc_verify_enabled: true,
+  test_imk: String.duplicate("66", 8) <> String.duplicate("77", 8),
+  test_psn: "00"
+

@@ -339,79 +339,85 @@ Repo.insert_all("cms_balance_buckets", [
 ], on_conflict: :nothing)
 
 # GL Ledger entries — representative transactions per account
+#
+# NOTE (2026-08-02): dr_amount and cr_amount are the two sides of one movement
+# and must be EQUAL — `LedgerEntry.changeset/2`'s validate_balanced/1 enforces
+# exactly that. These rows go in via `insert_all`, which bypasses the changeset,
+# and 11 of them were previously seeded with one side 0.00. That produced an
+# unbalanced trial balance from a clean install. Keep both sides equal here.
 Repo.insert_all("cms_ledger_entries", [
   %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("450.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("450.00"), cr_amount: Decimal.new("450.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -15), value_date: Date.add(today, -15),
     narrative: "Carrefour Dubai - Groceries",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PAY-001", transaction_code: "PAYMENT",
-    dr_amount: Decimal.new("0.00"), cr_amount: Decimal.new("500.00"),
+    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("500.00"),
     gl_account_dr: "2001", gl_account_cr: "1001", currency: "AED",
     posting_date: Date.add(today, -10), value_date: Date.add(today, -10),
     narrative: "Bank transfer payment",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-CASH-001", transaction_code: "CASH_ADV",
-    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("500.00"),
     gl_account_dr: "1002", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -20), value_date: Date.add(today, -20),
     narrative: "ATM Withdrawal - Al Barsha",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-INT-001", transaction_code: "INTEREST",
-    dr_amount: Decimal.new("12.50"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("12.50"), cr_amount: Decimal.new("12.50"),
     gl_account_dr: "1003", gl_account_cr: "4002", currency: "AED",
     posting_date: Date.add(today, -1), value_date: Date.add(today, -1),
     narrative: "Monthly interest accrual",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("9800.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("9800.00"), cr_amount: Decimal.new("9800.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -90), value_date: Date.add(today, -90),
     narrative: "Emirates Electronics - Laptop",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-FEE-001", transaction_code: "FEE",
-    dr_amount: Decimal.new("150.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("150.00"), cr_amount: Decimal.new("150.00"),
     gl_account_dr: "1004", gl_account_cr: "4001", currency: "AED",
     posting_date: Date.add(today, -60), value_date: Date.add(today, -60),
     narrative: "Late payment fee",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_mohammad,
     idempotency_key: "SEED-GL-MOHAMMAD-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("3000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("3000.00"), cr_amount: Decimal.new("3000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -5), value_date: Date.add(today, -5),
     narrative: "Office Supplies - IKEA", inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_abdullah,
     idempotency_key: "SEED-GL-ABDULLAH-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("75000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("75000.00"), cr_amount: Decimal.new("75000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -8), value_date: Date.add(today, -8),
     narrative: "Emirates Airlines - Business Travel",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_khalid,
     idempotency_key: "SEED-GL-KHALID-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("7000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("7000.00"), cr_amount: Decimal.new("7000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -12), value_date: Date.add(today, -12),
     narrative: "Rolex Boutique - Dubai Mall",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_rashid,
     idempotency_key: "SEED-GL-RASHID-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("2500.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("2500.00"), cr_amount: Decimal.new("2500.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -7), value_date: Date.add(today, -7),
     narrative: "Business Dinner - Four Seasons",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_fatima,
     idempotency_key: "SEED-GL-FATIMA-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("1000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("1000.00"), cr_amount: Decimal.new("1000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -4), value_date: Date.add(today, -4),
     narrative: "Office Stationery - Viking Direct",
@@ -989,3 +995,33 @@ IO.puts("    CDM applications: 4  |  Merchants: 4  |  Terminals: 5")
 IO.puts("    LMS accounts: 2  |  Points entries: 5  |  Redemptions: 2")
 IO.puts("    HCS companies: 2  |  Employee cards: 2  |  Spending controls: 4")
 IO.puts("    ITS copy requests: 3  |  Fee claims: 3  |  FARs: 3")
+
+# ============================================================
+# Phase 10: end-to-end test topology, PIN translation
+# ============================================================
+# reference PIN for pan_ahmed (PAN 4072001234560001, the topology's
+# known-good test card) — SoftHSM.verify_pin/3 compares against this
+# after decrypting the incoming DE52 under the configured test ZPK
+# (config :vmu_core, :soft_hsm, zpk: ...). encrypt_reference_dev/1 is the
+# same dev-only "encrypted digits, no PAN" helper change_pin/3 itself
+# uses (see SoftHSM's moduledoc) — reused here, not reinvented.
+IO.puts("--> Phase 10: card PIN (dev reference)")
+
+card_pin_attrs = %{
+  pan_token: pan_ahmed,
+  reference_pin_lmk: VmuCore.FAS.HSM.SoftHSM.encrypt_reference_dev("1234")
+}
+
+case Repo.get_by(VmuCore.CMS.CardPin, pan_token: pan_ahmed) do
+  nil ->
+    %VmuCore.CMS.CardPin{}
+    |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+    |> Repo.insert!()
+
+  existing_card_pin ->
+    existing_card_pin
+    |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+    |> Repo.update!()
+end
+
+IO.puts("    ✓ CardPin set for pan_ahmed (4072001234560001), PIN 1234")

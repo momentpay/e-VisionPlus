@@ -13,7 +13,8 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
         cvk:                Base.decode16!("0123456789ABCDEFFEDCBA9876543210"),  # 16-byte CVK
         arqc_verify_enabled: false,   # true = verify with test IMK; false = fail-open
         pin_verify_enabled:  true,    # false = skip PIN check (useful for integration tests)
-        test_imk:           nil       # 16-byte ICC Master Key for test cards only
+        test_imk:           nil,      # 16-byte Issuer Master Key (per Book 2 Annex A1.3)
+        test_psn:           "00"      # PAN Sequence Number, EMV tag 5F34 (default "00")
 
   ## CVV Algorithm
 
@@ -24,12 +25,20 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
     4. Decimalize: extract digits first, then A-F → 0-5
     5. First 3 characters = CVV value
 
-  ## ARQC Verification
+  ## ARQC Verification (Phase 12 Part B — real EMV Book 2/3 conformance)
 
   When `arqc_verify_enabled: false` (default in dev), all ARQCs are accepted
-  with a debug log. Set to `true` only when a valid test ICC Master Key is
-  configured for test card ranges — without matching key material, every real
-  ARQC will fail verification.
+  with a debug log. Set to `true` only when a valid test IMK is configured —
+  without matching key material, every real ARQC will fail verification.
+
+  Real 3-stage EMV key derivation (not an approximation — see the "ARQC
+  internals" section below for exact citations):
+    1. ICC Master Key = derive(IMK, PAN, PSN)          — Book 2 Annex A1.3
+    2. Session Key    = derive(ICC Master Key, ATC)    — Book 2 Annex A1.4
+    3. Application Cryptogram = retail-MAC(Session Key, CDOL1 data)
+                                                        — Book 2 Annex A1.2,
+                                                          ISO/IEC 9797-1 MAC
+                                                          Algorithm 3
 
   ## PIN Verification (redesigned 2026-07-24, Way4 parity plan Phase 0 item 7)
 
@@ -104,7 +113,7 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   # ---------------------------------------------------------------------------
 
   @impl VmuCore.FAS.HSM
-  def verify_arqc(_pan, pan_token, atc, un, txn_data, arqc) do
+  def verify_arqc(pan, pan_token, atc, _un, txn_data, arqc) do
     if arqc_verify_enabled?() do
       imk = get_imk()
 
@@ -112,9 +121,13 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
         Logger.warning("[SoftHSM] ARQC verify enabled but IMK not configured — fail-open")
         :ok
       else
-        session_key = derive_session_key(imk, atc)
-        data        = build_arqc_data(pan_token, atc, un, txn_data)
-        expected    = des3_cbc_mac(session_key, data)
+        # txn_data is the real CDOL1 data (EmvHandler.build_txn_data/1) —
+        # already includes the Unpredictable Number as one of its own
+        # fields (EMV Book 3 Appendix B), so it isn't prepended separately
+        # here the way the old simplified format did.
+        icc_mk      = derive_icc_master_key(imk, pan, get_psn())
+        session_key = derive_session_key(icc_mk, atc)
+        expected    = compute_application_cryptogram(session_key, txn_data)
 
         if expected == arqc do
           :ok
@@ -134,7 +147,7 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   # ---------------------------------------------------------------------------
 
   @impl VmuCore.FAS.HSM
-  def generate_arpc(_pan, atc, _un, arqc, arc, pan_token) do
+  def generate_arpc(pan, atc, _un, arqc, arc, pan_token) do
     imk = get_imk()
 
     if is_nil(imk) do
@@ -144,16 +157,15 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
       {:ok, arpc}
     else
       # Real ARPC: Method 1 — XOR ARQC with ARC, encrypt with the SAME
-      # session key verify_arqc/6 derived from this same ATC (found
-      # 2026-07-24: the previous version approximated with the raw IMK
-      # here instead of a real derived session key — this now matches
-      # verify_arqc/6's derive_session_key/2 exactly).
+      # session key verify_arqc/6 derives from this same PAN/ATC (real
+      # PAN-diversified ICC Master Key derivation, EMV Book 2 Annex A1.3 —
+      # previously this used the flat IMK directly, skipping that step).
       _ = pan_token  # suppress unused warning
-      session_key  = derive_session_key(imk, atc)
+      icc_mk       = derive_icc_master_key(imk, pan, get_psn())
+      session_key  = derive_session_key(icc_mk, atc)
       arc_padded   = arc <> :binary.copy(<<0>>, 8 - byte_size(arc))
       intermediate = :crypto.exor(arqc, arc_padded)
-      session_key_24 = session_key <> binary_part(session_key, 0, 8)
-      arpc = :crypto.crypto_one_time(:des_ede3_ecb, session_key_24, intermediate, true)
+      arpc         = des3_ecb_encrypt(session_key, intermediate)
       {:ok, arpc}
     end
   rescue
@@ -180,6 +192,47 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
           Logger.warning("[SoftHSM] PIN block decode failed: #{reason}")
           {:error, :wrong_pin}
       end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # ZPK decrypt (Phase 10 — end-to-end PIN translation)
+  # ---------------------------------------------------------------------------
+
+  # Before this, verify_pin/3 assumed pin_block_hex arrived already in the
+  # clear ISO 9564-1 (PIN field XOR PAN field) form — real network traffic
+  # never looks like that; it's encrypted under whatever ZPK the network
+  # leg's HSM translated it to. Real end-to-end verification needs this
+  # decrypt step decode_pin_block/2 was always missing. Matches
+  # `HsmSimulator.Crypto.ecb_decrypt/2`'s exact key expansion (2-key
+  # triple-DES, K1|K2|K1) and its ECB-via-zero-IV-CBC technique — this
+  # environment's OpenSSL doesn't expose :des_ede3_ecb/:des_ecb as ciphers
+  # at all (`:crypto.supports(:ciphers)` confirms only the CBC/CFB 3DES
+  # variants are available), the same gap this module's own CVV code
+  # (des_ecb/des_ede3_ecb, above) would hit if ever actually exercised —
+  # it isn't by default, since CVV verification is skipped when no CVK is
+  # configured, which is why this wasn't already visible here.
+  defp maybe_decrypt_under_zpk(pin_block_bin) do
+    case get_zpk() do
+      nil -> pin_block_bin
+      zpk -> ecb_decrypt_via_cbc(zpk, pin_block_bin)
+    end
+  end
+
+  defp ecb_decrypt_via_cbc(key16, data) when byte_size(key16) == 16 do
+    key24 = binary_part(key16, 0, 8) <> binary_part(key16, 8, 8) <> binary_part(key16, 0, 8)
+
+    for(<<block::binary-8 <- data>>, do: block)
+    |> Enum.map(&:crypto.crypto_one_time(:des_ede3_cbc, key24, <<0::64>>, &1, false))
+    |> :binary.list_to_bin()
+  end
+
+  defp get_zpk do
+    case Application.get_env(:vmu_core, :soft_hsm, [])[:zpk] do
+      nil -> nil
+      hex when is_binary(hex) and byte_size(hex) == 16 -> hex
+      hex when is_binary(hex) -> Base.decode16!(hex, case: :mixed)
+      _ -> nil
     end
   end
 
@@ -291,17 +344,17 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
     block2 = hex_to_bytes!(data_hex, 16, 16)
 
     cvk_a = binary_part(cvk, 0, 8)
-    cvk_b = binary_part(cvk, 8, 8)
 
-    # DES ECB encrypt block1 with left half of CVK
-    e1 = :crypto.crypto_one_time(:des_ecb, cvk_a, block1, true)
+    # DES ECB encrypt block1 with left half of CVK (single_des_ecb_encrypt/2 —
+    # this environment's OpenSSL doesn't expose :des_ecb as a cipher, see
+    # that function's own moduledoc note above)
+    e1 = single_des_ecb_encrypt(cvk_a, block1)
 
     # XOR e1 with block2
     xor_result = :crypto.exor(e1, block2)
 
-    # 3DES ECB encrypt with full CVK (2-key → K1|K2|K1)
-    cvk_24 = cvk_a <> cvk_b <> cvk_a
-    e2 = :crypto.crypto_one_time(:des_ede3_ecb, cvk_24, xor_result, true)
+    # 3DES ECB encrypt with full CVK (2-key → K1|K2|K1, done inside des3_ecb_encrypt/2)
+    e2 = des3_ecb_encrypt(cvk, xor_result)
 
     # Decimalize: digits 0-9 first, then hex A-F → 0-5
     e2
@@ -329,44 +382,95 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   end
 
   # ---------------------------------------------------------------------------
-  # ARQC internals
-  # ---------------------------------------------------------------------------
+  # ARQC internals — real EMV Book 2 Annex A1 key derivation + Application
+  # Cryptogram (ISO/IEC 9797-1 MAC Algorithm 3 / ANSI X9.19 "retail MAC").
+  #
+  # This environment's OpenSSL doesn't expose :des_ede3_ecb or single-length
+  # :des_ecb/:des_cbc as ciphers at all (:crypto.supports(:ciphers) confirms
+  # only :des_ede3_cbc/:des_ede3_cfb are available — same gap Phase 10's PIN
+  # block work hit). Two exact, not-approximate workarounds, both used
+  # throughout this section:
+  #   - 3DES-ECB(key16, block) = 3DES-CBC(key16, iv: zero, block) applied per
+  #     independent 8-byte block (CBC's first step XORs a zero IV into the
+  #     plaintext, a no-op) — same technique Phase 10 established.
+  #   - single-DES-ECB(key8, block) = 3DES-EDE(key8|key8|key8, block) via the
+  #     same zero-IV-CBC technique — 3DES-EDE degenerates to plain single-DES
+  #     when all three key positions are equal (Encrypt-Decrypt-Encrypt with
+  #     the same key cancels the middle Decrypt/Encrypt pair), a standard,
+  #     documented property, not an approximation.
 
-  # Simplified Visa-style ARQC diversification:
-  # Session Key = 3DES-ECB(IMK, ATC || FF FF || ATC_complement)
-  defp derive_session_key(imk, atc) when byte_size(atc) == 2 do
-    atc_comp = :crypto.exor(atc, <<0xFF, 0xFF>>)
-    data_l = atc <> <<0xFF, 0xFF>> <> atc_comp <> <<0x00, 0x00>>
-    data_r = atc <> <<0xFF, 0xFF>> <> atc_comp <> <<0x00, 0x01>>
+  # EMV Book 2 Annex A1.3 (Option A): ICC Master Key = 3DES-ECB(IMK, ·)
+  # applied to the rightmost 16 digits of PAN||PSN (BCD, left-padded with
+  # "0"), and to its ones'-complement, concatenated.
+  defp derive_icc_master_key(imk, pan, psn) do
+    digits   = (pan <> psn) |> String.replace(~r/\D/, "")
+    input_16 = digits |> String.slice(-16..-1) |> String.pad_leading(16, "0")
+    input    = bcd_encode(input_16)
 
-    key_l = des3_ecb_encrypt(imk, data_l)
-    key_r = des3_ecb_encrypt(imk, data_r)
-
-    binary_part(key_l, 0, 8) <> binary_part(key_r, 0, 8)
+    zl = des3_ecb_encrypt(imk, input)
+    zr = des3_ecb_encrypt(imk, complement(input))
+    zl <> zr
   end
 
-  defp build_arqc_data(_pan_token, atc, un, txn_data) do
-    # Simplified: ATC || UN || truncated txn_data — real format varies by scheme
-    atc <> un <> txn_data
+  # EMV Book 2 Annex A1.4 (Common Session Key Derivation): Session Key =
+  # 3DES-ECB(ICC_MK, ·) applied to ATC||F0F0||000000 and ATC||0F0F||000000.
+  defp derive_session_key(icc_mk, atc) when byte_size(atc) == 2 do
+    rl = atc <> <<0xF0, 0xF0>> <> <<0, 0, 0, 0>>
+    rr = atc <> <<0x0F, 0x0F>> <> <<0, 0, 0, 0>>
+
+    des3_ecb_encrypt(icc_mk, rl) <> des3_ecb_encrypt(icc_mk, rr)
   end
 
-  # 3DES CBC-MAC: encrypt with all-zero IV, return last 8 bytes of result
-  defp des3_cbc_mac(key_16, data) do
-    padded  = pkcs7_pad(data, 8)
-    iv      = <<0::64>>
-    key_24  = key_16 <> binary_part(key_16, 0, 8)
-    ciphered = :crypto.crypto_one_time(:des_ede3_cbc, key_24, iv, padded, true)
-    binary_part(ciphered, byte_size(ciphered) - 8, 8)
+  # EMV Book 2 Annex A1.2 — the Application Cryptogram is the real ISO/IEC
+  # 9797-1 MAC Algorithm 3 ("retail MAC"), not uniform 3DES-CBC-MAC: split
+  # the session key into two SINGLE-length DES keys SK1/SK2; every block
+  # (including the last) chains under single-DES with SK1; only the final
+  # chained value gets the extra encrypt(SK1, decrypt(SK2, ·)) step. Getting
+  # this single-vs-final-triple distinction right is the actual spec.
+  defp compute_application_cryptogram(<<sk1::binary-8, sk2::binary-8>>, data) do
+    hn =
+      data
+      |> iso7816_4_pad(8)
+      |> then(&for(<<block::binary-8 <- &1>>, do: block))
+      |> Enum.reduce(<<0::64>>, fn block, acc ->
+        single_des_ecb_encrypt(sk1, :crypto.exor(acc, block))
+      end)
+
+    single_des_ecb_encrypt(sk1, single_des_ecb_decrypt(sk2, hn))
   end
+
+  # ISO/IEC 7816-4 padding method 2: append 0x80, then zero-pad to the next
+  # block boundary. EMV always applies this, even to already-aligned data.
+  defp iso7816_4_pad(data, block_size) do
+    marked = data <> <<0x80>>
+    pad_len = rem(block_size - rem(byte_size(marked), block_size), block_size)
+    marked <> :binary.copy(<<0>>, pad_len)
+  end
+
+  defp bcd_encode(digit_string) do
+    digit_string
+    |> String.to_charlist()
+    |> Enum.map(&(&1 - ?0))
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn [hi, lo] -> (hi <<< 4) ||| lo end)
+    |> :binary.list_to_bin()
+  end
+
+  defp complement(data), do: :crypto.exor(data, :binary.copy(<<0xFF>>, byte_size(data)))
 
   defp des3_ecb_encrypt(key_16, data_8) do
     key_24 = key_16 <> binary_part(key_16, 0, 8)
-    :crypto.crypto_one_time(:des_ede3_ecb, key_24, data_8, true)
+    :crypto.crypto_one_time(:des_ede3_cbc, key_24, <<0::64>>, data_8, true)
   end
 
-  defp pkcs7_pad(data, block_size) do
-    pad_len = block_size - rem(byte_size(data), block_size)
-    data <> :binary.copy(<<pad_len>>, pad_len)
+  defp single_des_ecb_encrypt(key_8, data_8) do
+    key_24 = key_8 <> key_8 <> key_8
+    :crypto.crypto_one_time(:des_ede3_cbc, key_24, <<0::64>>, data_8, true)
+  end
+
+  defp single_des_ecb_decrypt(key_8, data_8) do
+    key_24 = key_8 <> key_8 <> key_8
+    :crypto.crypto_one_time(:des_ede3_cbc, key_24, <<0::64>>, data_8, false)
   end
 
   # ---------------------------------------------------------------------------
@@ -378,8 +482,9 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
   # PAN field  = 0000 | rightmost-12-PAN-digits-excl-check-digit
   defp decode_pin_block(pin_block_hex, pan) do
     with {:ok, pin_block_bin} <- hex_decode(pin_block_hex) do
+      clear_block = maybe_decrypt_under_zpk(pin_block_bin)
       pan_block = build_pan_block(pan)
-      decoded   = :crypto.exor(pin_block_bin, pan_block)
+      decoded   = :crypto.exor(clear_block, pan_block)
 
       <<format::4, len::4, rest::binary>> = decoded
 
@@ -528,6 +633,13 @@ defmodule VmuCore.FAS.HSM.SoftHSM do
       _ -> nil
     end
   end
+
+  # PAN Sequence Number (EMV tag 5F34) — a fixed test value, matching this
+  # codebase's key-material convention (Phase 10): both ends (issuer here,
+  # TerminalEmulator.Emv) agree on the same value directly rather than
+  # transmitting it, same as the "conventional test values" already used
+  # for the CVK/PIN keys.
+  defp get_psn, do: Application.get_env(:vmu_core, :soft_hsm, [])[:test_psn] || "00"
 
   defp arqc_verify_enabled? do
     Application.get_env(:vmu_core, :soft_hsm, [])[:arqc_verify_enabled] == true

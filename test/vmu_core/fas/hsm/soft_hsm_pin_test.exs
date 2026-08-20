@@ -157,4 +157,77 @@ defmodule VmuCore.FAS.HSM.SoftHsmPinTest do
       assert {:error, :pin_not_set} = SoftHSM.verify_pin(block, "4242420000004242", account.pan_token)
     end
   end
+
+  # Phase 10: verify_pin/3 previously assumed pin_block_hex arrived already
+  # in the clear (PIN field XOR PAN field) form. Real network traffic never
+  # looks like that - it's encrypted under whatever ZPK the network leg's
+  # HSM translated it to (see HsmSimulator.Crypto for the acquirer-side
+  # counterpart). These tests build a block the same way, encrypting the
+  # clear ISO block under a locally-defined test ZPK with the same 2-key
+  # 3DES (K1|K2|K1) + ECB-via-zero-IV-CBC technique the implementation
+  # uses, to prove the new decrypt step in decode_pin_block/2 actually
+  # works - not just that the old clear-block tests above still pass.
+  describe "verify_pin/3 with a configured ZPK (Phase 10 - real encrypted PIN block)" do
+    @zpk Base.decode16!(String.duplicate("AA", 8) <> String.duplicate("BB", 8))
+
+    setup do
+      Application.put_env(:vmu_core, :soft_hsm, zpk: @zpk)
+      on_exit(fn -> Application.delete_env(:vmu_core, :soft_hsm) end)
+      :ok
+    end
+
+    defp des_ede3_ecb_encrypt(key16, data) do
+      key24 = binary_part(key16, 0, 8) <> binary_part(key16, 8, 8) <> binary_part(key16, 0, 8)
+
+      for(<<block::binary-8 <- data>>, do: block)
+      |> Enum.map(&:crypto.crypto_one_time(:des_ede3_cbc, key24, <<0::64>>, &1, true))
+      |> :binary.list_to_bin()
+    end
+
+    defp encrypt_pin_block_under_zpk(pin_digits, pan) do
+      clear = encode_pin_block(pin_digits, pan) |> Base.decode16!(case: :mixed)
+      des_ede3_ecb_encrypt(@zpk, clear) |> Base.encode16(case: :lower)
+    end
+
+    test "a genuinely ZPK-encrypted PIN block verifies correctly" do
+      account = account_fixture()
+
+      %CardPin{}
+      |> CardPin.changeset(%{pan_token: account.pan_token, reference_pin_lmk: SoftHSM.encrypt_reference_dev("0000")})
+      |> Repo.insert!()
+
+      :ok = SoftHSM.change_pin(account.pan_token, "0000", "4321")
+
+      encrypted_block = encrypt_pin_block_under_zpk("4321", "4242420000004242")
+      assert :ok = SoftHSM.verify_pin(encrypted_block, "4242420000004242", account.pan_token)
+    end
+
+    test "a wrong PIN, correctly encrypted under the ZPK, is a real decline" do
+      account = account_fixture()
+
+      %CardPin{}
+      |> CardPin.changeset(%{pan_token: account.pan_token, reference_pin_lmk: SoftHSM.encrypt_reference_dev("0000")})
+      |> Repo.insert!()
+
+      :ok = SoftHSM.change_pin(account.pan_token, "0000", "1234")
+
+      wrong_encrypted_block = encrypt_pin_block_under_zpk("9999", "4242420000004242")
+      assert {:error, :wrong_pin} = SoftHSM.verify_pin(wrong_encrypted_block, "4242420000004242", account.pan_token)
+    end
+
+    test "the same encrypted block is rejected without the ZPK configured (proves it's really encrypted, not accidentally still clear)" do
+      account = account_fixture()
+
+      %CardPin{}
+      |> CardPin.changeset(%{pan_token: account.pan_token, reference_pin_lmk: SoftHSM.encrypt_reference_dev("0000")})
+      |> Repo.insert!()
+
+      :ok = SoftHSM.change_pin(account.pan_token, "0000", "4321")
+
+      encrypted_block = encrypt_pin_block_under_zpk("4321", "4242420000004242")
+
+      Application.delete_env(:vmu_core, :soft_hsm)
+      assert {:error, :wrong_pin} = SoftHSM.verify_pin(encrypted_block, "4242420000004242", account.pan_token)
+    end
+  end
 end

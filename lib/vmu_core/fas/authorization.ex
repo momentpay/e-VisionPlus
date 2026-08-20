@@ -107,8 +107,22 @@ defmodule VmuCore.FAS.Authorization do
   # 0400 — reversal; always routed to ReversalHandler
   defp route("0400", fields), do: ReversalHandler.handle(fields)
 
-  # 0200 — completion/advice; always routed to CompletionHandler
-  defp route("0200", fields), do: CompletionHandler.handle(fields)
+  # 0200 with a DE38 (approval code) references a prior 0100 - a genuine
+  # completion/advice (Phase 12 Part A). DE38 presence, not a DB-match
+  # attempt, is the disambiguator: a query-miss here would still mean
+  # "this is a completion with a data-quality problem", which must keep
+  # CompletionHandler's own "accept anyway, log unmatched_completion"
+  # safety net - not get silently reprocessed as a brand-new sale.
+  defp route("0200", %{38 => approval_code} = fields)
+       when is_binary(approval_code) and byte_size(approval_code) > 0 do
+    CompletionHandler.handle(fields)
+  end
+
+  # 0200 with no DE38 has nothing to complete - a genuine Single-Message-
+  # System sale (PIN-debit/ATM-style: one message, authorize and post in
+  # one shot, no prior 0100 exists). Needs the same full decision 0100
+  # gets - process/1 is already MTI-parameterized, nothing more to wire.
+  defp route("0200", fields), do: process(%{mti: "0200", fields: fields})
 
   # 0100/0210 — incremental when DE90 (Original Data Elements) is present
   defp route(mti, %{90 => _} = fields) do
@@ -534,9 +548,15 @@ defmodule VmuCore.FAS.Authorization do
   # PIN verification helper (7E)
   # ---------------------------------------------------------------------------
 
-  # Only verify PIN when DE52 is present in the request
+  # Only verify PIN when DE52 is present in the request. DE52 arrives here
+  # as raw binary (ISOMsg's IFB_BINARY(8) field, no encoding transformation
+  # — same wire representation da_acquirer's DE52 has), but HSM.verify_pin/3
+  # is documented to take a hex-encoded block ("exactly as received in
+  # DE52" was written assuming that encoding step already happened here —
+  # it hadn't; this path was never exercised end-to-end until PIN
+  # translation was actually turned on).
   defp maybe_verify_pin(%{fields: %{52 => pin_block}, pan: pan} = ctx) do
-    case HSM.verify_pin(pin_block, pan, pan_token(pan)) do
+    case HSM.verify_pin(Base.encode16(pin_block), pan, pan_token(pan)) do
       :ok                    -> :ok
       {:error, :pin_not_set} -> :ok  # card not yet personalised — fail-open
       {:error, reason}       -> {:error, reason}

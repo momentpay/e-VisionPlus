@@ -17,6 +17,7 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   alias VmuCore.CMS.{Account, AccountStateCoordinator}
   alias VmuCore.CTA.Cards
   alias VmuCore.Shared.{Customer, ParameterEngine}
+  alias DaSwitchCore.Packagers.ISOMsg
 
   @table :vmu_parameter_cache
 
@@ -232,6 +233,70 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
       # BIN 543210 is ours (seeded above) but this PAN has no account record
       request = %{pan: "5432100000000001", amount: Decimal.new("50.00"), channel: :pos, mcc: "5411"}
       assert {:error, "14"} = Authorization.process(request)
+    end
+  end
+
+  # Phase 12 Part A: a 0200 with no DE38 has nothing to complete - it's a
+  # genuine Single-Message-System sale (PIN-debit/ATM-style: one message,
+  # authorize and post in one shot) and must get the same real decision a
+  # 0100 gets, not CompletionHandler's unconditional approve. A 0200 WITH
+  # a DE38 is still always approved, unchanged - proves the fix doesn't
+  # touch the existing hotel/car-rental completion-advice behavior.
+  describe "MTI 0200 routing (Phase 12 Part A)" do
+    test "0200 with no DE38 gets a real decision - a blocked account is really declined" do
+      pan = "5432107777888899"
+      account = seed_account(pan, Decimal.new("5000.00"), "BLOCKED")
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(11, "100200")
+        |> ISOMsg.set(22, "051")
+        |> ISOMsg.set(41, "TERM0001")
+        |> ISOMsg.set(49, "784")
+
+      assert {:error, {:fas_declined, "62"}} = Authorization.authorize(message)
+
+      AccountStateCoordinator.refresh(account.account_id)
+    end
+
+    test "0200 with no DE38, a good account within OTB, approves through the real decision path" do
+      pan = "5432107777888800"
+      account = seed_account(pan, Decimal.new("5000.00"))
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(11, "100201")
+        |> ISOMsg.set(22, "051")
+        |> ISOMsg.set(41, "TERM0001")
+        |> ISOMsg.set(49, "784")
+
+      assert {:ok, response} = Authorization.authorize(message)
+      assert ISOMsg.get_mti(response) == "0210"
+      assert ISOMsg.get(response, 39) == "00"
+
+      AccountStateCoordinator.refresh(account.account_id)
+    end
+
+    test "0200 with a DE38 (even non-matching) still always approves, unchanged" do
+      pan = "5432107777888801"
+      # Deliberately not seeded - a completion advice cannot be declined
+      # even when nothing matches (CompletionHandler's own safety net).
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(38, "999999")
+        |> ISOMsg.set(11, "100202")
+        |> ISOMsg.set(49, "784")
+
+      assert {:ok, response} = Authorization.authorize(message)
+      assert ISOMsg.get_mti(response) == "0210"
+      assert ISOMsg.get(response, 39) == "00"
     end
   end
 

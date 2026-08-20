@@ -18,7 +18,7 @@ defmodule VmuCoreWeb.Live.Admin.MenuRegistryTest do
   # guard does not fail on known, documented debt.
   @permission_exempt ~w[module_config]
 
-  @known_sections Enum.map(AdminLive.sections(), fn {id, _label} -> id end)
+  @known_nav_modules Enum.map(AdminLive.nav_modules(), & &1.id)
 
   defp registry_modules do
     AdminLive.menu_registry() |> Map.keys() |> Enum.reject(&(&1 in @permission_exempt))
@@ -46,26 +46,49 @@ defmodule VmuCoreWeb.Live.Admin.MenuRegistryTest do
            "registered but granted to no role, so only ADMIN can see it: #{inspect(ungranted)}"
   end
 
-  test "every module declares a known section, order, label and icon" do
+  test "every module declares a known nav_module, group, order, label and icon" do
     for {mod, meta} <- AdminLive.menu_registry() do
-      assert meta[:section] in @known_sections,
-             "#{mod} has section #{inspect(meta[:section])}, which is not in sections/0"
+      assert meta[:nav_module] in @known_nav_modules,
+             "#{mod} has nav_module #{inspect(meta[:nav_module])}, which is not in nav_modules/0"
 
+      assert is_binary(meta[:group]) and meta.group != "", "#{mod} is missing a :group"
       assert is_integer(meta[:order]), "#{mod} is missing an :order"
       assert is_binary(meta[:label]) and meta.label != "", "#{mod} is missing a label"
       assert is_binary(meta[:icon]) and meta.icon != "", "#{mod} is missing an icon"
     end
   end
 
-  test "order is unique within each section, so the sidebar is deterministic" do
+  test "order is unique within each nav module, so the sidebar is deterministic" do
     AdminLive.menu_registry()
-    |> Enum.group_by(fn {_mod, meta} -> meta.section end)
-    |> Enum.each(fn {section, items} ->
+    |> Enum.group_by(fn {_mod, meta} -> meta.nav_module end)
+    |> Enum.each(fn {nav_module, items} ->
       orders = Enum.map(items, fn {_mod, meta} -> meta.order end)
 
       assert length(orders) == length(Enum.uniq(orders)),
-             "duplicate :order values in section #{section}: #{inspect(Enum.sort(orders))}"
+             "duplicate :order values in nav module #{nav_module}: #{inspect(Enum.sort(orders))}"
     end)
+  end
+
+  test "coming-soon placeholders declare a known nav_module, unique id, order, label and icon" do
+    live_ids = MapSet.new(registry_modules())
+
+    for item <- AdminLive.coming_soon_registry() do
+      assert item.nav_module in @known_nav_modules,
+             "#{item.id} has nav_module #{inspect(item.nav_module)}, which is not in nav_modules/0"
+
+      assert is_nil(item.group) or (is_binary(item.group) and item.group != ""),
+             "#{item.id} has an invalid :group"
+
+      assert is_integer(item.order), "#{item.id} is missing an :order"
+      assert is_binary(item.label) and item.label != "", "#{item.id} is missing a label"
+      assert is_binary(item.icon) and item.icon != "", "#{item.id} is missing an icon"
+
+      refute MapSet.member?(live_ids, item.id),
+             "#{item.id} collides with a live module id in @modules"
+    end
+
+    ids = Enum.map(AdminLive.coming_soon_registry(), & &1.id)
+    assert length(ids) == length(Enum.uniq(ids)), "duplicate ids in @coming_soon"
   end
 
   test "admin_only modules are genuinely granted to nobody" do

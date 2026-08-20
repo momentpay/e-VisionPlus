@@ -30,6 +30,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     ModuleConfigComponent,
     DpsComponent,
     CmsEodComponent,
+    GlComponent,
     CmsResegmentationComponent,
     ColComponent,
     CollectionsMiComponent,
@@ -42,33 +43,172 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     ServiceAccountsComponent
   }
 
+  # ---------------------------------------------------------------------------
+  # Navigation taxonomy — the SINGLE source of truth for admin navigation.
+  #
+  # Three levels: nav module (top-level business domain, shown in the top
+  # dock once Phase 2 lands) -> group (sidebar sub-heading) -> item (a leaf
+  # screen). This replaces the old flat 5-section grouping, which was an ASM
+  # permission heuristic ("who touches this during a shift"), with a
+  # business-domain IA derived from docs/compare/Kosa_Handbook_Alignment_Assessment.md
+  # and standard card-platform taxonomy (Way4/VisionPlus).
+  #
+  # Adding a *live* module means adding one row to @modules plus one render
+  # branch below. The sidebar is generated from this map, so a module can no
+  # longer be registered yet invisible — which is exactly what happened to
+  # "gl" when the sidebar was a hand-written list duplicating these labels
+  # and icons.
+  #
+  # `module` (the @modules map key) must also exist in
+  # `VmuCore.ASM.RolePermission.modules()` and be granted to at least one
+  # role, or it will be filtered out of `visible_modules` and stay hidden.
+  # See docs/shared/Admin_Menu_Standard.md.
+  #
+  # `order` is a single integer spaced by 10s, increasing continuously across
+  # all of a nav module's groups (not reset per group) — that's enough to
+  # sort deterministically by plain `order` and then cluster into groups by
+  # adjacency, with no separate "group order" field to keep in sync.
+  # ---------------------------------------------------------------------------
+  @nav_modules [
+    %{id: "overview",        label: "Overview",                 icon: "🏠", order: 10},
+    %{id: "party",           label: "Party & Customer",          icon: "👤", order: 20},
+    %{id: "cards_accounts",  label: "Cards & Accounts",          icon: "💳", order: 30},
+    %{id: "platform_config", label: "Platform Configuration",    icon: "⚙️", order: 40},
+    %{id: "authorization",   label: "Authorization & Switching", icon: "🔀", order: 50},
+    %{id: "transactions",    label: "Transactions & Settlement", icon: "🔁", order: 60},
+    %{id: "collections",     label: "Collections & Recovery",    icon: "📮", order: 70},
+    %{id: "disputes",        label: "Disputes & Chargebacks",    icon: "⚖️", order: 80},
+    %{id: "risk",            label: "Risk, Fraud & Compliance",  icon: "🛡️", order: 90},
+    %{id: "finance",         label: "Finance & General Ledger",  icon: "📒", order: 100},
+    %{id: "merchant",        label: "Merchant & Acquiring",      icon: "🏪", order: 110},
+    %{id: "loyalty",         label: "Loyalty & Rewards",         icon: "🎁", order: 120},
+    %{id: "security",        label: "Security & Access",         icon: "🔐", order: 130}
+  ]
+
   @modules %{
-    "system"       => %{label: "System Parameters",      icon: "⚙️",  section: :sys},
-    "organization" => %{label: "Organizations",           icon: "🏦",  section: :org},
-    "logo"         => %{label: "Products / Logos",        icon: "💳",  section: :logo},
-    "block"        => %{label: "Sub-Product Blocks",      icon: "🧩",  section: :block},
-    "module_config" => %{label: "Module Configuration",   icon: "🧰",  section: :sys},
-    "customer"     => %{label: "Customers (CIF)",         icon: "👤",  section: :customer},
-    "account"      => %{label: "Accounts (CMS)",          icon: "💳",  section: :account},
-    "exceptions"   => %{label: "Exception Queue",         icon: "🚨",  section: :fas},
-    "auth_history" => %{label: "Auth History",            icon: "🔍",  section: :fas},
-    "tram_inquiry" => %{label: "TRAM Inquiry",            icon: "🧾",  section: :fas},
-    "dps"          => %{label: "Disputes (DPS)",          icon: "⚖️",  section: :fas},
-    "cms_eod"      => %{label: "EOD Job Status",          icon: "🌙",  section: :account},
-    "cms_resegmentation" => %{label: "Cycle Resegmentation", icon: "🔄", section: :account},
-    "col"          => %{label: "Collections & Recovery",  icon: "📮",  section: :account},
-    "collections_mi" => %{label: "Collections MI",        icon: "📊",  section: :account},
-    "hcs"          => %{label: "Corporate Cards (HCS)",   icon: "🏢",  section: :account},
-    "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
-    "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
-    "wallet"       => %{label: "Digital Wallet",            icon: "👛",  section: :account},
-    "kyc_methods"  => %{label: "KYC Methods",               icon: "🪪",  section: :account},
-    "kyc_requests" => %{label: "KYC Requests",              icon: "📋",  section: :account},
-    "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
-    "service_accounts" => %{label: "Service Accounts",    icon: "🔑",  section: :security},
-    "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
-    "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
+    # -- Party & Customer --
+    "customer"      => %{label: "Customers (CIF)",        icon: "👤",  nav_module: "party", group: "Customer Management", order: 10},
+    "kyc_methods"   => %{label: "KYC Methods",             icon: "🪪",  nav_module: "party", group: "Onboarding & KYC",    order: 20},
+    "kyc_requests"  => %{label: "KYC Requests",            icon: "📋",  nav_module: "party", group: "Onboarding & KYC",    order: 30},
+
+    # -- Cards & Accounts --
+    "account"       => %{label: "Accounts (CMS)",          icon: "💳",  nav_module: "cards_accounts", group: "Accounts",              order: 10},
+    "debit"         => %{label: "Debit Cards",             icon: "🏦",  nav_module: "cards_accounts", group: "Card Products",         order: 20},
+    "prepaid"       => %{label: "Prepaid Cards",           icon: "💳",  nav_module: "cards_accounts", group: "Card Products",         order: 30},
+    "hcs"           => %{label: "Corporate Cards (HCS)",   icon: "🏢",  nav_module: "cards_accounts", group: "Card Products",         order: 40},
+    "wallet"        => %{label: "Digital Wallet",          icon: "👛",  nav_module: "cards_accounts", group: "Card Products",         order: 50},
+    "logo"          => %{label: "Products / Logos",        icon: "💳",  nav_module: "cards_accounts", group: "Product Configuration", order: 60},
+    "block"         => %{label: "Sub-Product Blocks",      icon: "🧩",  nav_module: "cards_accounts", group: "Product Configuration", order: 70},
+
+    # -- Platform Configuration --
+    "system"        => %{label: "System Parameters",       icon: "⚙️",  nav_module: "platform_config", group: "Hierarchy", order: 10},
+    "organization"  => %{label: "Organizations",           icon: "🏦",  nav_module: "platform_config", group: "Hierarchy", order: 20},
+    "module_config" => %{label: "Module Configuration",    icon: "🧰",  nav_module: "platform_config", group: "Framework", order: 30},
+
+    # -- Authorization & Switching --
+    "exceptions"    => %{label: "Exception Queue",         icon: "🚨",  nav_module: "authorization", group: "Live Authorization", order: 10},
+    "auth_history"  => %{label: "Auth History",            icon: "🔍",  nav_module: "authorization", group: "Live Authorization", order: 20},
+
+    # -- Transactions & Settlement --
+    "tram_inquiry"  => %{label: "TRAM Inquiry",            icon: "🧾",  nav_module: "transactions", group: "Inquiry", order: 10},
+
+    # -- Collections & Recovery --
+    "col"           => %{label: "Collections & Recovery",  icon: "📮",  nav_module: "collections", group: "Servicing",              order: 10},
+    "collections_mi" => %{label: "Collections MI",         icon: "📊",  nav_module: "collections", group: "Management Information", order: 20},
+
+    # -- Disputes & Chargebacks --
+    "dps"           => %{label: "Disputes (DPS)",          icon: "⚖️",  nav_module: "disputes", group: "Disputes", order: 10},
+
+    # -- Finance & General Ledger --
+    "gl"            => %{label: "General Ledger",          icon: "📒",  nav_module: "finance", group: "Ledger",         order: 10},
+    "cms_eod"       => %{label: "EOD Job Status",          icon: "🌙",  nav_module: "finance", group: "Period Control", order: 20},
+    "cms_resegmentation" => %{label: "Cycle Resegmentation", icon: "🔄", nav_module: "finance", group: "Period Control", order: 30},
+
+    # -- Security & Access --
+    "approvals"     => %{label: "Approval Inbox",          icon: "✅",  nav_module: "security", group: "Approvals & Audit", order: 10},
+    "audit_log"     => %{label: "Audit Trail",             icon: "📜",  nav_module: "security", group: "Approvals & Audit", order: 20},
+    "operators"     => %{label: "Operators",               icon: "🔐",  nav_module: "security", group: "Identity & Access", order: 30},
+    "service_accounts" => %{label: "Service Accounts",     icon: "🔑",  nav_module: "security", group: "Identity & Access", order: 40}
   }
+
+  # Coming-soon placeholders: real gaps already named in
+  # docs/compare/Kosa_Handbook_Alignment_Assessment.md, given a home in the
+  # navigation ahead of being built. Not permission-gated (there is nothing
+  # behind them yet to protect) and not rendered until Phase 2 of the top-nav
+  # rollout wires them into the sidebar as inert "Soon" items.
+  #
+  # `order` is always >= 900 so a coming-soon item always sorts after any
+  # live item sharing its group, without needing to coordinate numbering
+  # with the @modules list above.
+  @coming_soon [
+    %{id: "overview_dashboard",    label: "Dashboard",                icon: "📈", nav_module: "overview",      group: nil,                     order: 900},
+
+    %{id: "party_360",             label: "Party 360",                icon: "🧿", nav_module: "party",         group: "Customer Management",   order: 900},
+    %{id: "customer_arrangements", label: "Customer Arrangements",    icon: "📑", nav_module: "party",         group: "Arrangements",          order: 900},
+
+    %{id: "stip_thresholds",       label: "STIP Thresholds",          icon: "🧮", nav_module: "authorization", group: "Stand-In & Rules",      order: 900},
+    %{id: "gateway_rules",         label: "Gateway Rule Engine",      icon: "🧷", nav_module: "authorization", group: "Stand-In & Rules",      order: 910},
+
+    %{id: "clearing_batches",      label: "Clearing Batches",         icon: "🗂️", nav_module: "transactions",  group: "Clearing & Settlement", order: 900},
+    %{id: "settlement_runs",       label: "Settlement Runs",          icon: "💸", nav_module: "transactions",  group: "Clearing & Settlement", order: 910},
+    %{id: "reconciliation_3way",   label: "Three-Way Reconciliation", icon: "🧩", nav_module: "transactions",  group: "Reconciliation",        order: 900},
+
+    %{id: "chargebacks",           label: "Chargeback Cases",         icon: "🔁", nav_module: "disputes",      group: "Chargebacks",           order: 900},
+
+    %{id: "sanctions_review",      label: "Sanctions Review",         icon: "🕵️", nav_module: "risk",          group: "Screening",             order: 900},
+    %{id: "fraud_case_mgmt",       label: "Fraud Case Management",    icon: "🚩", nav_module: "risk",          group: "Fraud Operations",      order: 900},
+    %{id: "credit_scoring_admin",  label: "Application Scoring",      icon: "🧮", nav_module: "risk",          group: "Credit Decisioning",    order: 900},
+
+    %{id: "accounting_periods",    label: "Accounting Periods",       icon: "📅", nav_module: "finance",       group: "Period Control",        order: 900},
+
+    %{id: "merchants",             label: "Merchants",                icon: "🏪", nav_module: "merchant",      group: nil,                     order: 900},
+    %{id: "terminals",             label: "Terminals",                icon: "🖲️", nav_module: "merchant",      group: nil,                     order: 910},
+    %{id: "mdr_config",            label: "MDR Configuration",        icon: "💱", nav_module: "merchant",      group: nil,                     order: 920},
+
+    %{id: "loyalty_schemes",       label: "Schemes & Plans",          icon: "🎯", nav_module: "loyalty",       group: nil,                     order: 900},
+    %{id: "points_ledger",         label: "Points Ledger",            icon: "🧾", nav_module: "loyalty",       group: nil,                     order: 910},
+    %{id: "redemptions",           label: "Redemptions",              icon: "🎁", nav_module: "loyalty",       group: nil,                     order: 920}
+  ]
+
+  @doc "Ordered top-level nav modules."
+  def nav_modules, do: @nav_modules
+
+  @doc """
+  Live modules of one nav module that this operator may see, grouped and
+  ordered for the sidebar.
+  """
+  def items_for_nav_module(nav_module_id, visible) do
+    @modules
+    |> Enum.filter(fn {mod, meta} -> meta.nav_module == nav_module_id and mod in visible end)
+    |> Enum.sort_by(fn {_mod, meta} -> meta.order end)
+  end
+
+  @doc """
+  Live items of one nav module, clustered into `{group_label, items}` pairs
+  in display order — the shape the sidebar template renders directly. Groups
+  are inferred from item adjacency after sorting by `order` rather than
+  tracked separately, since `order` already increases continuously across a
+  nav module's groups (see the @modules moduledoc above).
+  """
+  def grouped_items_for_nav_module(nav_module_id, visible) do
+    nav_module_id
+    |> items_for_nav_module(visible)
+    |> Enum.chunk_by(fn {_mod, meta} -> meta.group end)
+    |> Enum.map(fn [{_mod, %{group: group}} | _] = chunk -> {group, chunk} end)
+  end
+
+  @doc "Coming-soon placeholders for one nav module, in display order."
+  def coming_soon_for_nav_module(nav_module_id) do
+    @coming_soon
+    |> Enum.filter(&(&1.nav_module == nav_module_id))
+    |> Enum.sort_by(& &1.order)
+  end
+
+  @doc "The full live-module registry. Used by the consistency guard test."
+  def menu_registry, do: @modules
+
+  @doc "The full coming-soon placeholder list. Used by the consistency guard test."
+  def coming_soon_registry, do: @coming_soon
 
   @impl true
   def mount(_params, _session, socket) do
@@ -138,57 +278,25 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <div class="product-tag">Admin Console</div>
         </div>
 
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Parameter Hierarchy</div>
+        <%!-- Generated from @modules — never hand-list items here. A module that
+            is registered but has no role permission simply does not appear;
+            see docs/shared/Admin_Menu_Standard.md. Nav-module headings are
+            shown even though the top dock itself lands in Phase 2, so the
+            sidebar already reflects the new IA. --%>
+        <%= for %{id: nav_id, label: nav_label} <- nav_modules(),
+                groups = grouped_items_for_nav_module(nav_id, @visible_modules),
+                groups != [] do %>
+          <div class="sidebar-section">
+            <div class="sidebar-section-label"><%= nav_label %></div>
 
-          <.sidebar_nav_item :if={"system" in @visible_modules}       mod="system"       label="System Parameters"   icon="⚙️"  active={@active_module} />
-          <.sidebar_nav_item :if={"organization" in @visible_modules} mod="organization" label="Organizations"        icon="🏦"  active={@active_module} />
-          <.sidebar_nav_item :if={"logo" in @visible_modules}         mod="logo"         label="Products / Logos"     icon="💳"  active={@active_module} />
-          <.sidebar_nav_item :if={"block" in @visible_modules}        mod="block"        label="Sub-Product Blocks"   icon="🧩"  active={@active_module} />
-          <.sidebar_nav_item :if={"module_config" in @visible_modules} mod="module_config" label="Module Configuration" icon="🧰"  active={@active_module} />
-        </div>
-
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Operations</div>
-
-          <.sidebar_nav_item :if={"customer" in @visible_modules} mod="customer" label="Customers (CIF)" icon="👤" active={@active_module} />
-          <.sidebar_nav_item :if={"account" in @visible_modules}  mod="account"  label="Accounts (CMS)"  icon="💳" active={@active_module} />
-          <.sidebar_nav_item :if={"cms_eod" in @visible_modules}  mod="cms_eod"  label="EOD Job Status"  icon="🌙" active={@active_module} />
-          <.sidebar_nav_item :if={"cms_resegmentation" in @visible_modules}  mod="cms_resegmentation"  label="Cycle Resegmentation"  icon="🔄" active={@active_module} />
-          <.sidebar_nav_item :if={"col" in @visible_modules}      mod="col"      label="Collections & Recovery" icon="📮" active={@active_module} />
-          <.sidebar_nav_item :if={"collections_mi" in @visible_modules} mod="collections_mi" label="Collections MI" icon="📊" active={@active_module} />
-          <.sidebar_nav_item :if={"hcs" in @visible_modules} mod="hcs" label="Corporate Cards (HCS)" icon="🏢" active={@active_module} />
-          <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
-          <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
-          <.sidebar_nav_item :if={"wallet" in @visible_modules} mod="wallet" label="Digital Wallet" icon="👛" active={@active_module} />
-          <.sidebar_nav_item :if={"kyc_methods" in @visible_modules} mod="kyc_methods" label="KYC Methods" icon="🪪" active={@active_module} />
-          <.sidebar_nav_item :if={"kyc_requests" in @visible_modules} mod="kyc_requests" label="KYC Requests" icon="📋" active={@active_module} />
-        </div>
-
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">FAS Observability</div>
-
-          <.sidebar_nav_item :if={"exceptions" in @visible_modules}   mod="exceptions"   label="Exception Queue" icon="🚨" active={@active_module} />
-          <.sidebar_nav_item :if={"auth_history" in @visible_modules} mod="auth_history" label="Auth History"    icon="🔍" active={@active_module} />
-          <.sidebar_nav_item :if={"tram_inquiry" in @visible_modules} mod="tram_inquiry" label="TRAM Inquiry"    icon="🧾" active={@active_module} />
-          <.sidebar_nav_item :if={"dps" in @visible_modules}          mod="dps"          label="Disputes (DPS)"  icon="⚖️" active={@active_module} />
-        </div>
-
-        <% security_visible = Enum.any?(~w[operators approvals audit_log], &(&1 in @visible_modules)) %>
-        <div :if={security_visible} class="sidebar-divider"/>
-
-        <div :if={security_visible} class="sidebar-section">
-          <div class="sidebar-section-label">Security &amp; Control</div>
-
-          <.sidebar_nav_item :if={"approvals" in @visible_modules} mod="approvals" label="Approval Inbox" icon="✅" active={@active_module} />
-          <.sidebar_nav_item :if={"audit_log" in @visible_modules} mod="audit_log" label="Audit Trail" icon="📜" active={@active_module} />
-          <.sidebar_nav_item :if={"operators" in @visible_modules} mod="operators" label="Operators" icon="🔐" active={@active_module} />
-          <.sidebar_nav_item :if={"service_accounts" in @visible_modules} mod="service_accounts" label="Service Accounts" icon="🔑" active={@active_module} />
-        </div>
+            <%= for {group_label, items} <- groups do %>
+              <div :if={group_label} class="sidebar-group-label"><%= group_label %></div>
+              <.sidebar_nav_item :for={{mod, meta} <- items}
+                mod={mod} label={meta.label} icon={meta.icon} active={@active_module} />
+            <% end %>
+          </div>
+          <div class="sidebar-divider"/>
+        <% end %>
 
         <div class="sidebar-divider"/>
 
@@ -258,6 +366,10 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
               <% "account" -> %>
                 <.live_component module={AccountComponent} id="account-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "gl" -> %>
+                <.live_component module={GlComponent} id="gl-component"
+                  current_operator={@current_operator} />
+
               <% "cms_eod" -> %>
                 <.live_component module={CmsEodComponent} id="cms-eod-component"
                                  current_operator={@current_operator} />

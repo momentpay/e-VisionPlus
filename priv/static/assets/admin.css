@@ -106,6 +106,12 @@ body {
   padding: 0 18px;
   margin-bottom: 6px;
 }
+.sidebar-group-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  padding: 6px 18px 2px 30px;
+}
 .sidebar-item {
   display: flex;
   align-items: center;

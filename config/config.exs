@@ -39,10 +39,15 @@ config :da_issuer, :issuer_listeners, [
     id: :mastercard_mip_listener,
     port: 7585,
     protocol: DaIssuer.Protocol,
-    # NetworkPackagers.MasterCardPackager has a pre-existing pack/1-unpack/1
-    # arity bug (see muNSwitch config/issuer_listeners.exs) — same placeholder
-    # workaround used there.
-    packager: DaSwitchCore.Packagers.ISO87BPackager,
+    # Real network packagers. The pack/1-unpack/1 arity bug is fixed, along
+    # with the gaps that made the field tables themselves wrong (missing
+    # get_field_packager/1, EBCDIC fields packed as ASCII, LLVAR fields
+    # using a BCD-digit length prefix instead of the real hex-byte one) —
+    # see muNSwitch's VisaPackager moduledoc for the encoding conventions.
+    # This MUST match whatever the acquiring switch's upstream_networks.exs
+    # packager is for the same network, or one side packs real Visa/MC
+    # format while the other decodes it as something else.
+    packager: DaSwitchCore.Packagers.NetworkPackagers.MasterCardPackager,
     max_connections: 50,
     name: "Mastercard MIP Listener"
   },
@@ -50,7 +55,7 @@ config :da_issuer, :issuer_listeners, [
     id: :visa_vap_listener,
     port: 8600,
     protocol: DaIssuer.Protocol,
-    packager: DaSwitchCore.Packagers.ISO87BPackager,
+    packager: DaSwitchCore.Packagers.NetworkPackagers.VisaPackager,
     max_connections: 50,
     name: "Visa VAP Listener"
   }

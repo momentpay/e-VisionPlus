@@ -1,0 +1,16 @@
+{
+  "name": "vmu_core_admin_assets",
+  "private": true,
+  "description": "Admin console client bundle — Phoenix LiveView + AG Grid/AG Charts Enterprise. Built with esbuild via `mix assets.build`; see config/config.exs for the bundler config and docs/shared/Admin_Menu_Standard.md §5 for the grid contract.",
+  "scripts": {
+    "build": "cd .. && mix assets.build"
+  },
+  "dependencies": {
+    "phoenix": "file:../deps/phoenix",
+    "phoenix_live_view": "file:../deps/phoenix_live_view",
+    "ag-grid-community": "^36.1.0",
+    "ag-grid-enterprise": "^36.1.0",
+    "ag-charts-community": "^14.1.0",
+    "ag-charts-enterprise": "^14.1.0"
+  }
+}

@@ -33,7 +33,10 @@ defmodule VmuCoreWeb.DesignSystemTest do
     # Interpolated class names (`class={"badge badge-#{kind}"}`) leave a
     # dangling prefix once the interpolation is stripped.
     "badge-",
-    "alert-"
+    "alert-",
+    # AG Grid's own vendor CSS (assets/css/ag_grid.css -> priv/static/assets/css/ag_grid.css),
+    # a separate stylesheet from admin.css by design — see VmuCoreWeb.Components.AgGrid.
+    "ag-theme-quartz"
   ]
 
   defp defined_classes do

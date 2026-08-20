@@ -146,11 +146,15 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
       <meta charset="utf-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
       <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()}/>
+      <meta :if={ag_grid_license_key()} name="ag-grid-license" content={ag_grid_license_key()}/>
       <title>VisionPlus Admin</title>
       <link rel="stylesheet" href="/assets/admin.css"/>
+      <link rel="stylesheet" href="/assets/css/ag_grid.css"/>
       <script>
         // Applied before first paint so the page never flashes the wrong
         // theme on load. The toggle in the header writes the same key.
+        // Deliberately inline and dependency-free — it must not wait on
+        // the app.js bundle below.
         (function () {
           try {
             var t = localStorage.getItem("vp-theme");
@@ -160,15 +164,6 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
             document.documentElement.setAttribute("data-theme", "light");
           }
         })();
-      </script>
-      <script src="/assets/phoenix.min.js"></script>
-      <script src="/assets/phoenix_live_view.js"></script>
-      <script>
-        const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-        const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
-          params: {_csrf_token: csrfToken}
-        })
-        liveSocket.connect()
 
         function vpToggleTheme() {
           var el = document.documentElement;
@@ -177,6 +172,11 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           try { localStorage.setItem("vp-theme", next); } catch (e) {}
         }
       </script>
+      <%!-- Bundled by esbuild (assets/js/app.js) -- phoenix, phoenix_live_view,
+          the hooks registry (AgGrid, AgChart) and AG Grid/AG Charts
+          Enterprise themselves. Run `mix assets.build` after editing
+          anything under assets/js. --%>
+      <script defer type="text/javascript" src="/assets/js/app.js"></script>
     </head>
     <body>
     <.sprite />
@@ -462,4 +462,10 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   end
 
   defp initials(_), do: "?"
+
+  # AG Grid Enterprise license key (row grouping, Excel export, server-side
+  # row model, sidebar tool panel). Unset in dev — the grid still works,
+  # AG Grid just shows its own watermark, which is expected until a real
+  # key is provisioned. Never hardcode one here.
+  defp ag_grid_license_key, do: System.get_env("AG_GRID_LICENSE_KEY")
 end

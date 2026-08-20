@@ -1,0 +1,8 @@
+/* AG Grid's own stylesheet, bundled separately from admin.css (a CSS entry
+   compiles cleanly with esbuild; admin.css stays hand-authored and
+   unbundled, as it always has been). The visual re-skin to match this
+   console's tokens lives in admin.css's own "AG Grid" section, via the
+   --ag-* custom properties AG Grid itself reads — see the "legacy" CSS
+   theme note in ag_grid_hook.js. */
+@import "ag-grid-community/styles/ag-grid.css";
+@import "ag-grid-community/styles/ag-theme-quartz.css";

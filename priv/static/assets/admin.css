@@ -1614,3 +1614,49 @@ td.num, th.num { text-align: right; }
 .timeline-content { min-width: 0; }
 .fw-600 { font-weight: 600; }
 .gl-admin { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── AG Grid / AG Charts (Phase 4-7) ──────────────────────────
+   AG Grid's own stylesheet ships separately (assets/css/ag_grid.css,
+   see VmuCoreWeb.Components.AgGrid) and is not itself a token-driven
+   file — but it reads the `--ag-*` custom properties below at runtime,
+   so redeclaring them for [data-theme="dark"] is enough to theme the
+   grid the same way everything else in this file themes: no separate
+   AG Grid dark stylesheet needed. `.ag-theme-quartz` is AG Grid's own
+   class (see the design-system test's allow-list) — everything it
+   reads is one of these variables. */
+
+.ag-grid-panel {
+  --ag-background-color: var(--bg-surface);
+  --ag-foreground-color: var(--text);
+  --ag-header-background-color: var(--bg-subtle);
+  --ag-header-foreground-color: var(--text-muted);
+  --ag-border-color: var(--border);
+  --ag-row-border-color: var(--border);
+  --ag-row-hover-color: var(--bg-subtle);
+  --ag-selected-row-background-color: var(--accent-wash);
+  --ag-modal-overlay-background-color: rgb(15 23 42 / .45);
+  --ag-input-border-color: var(--border-strong);
+  --ag-input-focus-border-color: var(--accent);
+  --ag-checkbox-checked-color: var(--accent);
+  --ag-range-selection-border-color: var(--accent);
+  --ag-font-family: var(--font);
+  --ag-font-size: 13px;
+  --ag-header-font-weight: 700;
+  --ag-header-height: 38px;
+  --ag-row-height: 38px;
+  --ag-border-radius: var(--radius-lg);
+  --ag-wrapper-border-radius: var(--radius-lg);
+  --ag-icon-color: var(--text-muted);
+
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ag-chart-panel {
+  height: 320px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}

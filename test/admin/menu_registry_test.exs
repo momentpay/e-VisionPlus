@@ -122,4 +122,44 @@ defmodule VmuCoreWeb.Live.Admin.MenuRegistryTest do
     assert "SUPERVISOR" in roles
     assert "OPS" in roles
   end
+
+  describe "Phase 2 — dock/sidebar derivation" do
+    test "dock_target lands a nav module with zero visible items on itself" do
+      for nav <- AdminLive.nav_modules() do
+        assert AdminLive.dock_target(nav.id, MapSet.new()) == nav.id
+      end
+    end
+
+    test "dock_target lands a nav module with visible items on its first live item" do
+      visible = MapSet.new(["gl", "cms_eod", "cms_resegmentation"])
+      assert AdminLive.dock_target("finance", visible) == "gl"
+    end
+
+    test "nav_module_for resolves a leaf item back to its owning nav module" do
+      assert AdminLive.nav_module_for("gl") == "finance"
+      assert AdminLive.nav_module_for("customer") == "party"
+    end
+
+    test "nav_module_for and nav_module_landing?/1 agree on a nav-module landing id" do
+      assert AdminLive.nav_module_for("loyalty") == "loyalty"
+      assert AdminLive.nav_module_landing?("loyalty")
+      refute AdminLive.nav_module_landing?("gl")
+    end
+
+    test "sidebar_entries_for_nav_module merges live and coming-soon items, live sorting first within a shared group" do
+      entries = AdminLive.sidebar_entries_for_nav_module("party", MapSet.new(["customer"]))
+      {"Customer Management", items} = List.keyfind(entries, "Customer Management", 0)
+
+      assert [{:live, "customer", _meta}, {:soon, %{id: "party_360"}}] = items
+    end
+
+    test "every nav module has at least one sidebar entry once everything is visible" do
+      visible = MapSet.new(Map.keys(AdminLive.menu_registry()))
+
+      for nav <- AdminLive.nav_modules() do
+        entries = AdminLive.sidebar_entries_for_nav_module(nav.id, visible)
+        assert entries != [], "#{nav.id} has no sidebar entries even with every module visible"
+      end
+    end
+  end
 end

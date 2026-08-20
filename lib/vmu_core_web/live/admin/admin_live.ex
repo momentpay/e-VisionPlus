@@ -85,6 +85,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     %{id: "security",        label: "Security & Access",         icon: "🔐", order: 130}
   ]
 
+  @nav_module_ids Enum.map(@nav_modules, & &1.id)
+
   @modules %{
     # -- Party & Customer --
     "customer"      => %{label: "Customers (CIF)",        icon: "👤",  nav_module: "party", group: "Customer Management", order: 10},
@@ -184,18 +186,54 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   end
 
   @doc """
-  Live items of one nav module, clustered into `{group_label, items}` pairs
-  in display order — the shape the sidebar template renders directly. Groups
-  are inferred from item adjacency after sorting by `order` rather than
-  tracked separately, since `order` already increases continuously across a
-  nav module's groups (see the @modules moduledoc above).
+  Live and coming-soon items of one nav module, merged and clustered into
+  `{group_label, entries}` pairs in display order — the shape the sidebar
+  template renders directly. Each entry is `{:live, mod, meta}` (clickable)
+  or `{:soon, item}` (inert, "Soon" badge, no permission check — see
+  docs/shared/Admin_Menu_Standard.md §2.1). Groups are inferred from entry
+  adjacency after sorting by `order` rather than tracked separately, since
+  `order` already increases continuously across a nav module's groups (see
+  the @modules moduledoc above), and coming-soon `order >= 900` guarantees
+  they sort after any live item sharing their group.
   """
-  def grouped_items_for_nav_module(nav_module_id, visible) do
-    nav_module_id
-    |> items_for_nav_module(visible)
-    |> Enum.chunk_by(fn {_mod, meta} -> meta.group end)
-    |> Enum.map(fn [{_mod, %{group: group}} | _] = chunk -> {group, chunk} end)
+  def sidebar_entries_for_nav_module(nav_module_id, visible) do
+    live = for {mod, meta} <- items_for_nav_module(nav_module_id, visible), do: {:live, mod, meta}
+    soon = for item <- coming_soon_for_nav_module(nav_module_id), do: {:soon, item}
+
+    (live ++ soon)
+    |> Enum.sort_by(&entry_order/1)
+    |> Enum.chunk_by(&entry_group/1)
+    |> Enum.map(fn [first | _] = chunk -> {entry_group(first), chunk} end)
   end
+
+  defp entry_order({:live, _mod, meta}), do: meta.order
+  defp entry_order({:soon, item}), do: item.order
+  defp entry_group({:live, _mod, meta}), do: meta.group
+  defp entry_group({:soon, item}), do: item.group
+
+  @doc "Where a dock item links: its first visible live item, or itself (a coming-soon landing page) if it has none."
+  def dock_target(nav_module_id, visible) do
+    case items_for_nav_module(nav_module_id, visible) do
+      [{mod, _meta} | _] -> mod
+      [] -> nav_module_id
+    end
+  end
+
+  @doc "The nav module that owns this active_module value — a leaf item id, or a nav-module landing id itself."
+  def nav_module_for(active) do
+    case Map.get(@modules, active) do
+      %{nav_module: nav_id} -> nav_id
+      nil -> active
+    end
+  end
+
+  @doc """
+  True when `active_module` is a nav-module id rather than a leaf item id —
+  i.e. this nav module has no visible live items and is showing its
+  coming-soon landing page instead. Safe because `handle_params/3` only ever
+  sets `active_module` to a known @modules key or a known nav-module id.
+  """
+  def nav_module_landing?(active), do: not is_map_key(@modules, active)
 
   @doc "Coming-soon placeholders for one nav module, in display order."
   def coming_soon_for_nav_module(nav_module_id) do
@@ -234,6 +272,11 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     # page directly instead of landing on the bare module list.
     {:noreply, assign(socket, active_module: mod, deep_link_id: Map.get(params, "view"))}
   end
+  # A nav module with no visible live items (e.g. "loyalty") links straight to
+  # its own id — lands on the coming-soon panel instead of a leaf component.
+  def handle_params(%{"module" => mod}, _uri, socket) when mod in @nav_module_ids do
+    {:noreply, assign(socket, active_module: mod, deep_link_id: nil)}
+  end
   def handle_params(_params, _uri, socket) do
     {:noreply, assign(socket, active_module: "system", deep_link_id: nil)}
   end
@@ -269,38 +312,47 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
       </script>
     </head>
     <body>
-    <div class="admin-layout">
+    <% active_nav = nav_module_for(@active_module) %>
+    <div class="admin-shell">
 
-      <%# ── Sidebar ──────────────────────────────────────────── %>
-      <nav class="admin-sidebar">
-        <div class="sidebar-logo">
-          <div class="product-name">VisionPlus</div>
-          <div class="product-tag">Admin Console</div>
+      <%!-- ── Module dock (top nav) ──────────────────────────────
+          Every nav module is always shown — including ones with zero
+          visible live items today — so the taxonomy itself is visible as
+          the roadmap it is. Clicking one lands on its first live item, or
+          on its coming-soon panel if it has none. --%>
+      <header class="module-dock-bar">
+        <div class="dock-brand">VisionPlus</div>
+
+        <nav class="module-dock">
+          <.dock_item :for={nav <- nav_modules()}
+            target={dock_target(nav.id, @visible_modules)}
+            label={nav.label} icon={nav.icon} active={nav.id == active_nav} />
+        </nav>
+
+        <div class="dock-actions">
+          <span>👤 <%= @current_operator.display_name %> <span class="text-muted">(<%= @current_operator.role %>)</span></span>
+          <a href="/visionplus/admin/logout">Sign out</a>
         </div>
+      </header>
 
-        <%!-- Generated from @modules — never hand-list items here. A module that
-            is registered but has no role permission simply does not appear;
-            see docs/shared/Admin_Menu_Standard.md. Nav-module headings are
-            shown even though the top dock itself lands in Phase 2, so the
-            sidebar already reflects the new IA. --%>
-        <%= for %{id: nav_id, label: nav_label} <- nav_modules(),
-                groups = grouped_items_for_nav_module(nav_id, @visible_modules),
-                groups != [] do %>
-          <div class="sidebar-section">
-            <div class="sidebar-section-label"><%= nav_label %></div>
+      <div class="admin-body">
 
-            <%= for {group_label, items} <- groups do %>
-              <div :if={group_label} class="sidebar-group-label"><%= group_label %></div>
-              <.sidebar_nav_item :for={{mod, meta} <- items}
-                mod={mod} label={meta.label} icon={meta.icon} active={@active_module} />
+        <%!-- ── Contextual sidebar ───────────────────────────────
+            Shows only the active nav module's groups — generated from
+            @modules/@coming_soon, never hand-listed; see
+            docs/shared/Admin_Menu_Standard.md. --%>
+        <nav class="admin-sidebar">
+          <%= for {group_label, entries} <- sidebar_entries_for_nav_module(active_nav, @visible_modules) do %>
+            <div :if={group_label} class="sidebar-group-label"><%= group_label %></div>
+            <%= for entry <- entries do %>
+              <.sidebar_nav_item :if={match?({:live, _, _}, entry)}
+                mod={elem(entry, 1)} label={elem(entry, 2).label} icon={elem(entry, 2).icon} active={@active_module} />
+              <.sidebar_soon_item :if={match?({:soon, _}, entry)} item={elem(entry, 1)} />
             <% end %>
-          </div>
+          <% end %>
+
           <div class="sidebar-divider"/>
-        <% end %>
 
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
           <div class="sidebar-section-label">Legacy</div>
           <a class="sidebar-item" href="/visionplus">
             <span class="icon">🖥️</span> Terminal UI
@@ -308,33 +360,25 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <a class="sidebar-item" href="/dashboard">
             <span class="icon">📊</span> Dashboard
           </a>
-        </div>
 
-        <div class="sidebar-footer">
-          VisionPlus vmu_core
-        </div>
-      </nav>
+          <div class="sidebar-footer">
+            VisionPlus vmu_core
+          </div>
+        </nav>
 
-      <%# ── Topbar ───────────────────────────────────────────── %>
-      <header class="admin-topbar">
-        <div class="topbar-breadcrumb">
-          <span>VisionPlus</span>
-          <span class="sep">/</span>
-          <span class="current"><%= Map.get(@modules, @active_module, %{label: @active_module})[:label] %></span>
-        </div>
-        <div class="topbar-actions">
-          <span class="text-sm text-muted">SYS: PROC</span>
-          <span class="text-sm" style="margin-left:1rem">
-            👤 <%= @current_operator.display_name %>
-            <span class="text-muted">(<%= @current_operator.role %>)</span>
-          </span>
-          <a href="/visionplus/admin/logout" class="text-sm" style="margin-left:0.75rem">Sign out</a>
-        </div>
-      </header>
+        <%# ── Main content ──────────────────────────────────────── %>
+        <main class="admin-main">
+          <div class="content-breadcrumb">
+            <span><%= Enum.find(nav_modules(), &(&1.id == active_nav)).label %></span>
+            <span :if={!nav_module_landing?(@active_module)} class="sep">/</span>
+            <span :if={!nav_module_landing?(@active_module)} class="current">
+              <%= Map.get(@modules, @active_module, %{label: @active_module})[:label] %>
+            </span>
+          </div>
 
-      <%# ── Main content ──────────────────────────────────────── %>
-      <main class="admin-main">
         <%= cond do %>
+          <% nav_module_landing?(@active_module) -> %>
+            <.coming_soon_panel nav_module_id={@active_module} />
           <% @active_module not in @visible_modules -> %>
             <%# Server-side gate (ASM-P2) — deep links can't bypass the sidebar %>
             <div class="component-panel">
@@ -425,8 +469,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                 <p>Unknown module.</p>
             <% end %>
         <% end %>
-      </main>
-
+        </main>
+      </div>
     </div>
     </body>
     </html>
@@ -444,6 +488,43 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
       <span class="icon"><%= @icon %></span>
       <%= @label %>
     </a>
+    """
+  end
+
+  defp sidebar_soon_item(assigns) do
+    ~H"""
+    <span class="sidebar-item soon">
+      <span class="icon"><%= @item.icon %></span>
+      <%= @item.label %>
+      <span class="badge-soon">Soon</span>
+    </span>
+    """
+  end
+
+  defp dock_item(assigns) do
+    ~H"""
+    <a class={"dock-item#{if @active, do: " active", else: ""}"} href={"/visionplus/admin/#{@target}"}>
+      <span class="dock-icon"><%= @icon %></span>
+      <span class="dock-label"><%= @label %></span>
+    </a>
+    """
+  end
+
+  defp coming_soon_panel(assigns) do
+    nav = Enum.find(@nav_modules, &(&1.id == assigns.nav_module_id))
+    items = coming_soon_for_nav_module(assigns.nav_module_id)
+    assigns = assign(assigns, nav: nav, items: items)
+
+    ~H"""
+    <.empty_state icon={@nav.icon} title={"#{@nav.label} — coming soon"}
+      message="This module has no screens built yet. Planned, in priority order:" />
+    <ul class="coming-soon-list">
+      <li :for={item <- @items}>
+        <span class="icon"><%= item.icon %></span>
+        <span><%= item.label %></span>
+        <span class="badge-soon">Soon</span>
+      </li>
+    </ul>
     """
   end
 

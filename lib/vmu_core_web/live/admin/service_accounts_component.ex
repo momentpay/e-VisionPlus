@@ -15,6 +15,7 @@ defmodule VmuCoreWeb.Live.Admin.ServiceAccountsComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.ASM.{ServiceAccount, ServiceAccounts}
 
@@ -80,28 +81,21 @@ defmodule VmuCoreWeb.Live.Admin.ServiceAccountsComponent do
       <%= if @accounts == [] do %>
         <.empty_state icon="🔑" title="No service accounts yet" />
       <% else %>
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Scopes</th>
-              <th>Status</th>
-              <th>Last used</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={a <- @accounts}>
-              <td><%= a.name %></td>
-              <td><%= Enum.join(a.scopes, ", ") %></td>
-              <td><.status_badge status={a.status} /></td>
-              <td><%= a.last_used_at %></td>
-              <td>
-                <button :if={a.status == "ACTIVE"} type="button" phx-click="revoke" phx-value-id={a.service_account_id} phx-target={@myself} class="btn btn-sm btn-danger">Revoke</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <.ag_grid
+          id="service-accounts-grid"
+          columns={[
+            %{field: "name", header: "Name", flex: 2},
+            %{field: "scopes", header: "Scopes", flex: 2},
+            %{field: "status", header: "Status", type: "badge", width: 130},
+            %{field: "last_used_at", header: "Last used", width: 180},
+            %{field: "service_account_id", header: "", type: "actions", width: 120,
+              actions: [
+                %{label: "Revoke", event: "revoke", param: "service_account_id",
+                  whenField: "status", whenValue: "ACTIVE", danger: true}
+              ]}
+          ]}
+          rows={Enum.map(@accounts, &service_account_row/1)}
+        />
       <% end %>
     </div>
     """
@@ -159,6 +153,16 @@ defmodule VmuCoreWeb.Live.Admin.ServiceAccountsComponent do
   # ---------------------------------------------------------------------------
 
   defp load_accounts(socket), do: assign(socket, accounts: ServiceAccounts.list())
+
+  defp service_account_row(a) do
+    %{
+      name: a.name,
+      scopes: Enum.join(a.scopes, ", "),
+      status: a.status,
+      last_used_at: if(a.last_used_at, do: to_string(a.last_used_at), else: "—"),
+      service_account_id: a.service_account_id
+    }
+  end
 
   defp admin?(socket), do: socket.assigns.current_operator && socket.assigns.current_operator.role == "ADMIN"
 

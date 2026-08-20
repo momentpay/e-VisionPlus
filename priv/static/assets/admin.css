@@ -790,6 +790,20 @@ textarea { resize: vertical; min-height: 72px; }
 .badge-blue   { background: var(--accent-light); color: var(--accent); }
 .badge-gray   { background: var(--bg-inset); color: var(--text-muted); }
 
+/* Aliases for the six admin screens (approval_inbox, audit_log,
+   auth_history, exception_queue, operator, tram_inquiry) whose own
+   `*_class/1` helpers return "success"/"warning"/"error"/"info" rather
+   than a colour name — a real, silent bug until this was added: none of
+   these four classes existed anywhere, so every status badge on those
+   screens rendered with no background or colour at all. Kept as aliases,
+   not a rename of the helpers, since "badge-#{dynamic}" is exactly the
+   kind of interpolated class name a static audit cannot resolve — see
+   the design-system test's @allowed list. */
+.badge-success { background: var(--success-bg); color: var(--success); }
+.badge-error   { background: var(--danger-bg);  color: var(--danger); }
+.badge-warning { background: var(--warning-bg); color: var(--warning); }
+.badge-info    { background: var(--accent-light); color: var(--accent); }
+
 /* ── Alert / flash ─────────────────────────────────────────── */
 
 .alert {
@@ -1283,6 +1297,12 @@ code {
   color: var(--accent-fg);
 }
 .btn-ghost:hover { background: var(--accent-wash); border-color: transparent; }
+
+/* A ghost action for something destructive (Revoke, Remove) — danger-
+   coloured text, same quiet chrome, so it doesn't out-shout its
+   neighbours in an actions column the way a filled .btn-danger would. */
+.btn-ghost.btn-danger-text { color: var(--danger); }
+.btn-ghost.btn-danger-text:hover { background: var(--danger-bg); }
 
 .btn-sm  { padding: 5px 10px; font-size: 12px; }
 .btn-xs  { padding: 3px 8px;  font-size: 11.5px; }

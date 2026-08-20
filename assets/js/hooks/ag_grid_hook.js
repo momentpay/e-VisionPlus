@@ -38,6 +38,12 @@ function formatMoney(params) {
   return Number.isNaN(n) ? String(params.value) : numberFormatter.format(n)
 }
 
+function formatNumber(params) {
+  if (params.value === null || params.value === undefined || params.value === "") return "—"
+  const n = Number(params.value)
+  return Number.isNaN(n) ? String(params.value) : n.toLocaleString()
+}
+
 function formatDate(params) {
   if (!params.value) return "—"
   // Server sends ISO-ish strings (Date/DateTime/NaiveDateTime to_string) —
@@ -62,7 +68,12 @@ const BADGE_CLASS = {
 function badgeCellRenderer(params) {
   if (params.value === null || params.value === undefined || params.value === "") return "—"
   const value = String(params.value)
-  const cls = BADGE_CLASS[value.toUpperCase()] || "badge-gray"
+  // `classField` lets a screen with its own status vocabulary (not the
+  // generic ACTIVE/PENDING/etc set) supply the badge class per row —
+  // e.g. Audit Trail's action severity (info/warning/error), which
+  // doesn't fit the fixed BADGE_CLASS map below.
+  const classField = params.colDef.classField
+  const cls = (classField && params.data[classField]) || BADGE_CLASS[value.toUpperCase()] || "badge-gray"
   const span = document.createElement("span")
   span.className = `badge ${cls}`
   span.textContent = value
@@ -82,9 +93,14 @@ function actionsCellRenderer(hook) {
     const wrap = document.createElement("div")
     wrap.className = "actions"
     for (const action of params.colDef.actions || []) {
+      // `whenField`/`whenValue` hide an action that doesn't apply to this
+      // row — e.g. "Revoke" only where status is ACTIVE — the same
+      // conditional-action pattern every hand-written table already used.
+      if (action.whenField && params.data[action.whenField] !== action.whenValue) continue
+
       const btn = document.createElement("button")
       btn.type = "button"
-      btn.className = "btn btn-ghost btn-xs"
+      btn.className = `btn btn-ghost btn-xs${action.danger ? " btn-danger-text" : ""}`
       btn.textContent = action.label
       btn.addEventListener("click", () => {
         hook.pushEventTo(hook.el, action.event, { id: params.data[action.param] })
@@ -114,11 +130,17 @@ function cellDefForColumn(col, hook) {
       def.cellClass = "ag-right-aligned-cell num"
       def.type = "rightAligned"
       break
+    case "number":
+      def.valueFormatter = formatNumber
+      def.cellClass = "ag-right-aligned-cell num"
+      def.type = "rightAligned"
+      break
     case "date":
       def.valueFormatter = formatDate
       break
     case "badge":
       def.cellRenderer = badgeCellRenderer
+      def.classField = col.classField
       def.filter = false
       break
     case "mono":
@@ -154,14 +176,16 @@ const AgGrid = {
     const columns = readJSON(this.el, "data-columns", [])
     const rows = readJSON(this.el, "data-rows", [])
 
+    const paginate = this.el.dataset.paginate !== "false"
+
     this.gridApi = createGrid(this.el, {
       theme: "legacy",
       columnDefs: columns.map((c) => cellDefForColumn(c, this)),
       rowData: rows,
       animateRows: true,
-      pagination: true,
+      pagination: paginate,
       paginationPageSize: 50,
-      paginationPageSizeSelector: [25, 50, 100, 200],
+      paginationPageSizeSelector: paginate ? [25, 50, 100, 200] : false,
       domLayout: "autoHeight",
       suppressCellFocus: true,
       overlayNoRowsTemplate: this.el.dataset.emptyMessage || "No rows to show."

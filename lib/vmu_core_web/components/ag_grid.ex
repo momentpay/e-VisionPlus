@@ -52,6 +52,7 @@ defmodule VmuCoreWeb.Components.AgGrid do
   attr :columns, :list, required: true
   attr :rows, :list, required: true
   attr :empty_message, :string, default: "No rows to show."
+  attr :paginate, :boolean, default: true, doc: "false for a screen that already paginates server-side"
   attr :rest, :global
 
   def ag_grid(assigns) do
@@ -69,6 +70,7 @@ defmodule VmuCoreWeb.Components.AgGrid do
       data-columns={@columns_json}
       data-rows={@rows_json}
       data-empty-message={@empty_message}
+      data-paginate={to_string(@paginate)}
       {@rest}
     />
     """

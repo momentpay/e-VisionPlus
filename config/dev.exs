@@ -16,7 +16,14 @@ config :vmu_core, VmuCoreWeb.Endpoint,
 
 # Dev pool sizes — keep small so we stay within PostgreSQL's max_connections.
 # Default PostgreSQL max_connections is 100; all path dep repos share the same server.
-config :vmu_core,    VmuCore.Repo,    pool_size: 3
+#
+# VmuCore.Repo bumped 3 -> 10 (Phase 13): load testing identified this as the
+# tightest bottleneck in the whole terminal->acquirer->network_sim->issuer
+# topology — throughput plateaued and latency roughly doubled going from
+# concurrency 50 to 100, consistent with requests queuing on a 3-connection
+# pool. 10 matches DaAcquirer.Repo's own dev pool size and stays well within
+# the shared 100-connection ceiling alongside InfraRepo's 2.
+config :vmu_core,    VmuCore.Repo,    pool_size: 10
 config :infra_repo,  InfraRepo.Repo,  pool_size: 2
 
 # Livebook node connection:

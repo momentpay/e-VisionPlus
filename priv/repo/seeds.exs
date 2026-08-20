@@ -999,29 +999,39 @@ IO.puts("    ITS copy requests: 3  |  Fee claims: 3  |  FARs: 3")
 # ============================================================
 # Phase 10: end-to-end test topology, PIN translation
 # ============================================================
-# reference PIN for pan_ahmed (PAN 4072001234560001, the topology's
-# known-good test card) — SoftHSM.verify_pin/3 compares against this
-# after decrypting the incoming DE52 under the configured test ZPK
-# (config :vmu_core, :soft_hsm, zpk: ...). encrypt_reference_dev/1 is the
-# same dev-only "encrypted digits, no PAN" helper change_pin/3 itself
-# uses (see SoftHSM's moduledoc) — reused here, not reinvented.
-IO.puts("--> Phase 10: card PIN (dev reference)")
+# reference PIN for every seeded test account (Phase 13: load testing
+# needs more than one PIN-verified PAN for genuine multi-account
+# concurrency, not just pan_ahmed) — SoftHSM.verify_pin/3 compares
+# against this after decrypting the incoming DE52 under the configured
+# test ZPK (config :vmu_core, :soft_hsm, zpk: ...). encrypt_reference_dev/1
+# is the same dev-only "encrypted digits, no PAN" helper change_pin/3
+# itself uses (see SoftHSM's moduledoc) — reused here, not reinvented.
+# One shared dev PIN ("1234") for all of them — this is test data, not a
+# security boundary.
+IO.puts("--> Phase 10/13: card PIN (dev reference) for all seeded accounts")
 
-card_pin_attrs = %{
-  pan_token: pan_ahmed,
-  reference_pin_lmk: VmuCore.FAS.HSM.SoftHSM.encrypt_reference_dev("1234")
-}
+all_seeded_pans = [
+  pan_ahmed, pan_sara, pan_priya, pan_mohammad, pan_jennifer,
+  pan_abdullah, pan_fiona, pan_khalid, pan_rashid, pan_fatima
+]
 
-case Repo.get_by(VmuCore.CMS.CardPin, pan_token: pan_ahmed) do
-  nil ->
-    %VmuCore.CMS.CardPin{}
-    |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
-    |> Repo.insert!()
+for pan_token <- all_seeded_pans do
+  card_pin_attrs = %{
+    pan_token: pan_token,
+    reference_pin_lmk: VmuCore.FAS.HSM.SoftHSM.encrypt_reference_dev("1234")
+  }
 
-  existing_card_pin ->
-    existing_card_pin
-    |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
-    |> Repo.update!()
+  case Repo.get_by(VmuCore.CMS.CardPin, pan_token: pan_token) do
+    nil ->
+      %VmuCore.CMS.CardPin{}
+      |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+      |> Repo.insert!()
+
+    existing_card_pin ->
+      existing_card_pin
+      |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+      |> Repo.update!()
+  end
 end
 
-IO.puts("    ✓ CardPin set for pan_ahmed (4072001234560001), PIN 1234")
+IO.puts("    ✓ CardPin set for #{length(all_seeded_pans)} accounts, PIN 1234")

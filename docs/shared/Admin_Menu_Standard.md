@@ -2,9 +2,9 @@
 
 | Property | Value |
 |---|---|
-| Date | 2026-08-03 |
-| Status | **Adopted.** The sidebar is now generated from the registry; hand-listing is no longer possible without reverting the change. |
-| Applies to | `VmuCoreWeb.Live.Admin.AdminLive`, `VmuCore.ASM.RolePermission`, every admin LiveComponent |
+| Date | 2026-08-03, revised 2026-08-21 |
+| Status | **Adopted.** Navigation is generated from `VmuCoreWeb.Admin.Nav`; hand-listing is no longer possible without reverting the change. |
+| Applies to | `VmuCoreWeb.Admin.Nav`, `VmuCoreWeb.Live.Admin.AdminLive`, `VmuCoreWeb.Icons`, `VmuCore.ASM.RolePermission`, every admin LiveComponent |
 
 ---
 
@@ -27,26 +27,35 @@ There was already a workaround for the same class of bug: `expand_module_config_
 
 ## 2. The rule
 
-**`AdminLive.@modules` is the single source of truth for navigation. The sidebar is generated from it.**
+**`VmuCoreWeb.Admin.Nav` is the single source of truth for navigation. The dock and the sidebar are generated from it.**
 
-As of 2026-08-20 the registry has three levels, not two: **nav module** (top-level business domain — shown in the top dock once Phase 2 of the UI modernization lands, see the `snoopy-seeking-goose` plan) → **group** (sidebar sub-heading) → **item** (a leaf screen, i.e. a row in `@modules`). This replaced the old flat 5-section grouping (`:hierarchy/:operations/:financial/:fas/:security`), which was an ASM permission heuristic — "who touches this during a shift" — rather than a business-domain IA. The new 13 nav modules are derived from `docs/compare/Kosa_Handbook_Alignment_Assessment.md`'s domain rings and standard card-platform taxonomy (Way4/VisionPlus); see `AdminLive.nav_modules/0`.
+As of 2026-08-21 the taxonomy has three levels, not two:
 
-Adding a live module is still **two** edits, not four:
+```
+nav module   (top dock — a business domain of a card issuer)
+  └─ group   (sidebar heading)
+       └─ item  (a leaf screen)
+```
+
+This replaced the old flat five-section grouping (`:hierarchy/:operations/:financial/:fas/:security`), which was an ASM permission heuristic — "who touches this during a shift" — rather than an information architecture. It put Debit Cards, KYC Requests and Collections in one undifferentiated "Operations" bucket, which is fine at ten screens and unusable at sixty.
+
+The thirteen nav modules are the domains of an **issuing** platform, in the shape VisionPlus and Way4 organise them, cross-checked against `docs/compare/Kosa_Handbook_Alignment_Assessment.md`'s domain rings. Note this is deliberately *not* the taxonomy of the acquiring backoffice whose visual design this console follows: an issuer's spine runs Customer → Account → Card → Authorization → Billing → Collections, where an acquirer's runs Merchant → Terminal → Payments → Clearing → Settlement.
+
+Adding a live screen is still **two** edits, not four:
 
 ```elixir
-# 1. Register it — nav_module, group and order decide where it appears.
-"gl" => %{label: "General Ledger", icon: "📒", nav_module: "finance", group: "Ledger", order: 10},
+# 1. Register it in VmuCoreWeb.Admin.Nav's @items.
+%{id: "gl", label: "General Ledger", icon: "book-open",
+  nav_module: "finance", group: "Ledger", group_order: 10, order: 10, status: :live},
 
-# 2. Add its render branch.
+# 2. Add its render branch in AdminLive.
 <% "gl" -> %>
   <.live_component module={GlComponent} id="gl-component" current_operator={@current_operator} />
 ```
 
-`order` is a single integer per nav module, spaced by 10s and increasing continuously across all of that nav module's groups (not reset per group). The sidebar clusters items into groups by adjacency after sorting by `order` — see `AdminLive.grouped_items_for_nav_module/2` — so there is no separate "group order" field to keep in sync.
+`group_order` positions the group within its module; `order` positions the item within its group. Both are spaced by 10s so anything can be inserted without renumbering its neighbours.
 
-### 2.1 Coming-soon placeholders
-
-`AdminLive.@coming_soon` holds real, already-identified gaps (from the Kosa alignment assessment) given a home in the nav ahead of being built — e.g. Chargeback Cases, Party 360, Accounting Periods. Each entry has `id, label, icon, nav_module, group, order`, uses `order >= 900` so it always sorts after any live item in the same group, and needs **no `RolePermission` rows** — there is nothing behind it yet to protect. These are not yet rendered (that starts in Phase 2, as inert greyed-out "Soon" items); Phase 1 only defines the data.
+An item's `id` is simultaneously its permission key, its URL segment and its render-branch key — the three must agree, and the guard test checks that they do.
 
 Plus **one** permission edit, which is a deliberate business decision rather than boilerplate:
 
@@ -56,33 +65,59 @@ Plus **one** permission edit, which is a deliberate business decision rather tha
 {"SUPERVISOR", "gl", ~w[view edit]},      # who may see and act
 ```
 
-A module absent from `RolePermission.@modules`, or granted to no role, **will not appear for anyone except ADMIN**. That is intended — the menu should never advertise something the operator cannot open — but it is also the failure mode to check first when a new screen does not show up.
+A screen absent from `RolePermission.@modules`, or granted to no role, **will not appear for anyone except ADMIN**. That is intended — the menu should never advertise something the operator cannot open — but it is also the failure mode to check first when a new screen does not show up.
+
+### 2.1 Planned items
+
+An item with `status: :planned` is a real, already-identified gap given a home in the navigation ahead of being built — Chargeback representment, Party 360, Accounting Periods, and so on, mostly named in the Koṣa assessment. They render greyed out with a "Soon" badge and are not clickable.
+
+Showing them is the point: the navigation doubles as the roadmap, and an operator can see that representment is coming rather than concluding it does not exist.
+
+Planned items need **no `RolePermission` rows** — there is nothing behind them to protect — and so are not permission-filtered. A nav module whose items are all planned (Overview, Risk, Loyalty) renders a placeholder page listing them, rather than an access-denied panel.
+
+### 2.2 Icons
+
+Icons come from `VmuCoreWeb.Icons`, an inline SVG `<symbol>` sprite. Emoji were the previous answer; they render differently on every platform and cannot take the surrounding text colour, which makes accent-tinted navigation impossible.
+
+Reference one by name (`icon: "book-open"`). A name with no symbol behind it renders a dash rather than raising — and the guard test fails, so it does not reach a browser.
+
+### 2.3 Accents
+
+Each nav module owns one hue, defined in `priv/static/assets/admin.css` as `[data-accent="…"]`, so it reads as the same colour in its dock tile, its sidebar identity block and its active sidebar item. Accents must be unique across modules — two domains sharing a hue defeats the purpose, and the guard test enforces it.
 
 ---
 
 ## 3. Nav modules
 
-Thirteen, in display order (`AdminLive.nav_modules/0`). A nav module renders in the sidebar only when the operator can see at least one live item in it — but note it will still render once Phase 2 adds the top dock, since coming-soon items are not permission-gated (§2.1).
+Thirteen, in dock order (`VmuCoreWeb.Admin.Nav.nav_modules/0`). Every one is always shown in the dock, including modules with nothing built yet, so the dock reads as the platform's shape rather than only its finished parts.
 
-| # | Nav module | Live groups today | Test for "does it belong here?" |
-|---|---|---|---|
-| 1 | Overview | — (coming soon) | Portfolio-level KPIs, not any one product's data |
-| 2 | Party & Customer | Customer Management, Onboarding & KYC | It's about *who* the customer is, before any product |
-| 3 | Cards & Accounts | Accounts, Card Products, Product Configuration | A specific card/account product and its configuration |
-| 4 | Platform Configuration | Hierarchy, Framework | System-wide config, not any one product |
-| 5 | Authorization & Switching | Live Authorization | It answers "what did the switch do?" |
-| 6 | Transactions & Settlement | Inquiry | Post-authorization transaction lifecycle (clearing/settlement) |
-| 7 | Collections & Recovery | Servicing, Management Information | Delinquency servicing and its MI |
-| 8 | Disputes & Chargebacks | Disputes | Customer- or network-facing case work over a transaction |
-| 9 | Risk, Fraud & Compliance | — (coming soon) | Detection/decisioning, not day-to-day servicing |
-| 10 | Finance & General Ledger | Ledger, Period Control | An accountant or finance controller cares about it |
-| 11 | Merchant & Acquiring | — (coming soon) | MBS has no admin UI yet |
-| 12 | Loyalty & Rewards | — (coming soon) | LMS has no admin UI yet |
-| 13 | Security & Access | Approvals & Audit, Identity & Access | It governs *who may act*, not what the business does |
+| # | Nav module | Accent | Live groups today | Test for "does it belong here?" |
+|---|---|---|---|---|
+| 1 | Overview | indigo | — | Portfolio-level KPIs, not any one product's data |
+| 2 | Customer & Party | violet | Customer Management, Onboarding & KYC | *Who* the customer is, before any product |
+| 3 | Cards & Accounts | sky | Accounts, Card Products | A card/account product instance and its lifecycle |
+| 4 | Authorization & Switching | emerald | Live Authorization | It answers "what did the switch do, in real time?" |
+| 5 | Transactions & Clearing | teal | Inquiry | Post-authorization lifecycle — clearing, settlement, recon |
+| 6 | Billing & Statements | amber | Cycle Processing | Cycle, statement, interest, fee and payment processing |
+| 7 | Collections & Recovery | orange | Servicing, Management Information | Delinquency servicing and recovery |
+| 8 | Disputes & Chargebacks | rose | Case Management | Case work contesting a transaction |
+| 9 | Risk, Fraud & Compliance | fuchsia | — | Detection and decisioning, not day-to-day servicing |
+| 10 | Finance & General Ledger | blue | Ledger | An accountant or finance controller cares about it |
+| 11 | Loyalty & Rewards | cyan | — | LMS has no admin UI yet |
+| 12 | Platform Configuration | purple | Parameter Hierarchy, Framework | System-wide config, not any one product |
+| 13 | Security & Access | slate | Approvals & Audit, Identity & Access | It governs *who may act*, not what the business does |
 
-This supersedes the old flat 5-section grouping (`:hierarchy/:operations/:financial/:fas/:security`), which was an ASM permission heuristic rather than a business-domain IA — see §2 for why and when that changed.
+Two placement calls worth recording, because both are the kind that get re-litigated:
 
-`order` is spaced by 10s and increases continuously across a nav module's groups, so a module (or a whole group) can be inserted without renumbering everything after it.
+**All four levels of the SYS → BANK → LOGO → BLOCK cascade live in Platform Configuration**, not split with LOGO/BLOCK under Cards. They are two rungs of one parameter-resolution ladder and every downstream module reads them that way; splitting them would read as "card product setup" and hide the cascade.
+
+**EOD and Cycle Resegmentation live in Billing, not Finance.** EOD is the nightly batch that accrues interest, assesses fees, generates statements and ages delinquency — it is billing-period processing. Finance is the ledger the results post *to*, and its audience is the person closing an accounting period, not the person running the cycle.
+
+### 3.1 What is deliberately absent
+
+**There is no Merchant or Acquiring module.** vmu_core carries MBS code (`mbs_merchants`, `mbs_terminals`, `mdr_engine`) with no admin UI, so a Merchant module would have been all placeholders — and the acquiring side of this estate has its own platform, `Acuiring-Switch/backoffice`, whose console already owns Merchant, Terminal, Payments, Clearing and Settlement as first-class modules. Adding a competing merchant taxonomy here would invite two answers to "where do I onboard a merchant?".
+
+Revisit this if MBS grows a real servicing UI in vmu_core, or if the two consoles merge. Loyalty's `merchant_funding` screen is a deliberate exception: it is loyalty-programme configuration that happens to reference merchants, not merchant management.
 
 ---
 
@@ -130,8 +165,9 @@ Anything that cannot be undone needs `edit` **and** a confirmation in the UI. GL
 
 ## 5. Checklist for a new admin screen
 
-- [ ] Row in `AdminLive.@modules` with `label`, `icon`, `nav_module`, `group`, `order`
-- [ ] Render branch in `AdminLive`
+- [ ] Row in `VmuCoreWeb.Admin.Nav`'s `@items` with `id`, `label`, `icon`, `nav_module`, `group`, `group_order`, `order`, `status: :live` (or flip an existing `:planned` row to `:live`)
+- [ ] `icon` names a symbol that exists in `VmuCoreWeb.Icons`
+- [ ] Render branch in `AdminLive`, keyed by the same `id`
 - [ ] Component aliased in the `alias VmuCoreWeb.Live.Admin.{...}` block
 - [ ] Module added to `RolePermission.@modules`
 - [ ] Grants added to `default_matrix` for each role that needs it
@@ -145,4 +181,8 @@ Anything that cannot be undone needs `edit` **and** a confirmation in the UI. GL
 
 **`expand_module_config_visibility/1`** is still a special case: `module_config` piggybacks on the `system` permission instead of having its own rows. It should get real permission rows and the workaround should be deleted. Left alone here because changing it alters who can reach Module Configuration, which is a permission decision rather than a refactor.
 
-**Resolved.** `test/admin/menu_registry_test.exs` now guards registry/permission consistency (every `@modules` key present in `RolePermission.modules()` and granted to at least one role, or explicitly declared `admin_only`) plus the new nav-module/group shape — the class of bug that shipped GL invisible would now fail at `mix test`, not in the browser.
+**Resolved.** `test/admin/menu_registry_test.exs` guards the whole contract: every live item is permissionable and granted (or explicitly `admin_only`); ids are unique and never shadow a nav module id; group orders are consistent; accents are unique; and every icon referenced by the taxonomy exists in the sprite. The class of bug that shipped GL invisible now fails at `mix test`, not in the browser.
+
+`test/vmu_core_web/live/admin/admin_live_nav_test.exs` covers the rendered shell end-to-end against a real Postgres sandbox — dock, sidebar, breadcrumb, placeholder page and permission filtering.
+
+`test/vmu_core_web/live/admin/dump_shell_html_test.exs` is a `:dump`-tagged utility (excluded from the default run) that writes the real rendered HTML plus the stylesheet to `tmp/shell-dump/` for review in a browser: `mix test --only dump`.

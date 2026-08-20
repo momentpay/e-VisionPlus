@@ -1,253 +1,567 @@
 /* ============================================================
    VisionPlus Admin Design System
-   Dark sidebar · Professional finance look · No build step
+   Top module dock · contextual sidebar · light + dark themes
+   Plain CSS custom properties — no build step, no framework
    ============================================================ */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Theme tokens ───────────────────────────────────────────
+   Semantic names, not colour names: `--bg-surface`, not `--white`.
+   The dark block below redefines the same set, so every rule in
+   this file is written once and themes for free. Anything that
+   hardcodes a hex outside these blocks will not theme — that is
+   the rule to hold the line on.
+   ─────────────────────────────────────────────────────────── */
+
 :root {
-  --sidebar-w:    240px;
-  --topbar-h:     56px;
+  --sidebar-w:  248px;
+  --header-h:   64px;
 
-  /* Palette */
-  --bg-canvas:    #f1f5f9;
-  --bg-card:      #ffffff;
-  --bg-sidebar:   #0f172a;
-  --bg-sidebar-h: #1e293b;
-  --bg-sidebar-a: #1d4ed8;
+  /* Surfaces */
+  --bg-app:      #eef2f7;
+  --bg-surface:  #ffffff;
+  --bg-raised:   #ffffff;
+  --bg-subtle:   #f8fafc;
+  --bg-inset:    #f1f5f9;
 
-  --text-primary:   #0f172a;
-  --text-secondary: #64748b;
-  --text-sidebar:   #94a3b8;
-  --text-sidebar-a: #ffffff;
-  --text-muted:     #94a3b8;
+  /* Text */
+  --text-strong: #0f172a;
+  --text:        #334155;
+  --text-muted:  #64748b;
+  --text-faint:  #94a3b8;
 
-  --border:       #e2e8f0;
-  --border-dark:  #cbd5e1;
+  /* Lines */
+  --border:        #e2e8f0;
+  --border-strong: #cbd5e1;
 
+  /* App-level accent (distinct from the per-module accents below) */
   --accent:       #2563eb;
   --accent-hover: #1d4ed8;
-  --accent-light: #dbeafe;
+  --accent-wash:  #dbeafe;
+  --accent-fg:    #1d4ed8;
 
-  --success:      #16a34a;
-  --success-bg:   #dcfce7;
-  --warning:      #d97706;
-  --warning-bg:   #fef9c3;
-  --danger:       #dc2626;
-  --danger-bg:    #fee2e2;
-  --info:         #0284c7;
-  --info-bg:      #e0f2fe;
+  /* Status */
+  --success: #16a34a;  --success-bg: #dcfce7;
+  --warning: #b45309;  --warning-bg: #fef9c3;
+  --danger:  #dc2626;  --danger-bg:  #fee2e2;
+  --info:    #0284c7;  --info-bg:    #e0f2fe;
 
-  --radius:     6px;
-  --radius-lg:  10px;
-  --shadow-sm:  0 1px 2px 0 rgb(0 0 0 / .05);
-  --shadow:     0 1px 3px 0 rgb(0 0 0 / .1), 0 1px 2px -1px rgb(0 0 0 / .1);
-  --shadow-md:  0 4px 6px -1px rgb(0 0 0 / .1), 0 2px 4px -2px rgb(0 0 0 / .1);
+  --radius:    6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 
-  --font:       -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono:  "Courier New", Courier, monospace;
+  --shadow-sm:   0 1px 2px 0 rgb(15 23 42 / .06);
+  --shadow:      0 1px 3px 0 rgb(15 23 42 / .10), 0 1px 2px -1px rgb(15 23 42 / .08);
+  --shadow-md:   0 4px 6px -1px rgb(15 23 42 / .10), 0 2px 4px -2px rgb(15 23 42 / .08);
+  --shadow-dock: 0 10px 26px -12px rgb(15 23 42 / .40), 0 2px 6px -2px rgb(15 23 42 / .10);
+  --dock-inset:  inset 0 1px 0 rgb(255 255 255 / .95), inset 0 -1px 0 rgb(15 23 42 / .06);
+
+  --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+
+  /* Legacy aliases — the component styles further down this file predate
+     the semantic names. Kept so those rules theme correctly rather than
+     being rewritten en masse. */
+  --bg-canvas:      var(--bg-app);
+  --bg-card:        var(--bg-surface);
+  --text-primary:   var(--text-strong);
+  --text-secondary: var(--text-muted);
+  --border-dark:    var(--border-strong);
+  --accent-light:   var(--accent-wash);
 }
+
+[data-theme="dark"] {
+  --bg-app:      #0a0f1a;
+  --bg-surface:  #131b2b;
+  --bg-raised:   #161f31;
+  --bg-subtle:   #1b2537;
+  --bg-inset:    #0f1725;
+
+  --text-strong: #f1f5f9;
+  --text:        #cbd5e1;
+  --text-muted:  #94a3b8;
+  --text-faint:  #64748b;
+
+  --border:        #1e293b;
+  --border-strong: #334155;
+
+  --accent:       #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-wash:  rgb(59 130 246 / .16);
+  --accent-fg:    #93c5fd;
+
+  --success: #4ade80;  --success-bg: rgb(34 197 94 / .16);
+  --warning: #fbbf24;  --warning-bg: rgb(245 158 11 / .16);
+  --danger:  #f87171;  --danger-bg:  rgb(239 68 68 / .16);
+  --info:    #38bdf8;  --info-bg:    rgb(14 165 233 / .16);
+
+  --shadow-sm:   0 1px 2px 0 rgb(0 0 0 / .40);
+  --shadow:      0 1px 3px 0 rgb(0 0 0 / .50), 0 1px 2px -1px rgb(0 0 0 / .40);
+  --shadow-md:   0 4px 6px -1px rgb(0 0 0 / .50), 0 2px 4px -2px rgb(0 0 0 / .40);
+  --shadow-dock: 0 10px 26px -12px rgb(0 0 0 / .80), 0 2px 6px -2px rgb(0 0 0 / .50);
+  --dock-inset:  inset 0 1px 0 rgb(255 255 255 / .05), inset 0 -1px 0 rgb(0 0 0 / .30);
+
+  --badge-purple-fg: #c4b5fd;
+}
+
+/* ── Module accents ─────────────────────────────────────────
+   One hue per business domain, so a module reads as the same colour
+   in the dock and in its sidebar. `--a-rgb` lets the wash and ring
+   be derived with alpha rather than hand-picking two more hexes per
+   accent — the reason this is 3 lines each here and 5 literal class
+   strings each in the Tailwind reference implementation.
+   ─────────────────────────────────────────────────────────── */
+
+[data-accent] {
+  --a-wash: rgb(var(--a-rgb) / .10);
+  --a-ring: rgb(var(--a-rgb) / .30);
+  --a-glow: rgb(var(--a-rgb) / .40);
+}
+
+[data-accent="indigo"]  { --a-rgb: 99 102 241;  --a-from: #6366f1; --a-to: #4f46e5; --a-fg: #4338ca; --a-fg-dark: #a5b4fc; }
+[data-accent="violet"]  { --a-rgb: 139 92 246;  --a-from: #8b5cf6; --a-to: #7c3aed; --a-fg: #6d28d9; --a-fg-dark: #c4b5fd; }
+[data-accent="sky"]     { --a-rgb: 14 165 233;  --a-from: #0ea5e9; --a-to: #0284c7; --a-fg: #0369a1; --a-fg-dark: #7dd3fc; }
+[data-accent="emerald"] { --a-rgb: 16 185 129;  --a-from: #10b981; --a-to: #059669; --a-fg: #047857; --a-fg-dark: #6ee7b7; }
+[data-accent="teal"]    { --a-rgb: 20 184 166;  --a-from: #14b8a6; --a-to: #0d9488; --a-fg: #0f766e; --a-fg-dark: #5eead4; }
+[data-accent="amber"]   { --a-rgb: 245 158 11;  --a-from: #f59e0b; --a-to: #d97706; --a-fg: #b45309; --a-fg-dark: #fcd34d; }
+[data-accent="orange"]  { --a-rgb: 249 115 22;  --a-from: #f97316; --a-to: #ea580c; --a-fg: #c2410c; --a-fg-dark: #fdba74; }
+[data-accent="rose"]    { --a-rgb: 244 63 94;   --a-from: #f43f5e; --a-to: #e11d48; --a-fg: #be123c; --a-fg-dark: #fda4af; }
+[data-accent="fuchsia"] { --a-rgb: 217 70 239;  --a-from: #d946ef; --a-to: #c026d3; --a-fg: #a21caf; --a-fg-dark: #f0abfc; }
+[data-accent="blue"]    { --a-rgb: 59 130 246;  --a-from: #3b82f6; --a-to: #2563eb; --a-fg: #1d4ed8; --a-fg-dark: #93c5fd; }
+[data-accent="cyan"]    { --a-rgb: 6 182 212;   --a-from: #06b6d4; --a-to: #0891b2; --a-fg: #0e7490; --a-fg-dark: #67e8f9; }
+[data-accent="purple"]  { --a-rgb: 168 85 247;  --a-from: #a855f7; --a-to: #9333ea; --a-fg: #7e22ce; --a-fg-dark: #d8b4fe; }
+[data-accent="slate"]   { --a-rgb: 100 116 139; --a-from: #64748b; --a-to: #475569; --a-fg: #334155; --a-fg-dark: #cbd5e1; }
+
+/* Accent text needs to lighten in dark mode or it fails contrast on the
+   dark surface. Higher specificity than the per-accent rules above, so it
+   wins without repeating all thirteen. */
+[data-theme="dark"] [data-accent] { --a-fg: var(--a-fg-dark); }
+
+/* ── Base ───────────────────────────────────────────────────── */
 
 body {
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.5;
-  color: var(--text-primary);
-  background: var(--bg-canvas);
+  color: var(--text);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── Layout shell ─────────────────────────────────────────── */
-
-.admin-shell {
-  min-height: 100vh;
-}
-
-/* Module dock — full-width top nav, the 13 business-domain modules */
-.module-dock-bar {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: var(--topbar-h);
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid #1e293b;
-  display: flex;
-  align-items: center;
-  padding: 0 20px;
-  gap: 20px;
-  z-index: 50;
-}
-.dock-brand {
-  font-size: 15px;
-  font-weight: 700;
-  color: #ffffff;
-  letter-spacing: .02em;
+.vp-icon {
+  width: 1em;
+  height: 1em;
+  display: block;
   flex-shrink: 0;
 }
+
+/* ── App shell ──────────────────────────────────────────────── */
+
+.app-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  z-index: 50;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+.brand-mark {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--text-strong);
+}
+.brand-tag {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text-faint);
+}
+
+/* ── Module dock (level 1) ──────────────────────────────────
+   A raised ribbon rather than a flat strip: light catches the top
+   lip, shadow pools underneath. That pairing is what reads as depth.
+   ─────────────────────────────────────────────────────────── */
+
 .module-dock {
   display: flex;
   align-items: stretch;
-  height: 100%;
-  flex: 1;
+  gap: 2px;
+  margin: 0 auto;
+  padding: 5px 6px;
   min-width: 0;
   overflow-x: auto;
+  border-radius: 18px;
+  background: linear-gradient(to bottom, var(--bg-surface), var(--bg-inset));
+  border: 1px solid var(--border);
+  box-shadow: var(--dock-inset), var(--shadow-dock);
+  scrollbar-width: none;
 }
+.module-dock::-webkit-scrollbar { display: none; }
+
 .dock-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 68px;
+  flex-shrink: 0;
+  padding: 5px 2px 6px;
+  border-radius: 13px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background .18s, transform .18s, border-color .18s;
+}
+.dock-item:hover {
+  background: var(--bg-subtle);
+  transform: translateY(-1px);
+}
+.dock-item.active {
+  background: var(--a-wash);
+  border-color: var(--a-ring);
+}
+
+.dock-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 17px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--a-fg);
+  box-shadow: var(--shadow-sm);
+  transition: transform .18s, box-shadow .18s;
+}
+.dock-item:hover .dock-tile { transform: scale(1.1); }
+.dock-item.active .dock-tile {
+  background: linear-gradient(to bottom right, var(--a-from), var(--a-to));
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 3px 10px -2px var(--a-glow);
+}
+
+.dock-label {
+  max-width: 100%;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color .18s;
+}
+.dock-item:hover .dock-label { color: var(--text-strong); }
+.dock-item.active .dock-label { color: var(--a-fg); font-weight: 650; }
+
+/* Active marker that does not depend on colour alone. */
+.dock-bar {
+  position: absolute;
+  left: 16px; right: 16px; bottom: -1px;
+  height: 3px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background .18s;
+}
+.dock-item.active .dock-bar { background: var(--a-from); }
+
+/* ── Header actions ─────────────────────────────────────────── */
+
+.header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
-  color: var(--text-sidebar);
-  font-size: 12.5px;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  border-bottom: 2px solid transparent;
-  transition: background .15s, color .15s;
-}
-.dock-item:hover {
-  background: var(--bg-sidebar-h);
-  color: #e2e8f0;
-}
-.dock-item.active {
-  color: #ffffff;
-  border-bottom-color: var(--accent);
-  background: var(--bg-sidebar-h);
-}
-.dock-icon { font-size: 14px; }
-.dock-actions {
+  flex-shrink: 0;
   margin-left: auto;
+}
+
+.icon-btn {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-shrink: 0;
-  color: var(--text-sidebar);
-  font-size: 12.5px;
-  white-space: nowrap;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 17px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background .15s, color .15s;
 }
-.dock-actions a { color: var(--text-sidebar); text-decoration: none; }
-.dock-actions a:hover { color: #ffffff; }
+.icon-btn:hover { background: var(--bg-subtle); color: var(--text-strong); }
 
-.admin-body {
+.operator-chip {
   display: flex;
-  min-height: calc(100vh - var(--topbar-h));
-  margin-top: var(--topbar-h);
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.operator-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: linear-gradient(to bottom right, var(--accent), var(--accent-hover));
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.operator-meta { line-height: 1.2; }
+.operator-name { display: block; font-size: 12px; font-weight: 600; color: var(--text-strong); }
+.operator-role { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); }
+
+/* ── Body split ─────────────────────────────────────────────── */
+
+.app-body {
+  display: flex;
+  padding-top: var(--header-h);
+  min-height: 100vh;
 }
 
-/* Sidebar — contextual to the active module only */
-.admin-sidebar {
-  width: var(--sidebar-w);
-  background: var(--bg-sidebar);
+/* ── Contextual sidebar (levels 2 and 3) ───────────────────── */
+
+.sidebar {
   position: fixed;
-  top: var(--topbar-h); left: 0;
-  height: calc(100vh - var(--topbar-h));
+  top: var(--header-h); left: 0;
+  width: var(--sidebar-w);
+  height: calc(100vh - var(--header-h));
   display: flex;
   flex-direction: column;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
-  padding-top: 12px;
   z-index: 40;
 }
 
-.sidebar-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  padding: 14px 18px 6px;
-}
-.sidebar-group-label:first-child { padding-top: 4px; }
-.sidebar-item {
+.sidebar-module {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 18px;
-  color: var(--text-sidebar);
-  font-size: 13.5px;
-  cursor: pointer;
-  border-radius: 0;
-  text-decoration: none;
-  transition: background .15s, color .15s;
+  gap: 9px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
 }
-.sidebar-item:hover {
-  background: var(--bg-sidebar-h);
-  color: #e2e8f0;
-}
-.sidebar-item.active {
-  background: var(--bg-sidebar-a);
-  color: var(--text-sidebar-a);
-  font-weight: 500;
-}
-.sidebar-item .icon {
-  width: 16px;
-  text-align: center;
+.sidebar-module-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: 16px;
+  color: #ffffff;
+  background: linear-gradient(to bottom right, var(--a-from), var(--a-to));
+  box-shadow: 0 2px 6px -1px var(--a-glow);
 }
-.sidebar-item .badge {
-  margin-left: auto;
-  background: #1e3a8a;
-  color: #93c5fd;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-}
-.sidebar-item.active .badge {
-  background: #1d4ed8;
-  color: #bfdbfe;
-}
-.sidebar-item.soon {
-  color: #475569;
-  cursor: default;
-}
-.sidebar-item.soon:hover { background: none; color: #475569; }
-.badge-soon {
-  margin-left: auto;
-  background: #1e293b;
-  color: #64748b;
+.sidebar-module-meta { min-width: 0; }
+.sidebar-module-eyebrow {
+  display: block;
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: .05em;
-  padding: 1px 7px;
-  border-radius: 8px;
-  flex-shrink: 0;
+  letter-spacing: .11em;
+  color: var(--text-faint);
+}
+.sidebar-module-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--a-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sidebar-divider {
-  height: 1px;
-  background: #1e293b;
-  margin: 8px 18px;
+.sidebar-nav {
+  flex: 1;
+  padding: 8px 8px 4px;
+}
+
+/* Groups use native <details>, so collapsing works with no JavaScript
+   and is keyboard- and screen-reader-accessible for free. */
+.nav-group { margin-bottom: 3px; }
+.nav-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  list-style: none;
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--text-muted);
+  transition: background .15s, color .15s;
+}
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary:hover { background: var(--bg-subtle); color: var(--text-strong); }
+.nav-group > summary .vp-icon {
+  font-size: 13px;
+  transition: transform .18s;
+}
+.nav-group[open] > summary .vp-icon { transform: rotate(180deg); }
+
+.nav-items { list-style: none; margin: 1px 0 0; }
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6.5px 9px 6.5px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.nav-item .vp-icon { font-size: 16px; color: var(--text-faint); transition: color .15s; }
+.nav-item:hover { background: var(--bg-subtle); color: var(--text-strong); }
+.nav-item:hover .vp-icon { color: var(--text-muted); }
+
+.nav-item.active {
+  background: var(--a-wash);
+  color: var(--a-fg);
+  font-weight: 600;
+}
+.nav-item.active .vp-icon { color: var(--a-fg); }
+
+/* Non-colour active marker: a rail the inactive items do not have. */
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 3px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 17px;
+  border-radius: 3px;
+  background: var(--a-from);
+}
+
+/* Planned, not built: visible so the navigation doubles as the roadmap,
+   but plainly inert — not a link to nowhere. */
+.nav-item.soon {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.nav-item.soon:hover { background: none; color: var(--text-faint); }
+.nav-item.soon .vp-icon { opacity: .55; }
+
+.badge-soon {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  font-size: 8.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-faint);
 }
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 16px 18px;
-  border-top: 1px solid #1e293b;
-  font-size: 12px;
-  color: #475569;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
 }
-
-/* In-flow breadcrumb, replacing the old fixed topbar now that the module
-   dock owns the top of the page */
-.content-breadcrumb {
+.sidebar-footer a {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 18px;
+  gap: 7px;
+  padding: 4px 0;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 12px;
 }
-.content-breadcrumb .sep { color: var(--border-dark); }
-.content-breadcrumb .current { color: var(--text-primary); font-weight: 500; }
+.sidebar-footer a:hover { color: var(--text-strong); }
+.sidebar-footer .vp-icon { font-size: 14px; }
 
-/* Main content */
+/* ── Main content ───────────────────────────────────────────── */
+
 .admin-main {
   flex: 1;
   min-width: 0;
   margin-left: var(--sidebar-w);
-  padding: 28px;
-  min-height: calc(100vh - var(--topbar-h));
-  background: var(--bg-canvas);
+  padding: 24px 28px 40px;
+  background: var(--bg-app);
+}
+
+.content-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.content-breadcrumb .sep { color: var(--border-strong); }
+.content-breadcrumb .current { color: var(--text-strong); font-weight: 550; }
+
+/* ── Module placeholder page ────────────────────────────────── */
+
+.coming-soon-list {
+  list-style: none;
+  max-width: 460px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.coming-soon-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+}
+.coming-soon-list .vp-icon { font-size: 16px; color: var(--a-fg); }
+.coming-soon-group {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-faint);
 }
 
 /* ── Page header ───────────────────────────────────────────── */
@@ -286,7 +600,7 @@ body {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 .card-title {
   font-size: 14px;
@@ -302,7 +616,7 @@ body {
 .card-footer {
   padding: 14px 20px;
   border-top: 1px solid var(--border);
-  background: #fafafa;
+  background: var(--bg-subtle);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -331,7 +645,7 @@ body {
 .field label {
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--text);
   letter-spacing: .02em;
 }
 .field .hint {
@@ -351,7 +665,7 @@ textarea {
   font-size: 13.5px;
   font-family: var(--font);
   color: var(--text-primary);
-  background: #fff;
+  background: var(--bg-surface);
   border: 1px solid var(--border-dark);
   border-radius: var(--radius);
   outline: none;
@@ -359,10 +673,10 @@ textarea {
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #dbeafe;
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 input:disabled, select:disabled {
-  background: #f8fafc;
+  background: var(--bg-subtle);
   color: var(--text-muted);
   cursor: not-allowed;
 }
@@ -491,7 +805,7 @@ textarea { resize: vertical; min-height: 72px; }
   color: white;
   border-color: var(--danger);
 }
-.btn-danger:hover { background: #b91c1c; }
+.btn-danger:hover { filter: brightness(.92); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon { padding: 6px 8px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -511,7 +825,7 @@ textarea { resize: vertical; min-height: 72px; }
   text-transform: uppercase;
   letter-spacing: .05em;
   color: var(--text-secondary);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border-bottom: 2px solid var(--border);
   white-space: nowrap;
 }
@@ -522,11 +836,11 @@ textarea { resize: vertical; min-height: 72px; }
   vertical-align: middle;
 }
 .data-table tr:last-child td { border-bottom: none; }
-.data-table tr:hover td { background: #f8fafc; }
+.data-table tr:hover td { background: var(--bg-subtle); }
 .data-table .mono {
   font-family: var(--font-mono);
   font-size: 12.5px;
-  background: #f1f5f9;
+  background: var(--bg-inset);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -547,7 +861,7 @@ textarea { resize: vertical; min-height: 72px; }
 .badge-red    { background: var(--danger-bg);  color: var(--danger); }
 .badge-yellow { background: var(--warning-bg); color: var(--warning); }
 .badge-blue   { background: var(--accent-light); color: var(--accent); }
-.badge-gray   { background: #f1f5f9; color: #475569; }
+.badge-gray   { background: var(--bg-inset); color: var(--text-muted); }
 
 /* ── Alert / flash ─────────────────────────────────────────── */
 
@@ -561,10 +875,10 @@ textarea { resize: vertical; min-height: 72px; }
   margin-bottom: 20px;
   border: 1px solid transparent;
 }
-.alert-success { background: var(--success-bg); color: #14532d; border-color: #bbf7d0; }
-.alert-error   { background: var(--danger-bg);  color: #7f1d1d; border-color: #fecaca; }
-.alert-warning { background: var(--warning-bg); color: #78350f; border-color: #fde68a; }
-.alert-info    { background: var(--info-bg);    color: #0c4a6e; border-color: #bae6fd; }
+.alert-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+.alert-error   { background: var(--danger-bg);  color: var(--danger);  border-color: var(--danger); }
+.alert-warning { background: var(--warning-bg); color: var(--warning); border-color: var(--warning); }
+.alert-info    { background: var(--info-bg);    color: var(--info);    border-color: var(--info); }
 .alert .icon { font-size: 16px; margin-top: 1px; flex-shrink: 0; }
 .alert .close-btn {
   margin-left: auto;
@@ -703,10 +1017,10 @@ textarea { resize: vertical; min-height: 72px; }
 code {
   font-family: var(--font-mono);
   font-size: 12px;
-  background: #f1f5f9;
+  background: var(--bg-inset);
   padding: 1px 5px;
   border-radius: 4px;
-  color: #0f172a;
+  color: var(--text-strong);
 }
 
 /* ── Form pane layout (left section nav + right content) ─────── */
@@ -721,7 +1035,7 @@ code {
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   padding: 12px 0;
-  background: #fafbfc;
+  background: var(--bg-subtle);
 }
 
 .form-pane-nav-label {
@@ -816,8 +1130,8 @@ code {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
 /* ── Detail tabs (Phase 4 — Account detail view) ─────────────── */
 .detail-tabs {
@@ -910,7 +1224,7 @@ code {
   border: 2px solid var(--accent-light);
   border-radius: var(--radius-lg);
   padding: 20px;
-  background: #fafbff;
+  background: var(--bg-subtle);
 }
 .action-panel-title {
   font-size: 14px;
@@ -924,9 +1238,9 @@ code {
 
 /* ── Alerts (inline result banners) ─────────────────────────── */
 .alert { padding: 10px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; }
-.alert-ok    { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
-.alert-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.alert-ok    { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
+.alert-error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 
 /* ── Badge extras ────────────────────────────────────────────── */
-.badge-blue   { background: #dbeafe; color: #1d4ed8; }
-.badge-purple { background: #ede9fe; color: #6d28d9; }
+.badge-blue   { background: var(--accent-wash); color: var(--accent-fg); }
+.badge-purple { background: rgb(139 92 246 / .16); color: var(--badge-purple-fg, #7c3aed); }

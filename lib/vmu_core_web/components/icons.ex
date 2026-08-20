@@ -23,7 +23,7 @@ defmodule VmuCoreWeb.Icons do
 
       <.sprite />                          <%!-- once, just inside <body> --%>
       <.icon name="credit-card" />
-      <.icon name="bolt" class="dock-icon" />
+      <.icon name="bolt" class="vp-icon-lg" />
 
   An unknown name renders the `minus-small` fallback rather than raising: a
   typo should cost one glyph, not the whole navigation.

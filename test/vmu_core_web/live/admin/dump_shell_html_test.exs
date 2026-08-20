@@ -55,6 +55,9 @@ defmodule VmuCoreWeb.Live.Admin.DumpShellHtmlTest do
       })
 
     for {name, path} <- [
+          {"auth-history", "/visionplus/admin/auth_history"},
+          {"kyc-requests", "/visionplus/admin/kyc_requests"},
+          {"cards-debit", "/visionplus/admin/debit"},
           {"finance-gl", "/visionplus/admin/gl"},
           {"party-customer", "/visionplus/admin/customer"},
           {"loyalty-placeholder", "/visionplus/admin/loyalty"}

@@ -88,6 +88,24 @@ function monoCellRenderer(params) {
   return span
 }
 
+// A real page navigation (<a href>), not a LiveView event — for cross-module
+// deep links like "View in Debit Cards" (Koṣa Arrangement-style cross-product
+// links), where clicking leaves this LiveView entirely rather than pushing
+// an event to it. `hrefField` names the row field holding the URL; the
+// cell's own field value is the link text.
+function linkCellRenderer(params) {
+  if (params.value === null || params.value === undefined || params.value === "") return "—"
+  const hrefField = params.colDef.hrefField
+  const href = hrefField && params.data[hrefField]
+  if (!href) return String(params.value)
+
+  const a = document.createElement("a")
+  a.className = "btn btn-ghost btn-xs"
+  a.href = href
+  a.textContent = params.value
+  return a
+}
+
 // Fills `{field_name}` placeholders in a confirm message from the row data —
 // e.g. "Delete block {block_id}?" -> "Delete block K042?". Plain string
 // substitution, not a template language: keeps `actions` JSON-safe (no
@@ -160,6 +178,12 @@ function cellDefForColumn(col, hook) {
       break
     case "mono":
       def.cellRenderer = monoCellRenderer
+      break
+    case "link":
+      def.cellRenderer = linkCellRenderer
+      def.hrefField = col.hrefField
+      def.sortable = col.sortable ?? false
+      def.filter = false
       break
     case "actions":
       def.cellRenderer = actionsCellRenderer(hook)

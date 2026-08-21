@@ -31,7 +31,10 @@ defmodule VmuCoreWeb.Components.AgGrid do
   to supply a row field holding the real class name for a screen with its
   own status vocabulary; `"mono"` renders the value as an inline `.mono`
   chip (never apply `.mono` to a `<td>` directly — see the design-system
-  test); `"actions"` renders one `.btn-ghost.btn-xs` per entry in
+  test); `"link"` renders a real `<a href>` (with `hrefField: "url_field"`
+  naming the row field holding the URL) — for a cross-module deep link
+  like "View in Debit Cards" that navigates away from this LiveView
+  entirely, not a `phx-click` event; `"actions"` renders one `.btn-ghost.btn-xs` per entry in
   `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:,
   confirm:}]`, each pushing `event` to the owning LiveComponent with
   `%{"id" => row[param]}` — the payload key is always literally `"id"`,

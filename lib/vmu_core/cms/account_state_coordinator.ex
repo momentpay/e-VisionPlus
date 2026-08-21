@@ -14,9 +14,10 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
   Authorization calls `authorize/3` which serialises concurrent attempts via
   the GenServer message queue — no DB row locking required on the hot path.
 
-  Cash advance transactions (channel :atm or mcc in @cash_mcc_groups) are
-  checked against BOTH open_to_buy AND cash_open_to_buy — whichever is smaller
-  is the effective limit.
+  Cash advance transactions (channel :atm or mcc in
+  `OtbReconciliation.cash_mcc_groups/0`) are checked against BOTH
+  open_to_buy AND cash_open_to_buy — whichever is smaller is the effective
+  limit.
 
   The process is idle-terminated after 30 minutes and restarted on next access.
   """
@@ -25,17 +26,13 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
   require Logger
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.Account
+  alias VmuCore.CMS.{Account, OtbReconciliation}
   alias VmuCore.Shared.ParameterEngine
   import Ecto.Query
 
   @registry  VmuCore.Shared.Registry
   @supervisor VmuCore.Shared.AccountSupervisor
   @idle_ms    30 * 60 * 1_000
-
-  # MCC groups that represent cash-equivalent transactions and must consume
-  # the cash sub-limit in addition to the general open-to-buy
-  @cash_mcc_groups ~w[6010 6011 6012 6050 6051 6540]
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -299,7 +296,7 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
   # A transaction is a cash advance if it comes in on the ATM channel or
   # if the MCC belongs to the cash-equivalent merchant category group
   defp cash_transaction?(:atm, _mcc), do: true
-  defp cash_transaction?(_channel, mcc) when is_binary(mcc), do: mcc in @cash_mcc_groups
+  defp cash_transaction?(_channel, mcc) when is_binary(mcc), do: mcc in OtbReconciliation.cash_mcc_groups()
   defp cash_transaction?(_channel, _mcc), do: false
 
   defp check_account_status(%{account_status: "ACTIVE"}), do: :ok
@@ -526,6 +523,14 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
         # a startup-only DB read; after this, counters are maintained in memory.
         {daily_count, daily_amount} = query_today_totals(account_id)
 
+        # open_to_buy/cash_open_to_buy are reconstructed from durable holds,
+        # not read off the (never-kept-in-sync) stored columns — see
+        # OtbReconciliation's moduledoc for why. This is what makes a
+        # process crash/restart/idle-timeout safe: the durable source
+        # (fas_pending_holds) survives it even though this in-memory state
+        # doesn't.
+        otb = OtbReconciliation.reconstruct(account)
+
         {:ok, %{
           account_id:          account_id,
           sys_id:              account.sys_id,
@@ -534,9 +539,9 @@ defmodule VmuCore.CMS.AccountStateCoordinator do
           block_id:            account.block_id,
           account_status:      account.account_status,
           credit_limit:        account.credit_limit,
-          open_to_buy:         account.open_to_buy,
+          open_to_buy:         otb.open_to_buy,
           cash_limit:          account.cash_limit,
-          cash_open_to_buy:    account.cash_open_to_buy,
+          cash_open_to_buy:    otb.cash_open_to_buy,
           delinquency_bucket:  account.delinquency_bucket,
           velocity_limits:     account.velocity_limits,
           campaign_code:       account.campaign_code,

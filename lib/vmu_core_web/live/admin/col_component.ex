@@ -35,6 +35,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{CMS.Account, COL.CollectionCase, COL.WriteOffRequest,
                   COL.AgencyPlacement, COL.AgencyDesk, COL.ContactHistory, COL.PromiseVerification,
@@ -639,26 +640,18 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
       </.form_card>
 
       <.form_card title="Hardship / Workout Plans (FR-COL-014)" subtitle="Approve/reject in the Approval Inbox">
-        <div class="table-wrapper" :if={@workout_plans != []} style="margin-bottom:0.75rem">
-          <table class="data-table">
-            <thead><tr><th>Type</th><th>Terms</th><th>Period</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr :for={w <- @workout_plans}>
-                <td><%= w.plan_type %></td>
-                <td>
-                  <%= cond do %>
-                    <% w.plan_type == "APR_REDUCTION" -> %>new APR <%= w.new_apr %>%
-                    <% w.plan_type == "PAYMENT_HOLIDAY" -> %><%= w.holiday_months %> month(s)
-                    <% w.plan_type == "RESTRUCTURE" -> %><%= w.emi_tenor_months %> month EMI
-                    <% true -> %>—
-                  <% end %>
-                </td>
-                <td><%= w.start_date %> → <%= w.end_date %></td>
-                <td><.status_badge status={w.status} /></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          :if={@workout_plans != []}
+          id="col-workout-plans-grid"
+          paginate={false}
+          columns={[
+            %{field: "plan_type", header: "Type", width: 150},
+            %{field: "terms", header: "Terms", flex: 1},
+            %{field: "period", header: "Period", width: 200},
+            %{field: "status", header: "Status", type: "badge", width: 120}
+          ]}
+          rows={Enum.map(@workout_plans, &workout_plan_row/1)}
+        />
 
         <form :if={@can_edit} phx-change="update_workout_form" phx-submit="request_workout" phx-target={@myself}>
           <div style="display:flex; gap:0.5rem; align-items:end; flex-wrap:wrap">
@@ -750,21 +743,18 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
           <button class="btn-sm btn-success" type="submit">Log call</button>
         </form>
 
-        <div class="table-wrapper">
-          <table class="data-table">
-            <thead><tr><th>When</th><th>Channel</th><th>Outcome</th><th>By</th><th>Notes</th></tr></thead>
-            <tbody>
-              <tr :if={@contact_history == []}><td colspan="5" style="text-align:center;color:#888">No contact recorded.</td></tr>
-              <tr :for={a <- @contact_history}>
-                <td style="white-space:nowrap"><%= format_dt(a.inserted_at) %></td>
-                <td><%= a.channel %></td>
-                <td><%= a.outcome || "—" %></td>
-                <td><code><%= a.attempted_by %></code></td>
-                <td><%= a.notes %></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="col-contact-history-grid"
+          empty_message="No contact recorded."
+          columns={[
+            %{field: "at", header: "When", width: 160},
+            %{field: "channel", header: "Channel", width: 120},
+            %{field: "outcome", header: "Outcome", width: 140},
+            %{field: "attempted_by", header: "By", type: "mono", width: 130},
+            %{field: "notes", header: "Notes", flex: 1}
+          ]}
+          rows={Enum.map(@contact_history, &contact_history_row/1)}
+        />
       </.form_card>
     </div>
     """
@@ -921,4 +911,28 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
   defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   defp format_dt(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   defp format_dt(%Date{} = d), do: Date.to_string(d)
+
+  defp workout_plan_terms(%{plan_type: "APR_REDUCTION", new_apr: apr}), do: "new APR #{apr}%"
+  defp workout_plan_terms(%{plan_type: "PAYMENT_HOLIDAY", holiday_months: m}), do: "#{m} month(s)"
+  defp workout_plan_terms(%{plan_type: "RESTRUCTURE", emi_tenor_months: m}), do: "#{m} month EMI"
+  defp workout_plan_terms(_), do: "—"
+
+  defp workout_plan_row(w) do
+    %{
+      plan_type: w.plan_type,
+      terms: workout_plan_terms(w),
+      period: "#{w.start_date} → #{w.end_date}",
+      status: w.status
+    }
+  end
+
+  defp contact_history_row(a) do
+    %{
+      at: format_dt(a.inserted_at),
+      channel: a.channel,
+      outcome: a.outcome || "—",
+      attempted_by: a.attempted_by,
+      notes: a.notes
+    }
+  end
 end

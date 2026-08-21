@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.Repo
   alias VmuCore.DPS.{Dispute, Evidence, CaseNotes, ReasonCode}
@@ -553,21 +554,19 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
       </form>
     </.form_card>
 
-    <table class="data-table">
-      <thead><tr><th>Network</th><th>Code</th><th>Description</th><th>Category</th><th>Window (days)</th><th></th></tr></thead>
-      <tbody>
-        <tr :for={rc <- @reason_codes}>
-          <td><%= rc.network %></td>
-          <td><%= rc.reason_code %></td>
-          <td><%= rc.description %></td>
-          <td><%= rc.category %></td>
-          <td><%= rc.dispute_window_days %></td>
-          <td>
-            <button :if={@can_edit} class="btn-sm" phx-click="reason_code_edit" phx-value-id={rc.id} phx-target={@myself}>Edit</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <.ag_grid
+      id="dps-reason-codes-grid"
+      columns={[
+        %{field: "network", header: "Network", width: 110},
+        %{field: "reason_code", header: "Code", type: "mono", width: 100},
+        %{field: "description", header: "Description", flex: 2},
+        %{field: "category", header: "Category", width: 130},
+        %{field: "dispute_window_days", header: "Window (days)", type: "number", width: 130},
+        %{field: "actions", header: "", type: "actions", width: 90,
+          actions: [%{label: "Edit", event: "reason_code_edit", param: "id", whenField: "can_edit", whenValue: true}]}
+      ]}
+      rows={Enum.map(@reason_codes, &reason_code_row(&1, @can_edit))}
+    />
     """
   end
 
@@ -732,4 +731,16 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
   defp error_to_string(:too_many_files), do: "Only one file at a time"
   defp error_to_string(:not_accepted), do: "File type not accepted"
   defp error_to_string(other), do: inspect(other)
+
+  defp reason_code_row(rc, can_edit) do
+    %{
+      id: rc.id,
+      network: rc.network,
+      reason_code: rc.reason_code,
+      description: rc.description,
+      category: rc.category,
+      dispute_window_days: rc.dispute_window_days,
+      can_edit: can_edit
+    }
+  end
 end

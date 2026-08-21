@@ -347,7 +347,8 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
             %{field: "actions", header: "", type: "actions", width: 150,
               actions: [
                 %{label: "Edit", event: "org_edit", param: "bank_id", whenField: "can_edit", whenValue: true},
-                %{label: "Delete", event: "org_delete", param: "bank_id", whenField: "can_edit", whenValue: true, danger: true}
+                %{label: "Delete", event: "org_delete", param: "bank_id", whenField: "can_edit", whenValue: true, danger: true,
+                  confirm: "Delete organisation {bank_id}? This cannot be undone."}
               ]}
           ]}
           rows={Enum.map(@orgs, &organization_row(&1, @can_edit))}

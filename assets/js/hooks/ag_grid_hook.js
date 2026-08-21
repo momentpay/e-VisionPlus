@@ -88,6 +88,17 @@ function monoCellRenderer(params) {
   return span
 }
 
+// Fills `{field_name}` placeholders in a confirm message from the row data —
+// e.g. "Delete block {block_id}?" -> "Delete block K042?". Plain string
+// substitution, not a template language: keeps `actions` JSON-safe (no
+// functions) while still letting a destructive action's prompt name the
+// specific row, the way every hand-written `data-confirm` already did.
+function fillTemplate(template, data) {
+  return template.replace(/\{(\w+)\}/g, (match, field) =>
+    Object.prototype.hasOwnProperty.call(data, field) ? data[field] : match
+  )
+}
+
 function actionsCellRenderer(hook) {
   return function (params) {
     const wrap = document.createElement("div")
@@ -103,6 +114,10 @@ function actionsCellRenderer(hook) {
       btn.className = `btn btn-ghost btn-xs${action.danger ? " btn-danger-text" : ""}`
       btn.textContent = action.label
       btn.addEventListener("click", () => {
+        // `confirm` mirrors the data-confirm safety prompt every irreversible
+        // action elsewhere in this app carries — an action here that skips
+        // it when the original had one is a regression, not a simplification.
+        if (action.confirm && !window.confirm(fillTemplate(action.confirm, params.data))) return
         hook.pushEventTo(hook.el, action.event, { id: params.data[action.param] })
       })
       wrap.appendChild(btn)

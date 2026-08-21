@@ -32,14 +32,19 @@ defmodule VmuCoreWeb.Components.AgGrid do
   own status vocabulary; `"mono"` renders the value as an inline `.mono`
   chip (never apply `.mono` to a `<td>` directly — see the design-system
   test); `"actions"` renders one `.btn-ghost.btn-xs` per entry in
-  `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:}]`,
-  each pushing `event` to the owning LiveComponent with
+  `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:,
+  confirm:}]`, each pushing `event` to the owning LiveComponent with
   `%{"id" => row[param]}` — the payload key is always literally `"id"`,
   only the value comes from `param`. `whenField`/`whenValue` hide an
   action unless `row[whenField] === whenValue` (conditional actions).
-  Always name an actions-only column `field: "actions"` — a literal data
-  field name there collides with a real display column pulling from the
-  same field.
+  `confirm: "Delete block {block_id}?"` shows a native confirm dialog
+  before dispatching, with `{field}` filled from the row — the
+  `<.ag_grid>` equivalent of `data-confirm`, required for any
+  irreversible action (see "Irreversible actions" in
+  `docs/shared/Admin_Menu_Standard.md` §4.4 — the same rule, just a
+  different mechanism to satisfy it here). Always name an actions-only
+  column `field: "actions"` — a literal data field name there collides
+  with a real display column pulling from the same field.
 
   Sorting, filtering, pagination and column resize are AG Grid Community
   features and need no server round-trip. When `rows` changes on

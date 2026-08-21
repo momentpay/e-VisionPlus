@@ -199,7 +199,7 @@ A quick check before converting a table: `grep -oE 'phx-click=[a-z_]+' test/vmu_
 
 ### 5.2 AG Charts
 
-`<.ag_chart>` in the same module is the equivalent for `assets/js/hooks/ag_chart_hook.js` (bar/line/donut) — built in Phase 4, not yet wired to a real screen; Phase 7 of the rollout plan is where a first dashboard uses it.
+`<.ag_chart>` in the same module is the equivalent for `assets/js/hooks/ag_chart_hook.js` (bar/line/donut). Built in Phase 4; wired to real screens in Phase 7: `CollectionsMiComponent`'s roll/cure-rate-by-bucket bar chart, `GlComponent`'s net-balance-by-account-class donut on the trial balance tab, and the new `PortfolioDashboardComponent` (the Overview module's first live screen — `portfolio_dashboard`, flipped from `:planned`), whose account-status donut and delinquency-bucket bar chart are genuinely global aggregates, not per-scope like the other two. Same test caveat as `actions` cells: a chart's `data-chart-data` attribute is what LiveViewTest can see (`has_element?(view, "#chart-id[data-chart-data*='...']")`) — the chart itself is client-rendered.
 
 ---
 

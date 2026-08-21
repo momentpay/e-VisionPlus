@@ -326,6 +326,17 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             No postings yet. Run <code>mix run priv/repo/seed_gl_demo.exs</code> for demo data.
           </p>
 
+          <div :if={@trial_rows != []} style="margin-top:1.25rem">
+            <h4 style="margin:0 0 0.5rem">Net balance by account class</h4>
+            <.ag_chart
+              id="gl-trial-balance-class-chart"
+              type="donut"
+              data={balance_by_class(@trial_rows)}
+              category="class"
+              series={[%{field: "balance", name: "Net balance"}]}
+            />
+          </div>
+
         <% "ledger" -> %>
           <.institution_picker institutions={@institutions} institution={@institution} target={@myself} />
           <p class="cell-note">
@@ -534,6 +545,16 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
 
   # Net in the account's own normal direction, so a healthy asset reads
   # positive rather than requiring the reader to remember the sign convention.
+  defp balance_by_class(rows) do
+    rows
+    |> Enum.group_by(& &1.account_class)
+    |> Enum.map(fn {class, class_rows} ->
+      total = class_rows |> Enum.map(&net_balance/1) |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
+      %{class: class, balance: Decimal.abs(total)}
+    end)
+    |> Enum.reject(&Decimal.equal?(&1.balance, 0))
+  end
+
   defp net_balance(%{normal_balance: "debit", debits: d, credits: c}), do: Decimal.sub(d, c)
   defp net_balance(%{debits: d, credits: c}), do: Decimal.sub(c, d)
 

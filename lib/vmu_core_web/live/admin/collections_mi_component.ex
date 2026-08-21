@@ -70,6 +70,14 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
     }
   end
 
+  defp roll_cure_chart_row(r) do
+    %{
+      bucket: "#{r.bucket}",
+      roll_rate: r.roll_rate || 0,
+      cure_rate: r.cure_rate || 0
+    }
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -106,6 +114,19 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
           ]} />
         </.form_card>
       </div>
+
+      <.form_card :if={@roll_cure != []} title="Roll rate / cure rate trend">
+        <.ag_chart
+          id="collections-mi-roll-cure-chart"
+          type="bar"
+          data={Enum.map(@roll_cure, &roll_cure_chart_row/1)}
+          category="bucket"
+          series={[
+            %{field: "roll_rate", name: "Roll rate %"},
+            %{field: "cure_rate", name: "Cure rate %"}
+          ]}
+        />
+      </.form_card>
 
       <.form_card title="Roll rate / cure rate by DPD bucket"
                   subtitle="Cohort = accounts that transitioned INTO the bucket during the period. Roll = later reached a higher bucket. Cure = later reached 0.">

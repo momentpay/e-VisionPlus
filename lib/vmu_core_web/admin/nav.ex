@@ -124,7 +124,7 @@ defmodule VmuCoreWeb.Admin.Nav do
   @items [
     # ── Overview ────────────────────────────────────────────────────────────
     %{id: "portfolio_dashboard", label: "Portfolio Dashboard", icon: "chart-pie",
-      nav_module: "overview", group: "Dashboards", group_order: 10, order: 10, status: :planned},
+      nav_module: "overview", group: "Dashboards", group_order: 10, order: 10, status: :live},
     %{id: "issuing_kpis", label: "Issuing KPIs", icon: "chart-bar",
       nav_module: "overview", group: "Dashboards", group_order: 10, order: 20, status: :planned},
     %{id: "alerts", label: "Alerts & Notifications", icon: "bell",

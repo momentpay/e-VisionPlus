@@ -19,7 +19,7 @@ defmodule VmuCore.ASM.RolePermission do
   # accounts is a privilege-granting act, so it stays with ADMIN.
   @admin_only ~w[operators service_accounts]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts gl]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts gl portfolio_dashboard]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -75,6 +75,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "cms_resegmentation", ~w[view edit]},
       {"SUPERVISOR", "col",          ~w[view edit]},
       {"SUPERVISOR", "collections_mi", ~w[view]},
+      {"SUPERVISOR", "portfolio_dashboard", ~w[view]},
       {"SUPERVISOR", "gl",           ~w[view edit]},
       {"SUPERVISOR", "hcs",          ~w[view edit]},
       # "approve" added 2026-07-28 (Card Products UX Parity Phase 1c) — the
@@ -111,6 +112,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "cms_resegmentation", ~w[view edit]},
       {"OPS", "col",          ~w[view edit]},
       {"OPS", "collections_mi", ~w[view]},
+      {"OPS", "portfolio_dashboard", ~w[view]},
       {"OPS", "gl",           ~w[view]},
       {"OPS", "hcs",          ~w[view edit]},
       {"OPS", "debit",        ~w[view edit]},
@@ -140,6 +142,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "dps",          ~w[view create edit approve]},
       {"RISK", "col",          ~w[view edit]},
       {"RISK", "collections_mi", ~w[view]},
+      {"RISK", "portfolio_dashboard", ~w[view]},
       {"RISK", "hcs",          ~w[view edit]},
       {"RISK", "debit",        ~w[view edit]},
       {"RISK", "prepaid",      ~w[view edit]},
@@ -164,6 +167,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "cms_resegmentation", ~w[view]},
       {"COMPLIANCE", "col",          ~w[view]},
       {"COMPLIANCE", "collections_mi", ~w[view]},
+      {"COMPLIANCE", "portfolio_dashboard", ~w[view]},
       {"COMPLIANCE", "hcs",          ~w[view]},
       {"COMPLIANCE", "debit",        ~w[view]},
       {"COMPLIANCE", "prepaid",      ~w[view]},

@@ -24,6 +24,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   alias VmuCoreWeb.Admin.Nav
 
   alias VmuCoreWeb.Live.Admin.{
+    PortfolioDashboardComponent,
     SystemComponent,
     OrganizationComponent,
     LogoComponent,
@@ -277,6 +278,9 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
             </div>
           <% true -> %>
             <%= case @active_module do %>
+              <% "portfolio_dashboard" -> %>
+                <.live_component module={PortfolioDashboardComponent} id="portfolio-dashboard-component"
+                                 current_operator={@current_operator} />
               <% "system" -> %>
                 <.live_component module={SystemComponent} id="sys-component"
                                  current_operator={@current_operator} />

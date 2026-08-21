@@ -263,7 +263,72 @@ protected wages"* — the question the whole scheme exists to answer.
 
 ---
 
-## Phase W4 — Employer refunds (maker-checker), regulator reporting
+## Phase W4 — Employer refunds and regulator reporting ✅ 2026-08-06
+
+### Built
+
+| | |
+|---|---|
+| `wps_refund_requests` | Maker-checker, one pending per payment |
+| `WPS.Refunds` | `request/2`, `approve/3`, `reject/3` |
+| `WPS.RegulatoryReport` | `generate/3`, `render/2` — CSV and JSON, config-driven |
+| 19 tests | Real Postgres, real ledger |
+
+### Refunds
+
+**Two people, because this is the one operation that moves money against the
+worker.** An employer overpaid, or paid someone who had already left — both are
+real, and both are also what a fraudulent request would claim. The bank cannot
+verify the employer's account of it, so the control is procedural: the requester
+cannot approve their own request, and the maker/checker rule is enforced on the
+record itself rather than only in the calling function.
+
+**Spent wages cannot be recovered.** The refund consumes the prepaid balance, so
+if the worker has spent it the request fails. That refusal is the right answer —
+recovering it would mean driving a wage account negative.
+
+**`FAILED` is deliberately distinct from `REJECTED`.** A rejection is a
+judgement: someone looked and said no. A failure is the world refusing: the money
+was gone. Marking a failed recovery `APPROVED` would be a lie in the audit trail,
+and collapsing the two would lose the distinction an employer chasing an
+overpayment most needs.
+
+**Partial refunds are supported**, because the realistic case is an overpayment
+— the employer meant to send 4,500 and sent 5,000.
+
+**The GL posts `REVERSAL`, not `PURCHASE`.** For `WPS_PREPAID` the two share an
+account pair, so only the event type distinguishes an employer recovery from the
+worker's own spending. This is the first real use of the explicit `:event_type`
+escape hatch added to `Posting.LegacyEvent` during GL C3.
+
+**Order matters:** the balance is taken first and the GL posted only if that
+succeeded. Posting first would record a recovery that then could not happen.
+
+### Regulator reporting
+
+**An unpaid worker is a first-class row, with the reason attached.** A Wage
+Protection scheme exists to make non-payment visible, so a report listing only
+successful payments would defeat the scheme it is filed under. The reason comes
+from the exception queue, which carries the operator-facing explanation rather
+than the credit's truncated summary.
+
+**The period is the employer's stated pay date**, not our processing date —
+otherwise the report is filed against our calendar rather than the wage cycle.
+
+**Status uses the regulator's vocabulary**: `PAID` / `NOT_PAID`, not our internal
+`POSTED` / `FAILED`.
+
+**Output is configured**, via the same `export_mapping` / `file_format` /
+`date_format` keys the import side uses. Column *order* stays canonical
+regardless of mapping — only labels change, so two employers' reports stay
+structurally comparable.
+
+**Not transmitted.** Whether the institution files directly with the regulator or
+through an exchange house holding the relationship is a business arrangement,
+and remains an open question in the requirements. Generating without
+transmitting is the honest half to build.
+
+---
 
 ## Phase W5 — Admin UI, menu entry, ASM permissions
 

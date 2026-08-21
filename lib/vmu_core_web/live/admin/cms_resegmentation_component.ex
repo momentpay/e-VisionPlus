@@ -186,36 +186,42 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
           <% end %>
         </.form_card>
 
-        <%!-- Left as plain HTML, not <.ag_grid> — the Cancel button here is
-             driven directly by cms_resegmentation_component_test.exs via
-             element("button[phx-value-id=...]") |> render_click(), which
-             cannot see a client-rendered AG Grid actions cell. See
-             docs/shared/Admin_Menu_Standard.md §5.1. --%>
         <.form_card title="Pending Changes">
           <.empty_state :if={@pending == []} icon="📭" title="No pending resegmentations" />
 
-          <table :if={@pending != []} class="data-table">
-            <thead><tr><th>Account</th><th>From</th><th>To</th><th>Effective</th><th>Proration</th><th></th></tr></thead>
-            <tbody>
-              <tr :for={a <- @pending}>
-                <td><%= short_id(a.account_id) %></td>
-                <td><%= a.cycle_code %></td>
-                <td><%= a.pending_cycle_code %></td>
-                <td><%= a.cycle_change_effective_date %></td>
-                <td><%= a.cycle_change_proration_method %></td>
-                <td>
-                  <button :if={@can_edit} class="btn-sm btn-warning"
-                          phx-click="cancel_pending" phx-value-id={a.account_id} phx-target={@myself}>
-                    Cancel
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            :if={@pending != []}
+            id="reseg-pending-grid"
+            paginate={false}
+            empty_message="No pending resegmentations."
+            columns={[
+              %{field: "account", header: "Account", type: "mono", width: 140},
+              %{field: "from", header: "From", width: 100},
+              %{field: "to", header: "To", width: 100},
+              %{field: "effective", header: "Effective", width: 140},
+              %{field: "proration", header: "Proration", flex: 1},
+              %{field: "actions", header: "", type: "actions", width: 110,
+                actions: [%{label: "Cancel", event: "cancel_pending", param: "row_id", danger: true,
+                            whenField: "can_edit", whenValue: true}]}
+            ]}
+            rows={Enum.map(@pending, &pending_change_row(&1, @can_edit))}
+          />
         </.form_card>
       <% end %>
     </div>
     """
+  end
+
+  defp pending_change_row(a, can_edit) do
+    %{
+      row_id: to_string(a.account_id),
+      account: short_id(a.account_id),
+      from: a.cycle_code,
+      to: a.pending_cycle_code,
+      effective: to_string(a.cycle_change_effective_date),
+      proration: a.cycle_change_proration_method,
+      can_edit: can_edit
+    }
   end
 
   defp proposal_move_row(m) do

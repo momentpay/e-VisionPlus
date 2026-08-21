@@ -145,8 +145,8 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponentTest do
 
       html =
         view
-        |> element("button[phx-value-id='#{first_pending.account_id}']", "Cancel")
-        |> render_click()
+        |> with_target("#cms-resegmentation-component")
+        |> render_click("cancel_pending", %{"id" => first_pending.account_id})
 
       assert html =~ "Pending change cancelled."
       reloaded = Repo.get!(Account, first_pending.account_id)

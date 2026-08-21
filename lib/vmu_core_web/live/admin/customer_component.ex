@@ -453,7 +453,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   defp customer_row(c, can_edit, operator) do
     %{
-      row_id: c.customer_id,
+      row_id: to_string(c.customer_id),
       customer_id: short_id(c.customer_id),
       name: full_name(c),
       dob: masked(date_s(c.date_of_birth), "cif.date_of_birth", c.sys_id, operator),

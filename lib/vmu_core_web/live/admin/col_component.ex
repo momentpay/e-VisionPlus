@@ -461,6 +461,14 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
         <button class="btn-sm btn-success" type="submit">Place selected</button>
       </form>
 
+      <%!-- Plain HTML for a structural reason, not a test one: each row
+           carries a bound checkbox feeding the bulk "Place selected" form
+           above. No ag_grid cell type hosts a bound form control, and AG
+           Grid's own row-selection would need a new selection→LiveView
+           bridge in the contract to drive @selected_case_ids. This list
+           does grow with activity, so it is a genuine candidate once that
+           bridge exists — see docs/shared/Admin_Detail_UX_Philosophy.md §1
+           and the "remaining" note in §Status. --%>
       <div class="table-wrapper">
         <table class="data-table">
           <thead>

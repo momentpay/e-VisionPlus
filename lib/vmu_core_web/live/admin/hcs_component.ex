@@ -915,7 +915,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   defp company_row(c) do
     %{
-      row_id: c.id,
+      row_id: to_string(c.id),
       company_code: c.company_code,
       company_name: c.company_name,
       liability_model: c.liability_model,
@@ -928,7 +928,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   defp employee_card_list_row(e) do
     %{
-      row_id: e.id,
+      row_id: to_string(e.id),
       employee_name: e.employee_name,
       department: e.department || "—",
       individual_limit: e.individual_limit,
@@ -941,7 +941,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   defp vehicle_list_row(v) do
     %{
-      row_id: v.id,
+      row_id: to_string(v.id),
       plate_number: v.plate_number,
       vin: v.vin || "—",
       make_model: [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" "),

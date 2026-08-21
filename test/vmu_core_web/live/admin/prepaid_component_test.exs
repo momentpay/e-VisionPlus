@@ -105,7 +105,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
     |> element("input[phx-keyup=cust_search_wizard]")
     |> render_keyup(%{"value" => "PrepaidTest#{n}"})
 
-    view |> element("button[phx-click=select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> with_target("#prepaid-component") |> render_click("select_customer", %{"id" => customer.customer_id})
 
     step2_html = render(view)
     assert step2_html =~ "Step 2"
@@ -133,7 +133,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+    view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
 
     view |> element("button[phx-click=open_action][phx-value-a=load_account]") |> render_click()
 
@@ -174,7 +174,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+    view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
     view |> element("button[phx-click=open_action][phx-value-a=load_account]") |> render_click()
 
     html =
@@ -192,7 +192,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+    view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
     view |> element("button[phx-click=open_action][phx-value-a=load_account]") |> render_click()
 
     view
@@ -219,7 +219,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       checker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -247,7 +247,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       maker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -272,7 +272,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       checker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -296,7 +296,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
 
       block_html =
@@ -334,7 +334,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_address]") |> render_click()
 
       html =
@@ -361,7 +361,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
 
       html =
@@ -386,7 +386,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
 
       verify_html = view |> element("button[phx-click=prepaid_kyc][phx-value-status=VERIFIED]") |> render_click()
       assert verify_html =~ "KYC status set to VERIFIED"
@@ -408,7 +408,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 
@@ -425,7 +425,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/prepaid")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.prepaid_account_id}']") |> render_click()
+      view |> with_target("#prepaid-component") |> render_click("view_account", %{"id" => account.prepaid_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 

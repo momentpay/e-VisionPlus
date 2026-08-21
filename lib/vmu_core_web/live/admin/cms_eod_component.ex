@@ -12,6 +12,7 @@ defmodule VmuCoreWeb.Live.Admin.CmsEodComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.CMS.EodMonitor
 
@@ -73,82 +74,85 @@ defmodule VmuCoreWeb.Live.Admin.CmsEodComponent do
       <.form_card title="Runs (last 14 dates with EOD activity)">
         <.empty_state :if={@runs == []} icon="🌙" title="No EOD runs found" />
 
-        <div :if={@runs != []} class="table-wrapper">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>EOD Date</th>
-                <th :for={w <- EodMonitor.eod_workers()}><%= EodMonitor.short_worker(w) %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={run <- @runs}>
-                <td><%= run.eod_date %></td>
-                <td :for={w <- EodMonitor.eod_workers()}>
-                  <.state_counts counts={Map.get(run.workers, w, %{})} />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <%!-- Columns are per-worker and therefore dynamic; the per-cell
+             state badges collapse to text ("3 completed, 1 retryable"),
+             the same trade-off already made for multi-badge cells in
+             block_component. --%>
+        <.ag_grid
+          :if={@runs != []}
+          id="eod-runs-grid"
+          paginate={false}
+          empty_message="No EOD runs found."
+          columns={eod_run_columns()}
+          rows={Enum.map(@runs, &eod_run_row/1)}
+        />
       </.form_card>
 
       <.form_card title="Needs Attention">
         <.empty_state :if={@attention == []} icon="✅" title="Nothing needs attention" message="No retryable, discarded, or stuck jobs in the eod queue." />
 
-        <%!-- Plain HTML, deliberately — Retry is exercised directly by
-            cms_eod_component_test.exs via `element("button", "Retry")
-            |> render_click()`, and the "stuck" hint text is asserted on
-            directly too. AG Grid's actions cells are built entirely
-            client-side (phx-update="ignore") and are invisible to
-            Phoenix.LiveViewTest, which never executes JS — so this table
-            has to stay real server-rendered HTML. See
-            docs/shared/Admin_Menu_Standard.md §5. --%>
-        <table :if={@attention != []} class="data-table">
-          <thead>
-            <tr><th>ID</th><th>Worker</th><th>State</th><th>Attempt</th><th>Account/Cycle</th><th>Error</th><th>Since</th><th></th></tr>
-          </thead>
-          <tbody>
-            <tr :for={job <- @attention}>
-              <td><%= job.id %></td>
-              <td><%= EodMonitor.short_worker(job.worker) %></td>
-              <td><.job_state_badge state={job.state} /></td>
-              <td><%= job.attempt %>/<%= job.max_attempts %></td>
-              <td><%= job_target(job) %></td>
-              <td><%= last_error(job) %></td>
-              <td><%= format_dt(job.attempted_at || job.inserted_at) %></td>
-              <td>
-                <button :if={@can_edit and job.state in ["retryable", "discarded"]}
-                        class="btn-sm btn-warning" phx-click="retry" phx-value-id={job.id} phx-target={@myself}>
-                  Retry
-                </button>
-                <span :if={job.state == "executing"} class="text-muted">stuck — verify before acting</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <.ag_grid
+          :if={@attention != []}
+          id="eod-attention-grid"
+          paginate={false}
+          empty_message="Nothing needs attention."
+          columns={[
+            %{field: "id", header: "ID", type: "mono", width: 90},
+            %{field: "worker", header: "Worker", width: 160},
+            %{field: "state", header: "State", type: "badge", classField: "state_class", width: 120},
+            %{field: "attempt", header: "Attempt", width: 100},
+            %{field: "target", header: "Account/Cycle", flex: 1},
+            %{field: "error", header: "Error", flex: 1},
+            %{field: "since", header: "Since", width: 150},
+            # The "stuck" warning is a per-row note, not an action, so it
+            # rides as its own column rather than being lost with the old
+            # <span> that shared the actions cell.
+            %{field: "note", header: "", width: 200},
+            %{field: "actions", header: "", type: "actions", width: 100,
+              actions: [%{label: "Retry", event: "retry", param: "row_id",
+                          whenField: "can_retry", whenValue: true}]}
+          ]}
+          rows={Enum.map(@attention, &attention_row(&1, @can_edit))}
+        />
       </.form_card>
     </div>
     """
   end
 
-  attr :counts, :map, required: true
-
-  defp state_counts(assigns) do
-    ~H"""
-    <span :if={@counts == %{}} class="text-muted">—</span>
-    <span :for={{state, n} <- @counts} class={"badge #{state_cls(state)}"} style="margin-right:0.25rem">
-      <%= n %> <%= state %>
-    </span>
-    """
+  defp eod_run_columns do
+    [%{field: "eod_date", header: "EOD Date", width: 130}] ++
+      Enum.map(EodMonitor.eod_workers(), fn w ->
+        %{field: "w_#{w}", header: EodMonitor.short_worker(w), flex: 1}
+      end)
   end
 
-  attr :state, :string, required: true
+  defp eod_run_row(run) do
+    EodMonitor.eod_workers()
+    |> Enum.into(%{eod_date: to_string(run.eod_date)}, fn w ->
+      counts = Map.get(run.workers, w, %{})
+      text =
+        if counts == %{},
+          do: "—",
+          else: Enum.map_join(counts, ", ", fn {state, n} -> "#{n} #{state}" end)
 
-  defp job_state_badge(assigns) do
-    ~H"""
-    <span class={"badge #{state_cls(@state)}"}><%= @state %></span>
-    """
+      {:"w_#{w}", text}
+    end)
+  end
+
+  defp attention_row(job, can_edit) do
+    %{
+      row_id: to_string(job.id),
+      id: job.id,
+      worker: EodMonitor.short_worker(job.worker),
+      state: job.state,
+      state_class: state_cls(job.state),
+      attempt: "#{job.attempt}/#{job.max_attempts}",
+      target: job_target(job),
+      error: last_error(job),
+      since: format_dt(job.attempted_at || job.inserted_at),
+      note: if(job.state == "executing", do: "stuck — verify before acting", else: ""),
+      can_retry: can_edit and job.state in ["retryable", "discarded"]
+    }
   end
 
   defp state_cls("completed"), do: "badge-green"

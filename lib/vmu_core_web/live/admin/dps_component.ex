@@ -375,30 +375,29 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
 
     <.empty_state :if={@disputes == []} icon="📭" title="No disputes" message="Nothing matches this filter." />
 
-    <div :if={@disputes != []} class="table-wrapper">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Filed</th><th>Account</th><th>Amount</th><th>Network</th>
-            <th>Reason</th><th>Status</th><th>Assigned</th><th>Chargeback Deadline</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={{d, acc} <- @disputes} phx-click="open_case" phx-value-id={d.dispute_id}
-              phx-target={@myself} style="cursor:pointer">
-            <td><%= format_dt(d.filed_at) %></td>
-            <td><%= acc && "****#{acc.last_four}" || "—" %></td>
-            <td><%= d.currency %> <%= d.dispute_amount %></td>
-            <td><%= d.network %></td>
-            <td><%= d.reason_code %></td>
-            <td><.status_badge status={d.status} /></td>
-            <td><%= d.assigned_to || "—" %></td>
-            <td><.deadline_badge date={d.chargeback_deadline} /></td>
-            <td>→</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <%!-- The whole row used to be the click target (<tr phx-click>), which
+         a grid cannot express; it becomes an explicit Open action instead —
+         also a clearer affordance than a row that is secretly clickable. --%>
+    <.ag_grid
+      :if={@disputes != []}
+      id="dps-disputes-grid"
+      paginate={false}
+      empty_message="Nothing matches this filter."
+      columns={[
+        %{field: "filed", header: "Filed", width: 150},
+        %{field: "account", header: "Account", type: "mono", width: 110},
+        %{field: "amount", header: "Amount", width: 140},
+        %{field: "network", header: "Network", width: 100},
+        %{field: "reason_code", header: "Reason", width: 110},
+        %{field: "status", header: "Status", type: "badge", width: 150},
+        %{field: "assigned_to", header: "Assigned", flex: 1},
+        %{field: "deadline", header: "Chargeback Deadline", type: "badge",
+          classField: "deadline_class", width: 180},
+        %{field: "actions", header: "", type: "actions", width: 90,
+          actions: [%{label: "Open", event: "open_case", param: "row_id"}]}
+      ]}
+      rows={Enum.map(@disputes, &dispute_row/1)}
+    />
 
     <div :if={@disputes != []} class="pagination" style="margin-top:0.75rem">
       <button class="btn-sm" phx-click="prev_page" phx-target={@myself} disabled={@page <= 1}>← Prev</button>
@@ -731,6 +730,23 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
   defp error_to_string(:too_many_files), do: "Only one file at a time"
   defp error_to_string(:not_accepted), do: "File type not accepted"
   defp error_to_string(other), do: inspect(other)
+
+  defp dispute_row({d, acc}) do
+    {deadline_class, deadline_label} = deadline_info(d.chargeback_deadline)
+
+    %{
+      row_id: to_string(d.dispute_id),
+      filed: format_dt(d.filed_at),
+      account: (acc && "****#{acc.last_four}") || "—",
+      amount: "#{d.currency} #{d.dispute_amount}",
+      network: d.network,
+      reason_code: d.reason_code,
+      status: d.status,
+      assigned_to: d.assigned_to || "—",
+      deadline: deadline_label,
+      deadline_class: deadline_class
+    }
+  end
 
   defp reason_code_row(rc, can_edit) do
     %{

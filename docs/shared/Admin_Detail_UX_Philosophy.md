@@ -138,6 +138,29 @@ custom cell renderer that calls `pushEventTo` directly rather than through
 the `actions` contract), the equivalent is `render_hook/3` instead of
 `render_click/3`, same `with_target` targeting.
 
+### 3.1 Always `to_string/1` the row id — a real production crash
+
+`phx-value-id` is an HTML attribute, so a handler reached that way **always**
+receives a string; handlers written against it routinely call
+`String.to_integer/1`. AG Grid's payload does not come from an attribute —
+it comes from `data-rows` JSON, which preserves the integer as an integer.
+Converting a table whose records have integer primary keys therefore hands
+`String.to_integer/1` an integer and raises `ArgumentError: not a binary`
+on click.
+
+This is silent at compile time and invisible to any test that passes an
+integer id (the test crashes the same way the browser would, so it does at
+least fail loudly once written). It was hit for real on the EOD retry
+action during this rollout, and would equally have broken HCS
+(company/employee/vehicle), GL periods, and the approval inbox — every
+screen whose ids are integers rather than UUIDs.
+
+**Rule: every `row_id:` in a row-mapping function is wrapped in
+`to_string/1`**, so the AG Grid payload is byte-identical to what
+`phx-value-id` would have produced and the handler's existing contract is
+untouched. Tests should pass `to_string(record.id)` for the same reason —
+a test passing a bare integer is testing something the browser never does.
+
 ---
 
 ## 4. Rollout checklist, per screen
@@ -166,8 +189,37 @@ the `actions` contract), the equivalent is `render_hook/3` instead of
 
 ## Status
 
-- §3's technique: proven (`customer_component.ex`, committed).
-- `<.detail_drawer>` component: not yet built.
-- Rollout to remaining screens (Account, Tram Inquiry's chrome reversion,
-  and every other primary list currently excluded per `Admin_Menu_Standard.md`
-  §5.1): not yet started.
+**Done** (763 tests green throughout):
+
+- §3's `with_target` technique, proven and now used across every converted
+  screen. Precondition `id={@id}` applied to all 26 components — *and to
+  every `render/1` clause*, not just the first: components with `:list` /
+  `:detail` clauses kept an un-addressable root in their other modes, which
+  made `with_target` silently fall through to `AdminLive`.
+- `<.detail_drawer>` built (§2) and in use on Tram Inquiry.
+- §1's rule applied. Converted (grow with platform activity): Customers,
+  Accounts + Cards + wizard search, Debit/Prepaid/Wallet account lists and
+  wizard searches, HCS companies/employee-cards/vehicles, DPS disputes, GL
+  shadow-diff/posting-rules/periods/exceptions, Approval Inbox facility
+  limits, EOD runs + needs-attention, Cycle Resegmentation pending changes.
+  Reverted to plain (bounded by one parent record): Tram Inquiry's
+  Identifiers and Event Timeline.
+- Contract gaps closed along the way: `params:` for handlers keyed on more
+  than an id; `row_class_field` so row-level highlighting (a GL shadow
+  mismatch) survives the move off hand-written `<tr>`; and §3.1's
+  `to_string/1` rule, which was a real crash.
+
+**Remaining:**
+
+- **Collections case list** — the one list that should be a grid and is
+  not. Each row carries a bound checkbox feeding a bulk "Place selected"
+  form; no cell type hosts a bound control, and AG Grid's own row selection
+  would need a new selection→LiveView bridge in the contract. Deliberately
+  deferred rather than bodged: doing it half-way breaks the bulk action.
+- **Operators list** — same class of block (`<select phx-change>` per row),
+  but a much smaller list, so lower value.
+- **Drawer rollout beyond Tram Inquiry.** Customers, Accounts, Debit,
+  Prepaid, Wallet and HCS still swap the whole page for their detail view
+  (`@mode = :detail`). The drawer exists and is proven; moving each screen
+  onto it is mechanical but touches their detail markup and the tests that
+  assert on it, so it is its own pass rather than a rider on this one.

@@ -227,10 +227,17 @@ const AgGrid = {
 
     const paginate = this.el.dataset.paginate !== "false"
 
+    // `data-row-class-field` names a row field holding a CSS class for the
+    // whole row — how a table flags an exceptional row (a GL shadow-diff
+    // mismatch, the wallet currency currently in view). Without it those
+    // highlights would quietly vanish in the move off hand-written <tr>.
+    const rowClassField = this.el.dataset.rowClassField
+
     this.gridApi = createGrid(this.el, {
       theme: "legacy",
       columnDefs: columns.map((c) => cellDefForColumn(c, this)),
       rowData: rows,
+      getRowClass: rowClassField ? (p) => p.data && p.data[rowClassField] : undefined,
       animateRows: true,
       pagination: paginate,
       paginationPageSize: 50,

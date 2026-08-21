@@ -138,7 +138,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
 
     assert step1_html =~ "Wizard"
 
-    view |> element("button[phx-click=select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> with_target("#debit-component") |> render_click("select_customer", %{"id" => customer.customer_id})
 
     # Step 2 — Logo/Block dropdowns, not free-text
     step2_html = render(view)
@@ -172,7 +172,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
 
     view |> element("button[phx-click=open_action][phx-value-a=fund_account]") |> render_click()
 
@@ -218,7 +218,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     on_exit(fn -> Application.delete_env(:vmu_core, :tsp_provider) end)
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
     view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
     view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 
@@ -232,7 +232,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     {:ok, token} = VmuCore.NTS.TokenLifecycle.provision(card, %{"device_id" => "dev1"}, "GOOGLE_PAY")
 
     {:ok, view, html} = live(authed_conn(operator), "/visionplus/admin/debit")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
     view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
 
     assert html =~ "Wallet Tokens" or render(view) =~ "Wallet Tokens"
@@ -262,7 +262,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+    view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
     view |> element("button[phx-click=open_action][phx-value-a=fund_account]") |> render_click()
 
     html =
@@ -282,7 +282,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       checker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -308,7 +308,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       maker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -334,7 +334,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       checker = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='4']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=adjustment]") |> render_click()
 
@@ -358,7 +358,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
 
       block_html =
@@ -399,7 +399,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_address]") |> render_click()
 
       html =
@@ -426,7 +426,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
 
       html =
@@ -451,7 +451,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
 
       verify_html = view |> element("button[phx-click=debit_kyc][phx-value-status=VERIFIED]") |> render_click()
       assert verify_html =~ "KYC status set to VERIFIED"
@@ -473,7 +473,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 
@@ -490,7 +490,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/debit")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.debit_account_id}']") |> render_click()
+      view |> with_target("#debit-component") |> render_click("view_account", %{"id" => account.debit_account_id})
       view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 

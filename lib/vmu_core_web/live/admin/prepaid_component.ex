@@ -754,6 +754,28 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   defp checker_error_msg(other),
     do: "4-eyes validation failed — #{inspect(other)}"
 
+  defp wizard_customer_row(c) do
+    %{
+      row_id: to_string(c.customer_id),
+      name: "#{c.first_name} #{c.last_name}",
+      email: c.email || "—",
+      bank_id: c.bank_id,
+      kyc_status: c.kyc_status,
+      kyc_class: if(c.kyc_status == "VERIFIED", do: "badge-green", else: "badge-yellow")
+    }
+  end
+
+  defp account_list_row(a) do
+    %{
+      row_id: to_string(a.prepaid_account_id),
+      customer_name: a.customer_name || "—",
+      balance: a.balance,
+      currency: a.currency,
+      status: a.status,
+      status_class: status_cls(a.status)
+    }
+  end
+
   defp status_cls("ACTIVE"),    do: "badge-green"
   defp status_cls("SUSPENDED"), do: "badge-yellow"
   defp status_cls("CLOSED"),    do: "badge-gray"
@@ -793,27 +815,19 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
         <input class="input" type="text" name="q" value={@search} placeholder="Search customer name…" style="max-width:320px;"/>
       </form>
 
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr><th>Customer</th><th>Stored-Value Balance</th><th>Currency</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody>
-            <%= if @accounts == [] do %>
-              <tr><td colspan="5" class="empty-row" style="text-align:center;">No prepaid accounts found.</td></tr>
-            <% end %>
-            <%= for a <- @accounts do %>
-              <tr>
-                <td><%= a.customer_name || "—" %></td>
-                <td class="mono"><%= money(a.balance) %></td>
-                <td><%= a.currency %></td>
-                <td><span class={"badge #{status_cls(a.status)}"}><%= a.status %></span></td>
-                <td><button class="btn btn-xs" phx-click="view_account" phx-value-id={a.prepaid_account_id} phx-target={@myself}>View</button></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="prepaid-accounts-grid"
+        empty_message="No prepaid accounts found."
+        columns={[
+          %{field: "customer_name", header: "Customer", flex: 1},
+          %{field: "balance", header: "Stored-Value Balance", type: "money", width: 170},
+          %{field: "currency", header: "Currency", width: 110},
+          %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120},
+          %{field: "actions", header: "", type: "actions", width: 90,
+            actions: [%{label: "View", event: "view_account", param: "row_id"}]}
+        ]}
+        rows={Enum.map(@accounts, &account_list_row/1)}
+      />
     </div>
     """
   end
@@ -1506,22 +1520,20 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
         </div>
 
         <%= if @customer_results != [] do %>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Bank</th><th>KYC</th><th></th></tr></thead>
-              <tbody>
-                <%= for c <- @customer_results do %>
-                  <tr>
-                    <td><%= c.first_name %> <%= c.last_name %></td>
-                    <td style="font-size:12px;"><%= c.email %></td>
-                    <td><%= c.bank_id %></td>
-                    <td><span class={"badge #{if c.kyc_status == "VERIFIED", do: "badge-green", else: "badge-yellow"}"}><%= c.kyc_status %></span></td>
-                    <td><button class="btn btn-sm btn-primary" phx-click="select_customer" phx-value-id={c.customer_id} phx-target={@myself}>Select</button></td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
+          <.ag_grid
+            id="prepaid-wizard-customer-grid"
+            paginate={false}
+            empty_message="No customers found. Try a different search."
+            columns={[
+              %{field: "name", header: "Name", flex: 1},
+              %{field: "email", header: "Email", flex: 1},
+              %{field: "bank_id", header: "Bank", type: "mono", width: 100},
+              %{field: "kyc_status", header: "KYC", type: "badge", classField: "kyc_class", width: 120},
+              %{field: "actions", header: "", type: "actions", width: 110,
+                actions: [%{label: "Select", event: "select_customer", param: "row_id"}]}
+            ]}
+            rows={Enum.map(@customer_results, &wizard_customer_row/1)}
+          />
         <% end %>
 
         <%= if @customer_search != "" && @customer_results == [] do %>

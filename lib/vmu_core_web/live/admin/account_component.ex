@@ -1504,7 +1504,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       end)
 
     %{
-      row_id: c.card_id,
+      row_id: to_string(c.card_id),
       generation: c.generation,
       card_type: c.card_type,
       pan: "**** #{c.last_four || "----"}",
@@ -1528,7 +1528,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   defp wizard_customer_row(c) do
     %{
-      row_id: c.customer_id,
+      row_id: to_string(c.customer_id),
       name: "#{c.first_name} #{c.last_name}",
       email: c.email || "—",
       bank_id: c.bank_id,
@@ -1542,7 +1542,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     {dpd_label, dpd_cls} = dpd_info(acc.delinquency_bucket || 0)
 
     %{
-      row_id: acc.account_id,
+      row_id: to_string(acc.account_id),
       account_id: "#{short_id(to_string(acc.account_id))}…",
       last_four: "****#{acc.last_four}",
       cardholder: if(cust, do: "#{cust.first_name} #{cust.last_name}", else: "—"),

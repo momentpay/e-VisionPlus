@@ -25,6 +25,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, CMS.DebitAccount, CMS.DebitAccountOpening, CMS.DebitFunding,
                  CMS.DebitFundingCommand, CMS.DebitAdjustmentCommand, CMS.DebitBlockHistory,
@@ -1219,25 +1220,18 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
     <div class="form-pane-section-title">
       Funding History (<%= length(@fundings) %>)
     </div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Amount</th><th>Channel</th><th>Reference</th><th>By</th></tr></thead>
-        <tbody>
-          <%= if @fundings == [] do %>
-            <tr><td colspan="5" class="empty-row" style="text-align:center;">No funding yet.</td></tr>
-          <% end %>
-          <%= for f <- @fundings do %>
-            <tr>
-              <td><%= Calendar.strftime(f.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td class="mono"><%= money(f.amount) %></td>
-              <td><%= f.channel %></td>
-              <td><%= f.external_reference || "—" %></td>
-              <td><code><%= f.posted_by %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="debit-funding-history-grid"
+      empty_message="No funding yet."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "amount", header: "Amount", type: "money", width: 130},
+        %{field: "channel", header: "Channel", width: 130},
+        %{field: "external_reference", header: "Reference", width: 150},
+        %{field: "posted_by", header: "By", type: "mono", width: 130}
+      ]}
+      rows={Enum.map(@fundings, &funding_row/1)}
+    />
     """
   end
 
@@ -1399,26 +1393,19 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       </div>
     <% end %>
 
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Reason</th><th>Reference</th><th>Maker / Checker</th></tr></thead>
-        <tbody>
-          <%= if @adjustments == [] do %>
-            <tr><td colspan="6" class="empty-row" style="text-align:center;">No adjustments posted.</td></tr>
-          <% end %>
-          <%= for a <- @adjustments do %>
-            <tr>
-              <td><%= Calendar.strftime(a.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{if a.direction == "CREDIT", do: "badge-green", else: "badge-red"}"}><%= a.direction %></span></td>
-              <td class="mono"><%= money(a.amount) %></td>
-              <td><%= a.reason %></td>
-              <td><%= a.reference_id %></td>
-              <td style="font-size:12px;"><code><%= a.operator_id %></code> / <code><%= a.supervisor_id %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="debit-adjustments-grid"
+      empty_message="No adjustments posted."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "direction", header: "Direction", type: "badge", classField: "direction_class", width: 110},
+        %{field: "amount", header: "Amount", type: "money", width: 130},
+        %{field: "reason", header: "Reason", flex: 1},
+        %{field: "reference_id", header: "Reference", width: 150},
+        %{field: "maker_checker", header: "Maker / Checker", type: "mono", width: 220}
+      ]}
+      rows={Enum.map(@adjustments, &adjustment_row/1)}
+    />
     """
   end
 
@@ -1449,24 +1436,17 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
     ~H"""
     <div class="form-pane-section-title">Account History (<%= length(@entries) %>)</div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Event</th><th>Detail</th><th>Operator</th></tr></thead>
-        <tbody>
-          <%= if @entries == [] do %>
-            <tr><td colspan="4" class="empty-row" style="text-align:center;">No history yet.</td></tr>
-          <% end %>
-          <%= for e <- @entries do %>
-            <tr>
-              <td><%= Calendar.strftime(e.at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{if e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"}"}><%= e.kind %></span></td>
-              <td><%= e.detail %></td>
-              <td style="font-size:12px;"><code><%= e.operator %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="debit-account-history-grid"
+      empty_message="No history yet."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "kind", header: "Event", type: "badge", classField: "kind_class", width: 150},
+        %{field: "detail", header: "Detail", flex: 2},
+        %{field: "operator", header: "Operator", type: "mono", width: 140}
+      ]}
+      rows={Enum.map(@entries, &history_entry_row/1)}
+    />
     """
   end
 
@@ -1586,5 +1566,37 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
       </div>
     </div>
     """
+  end
+
+  defp funding_row(f) do
+    %{
+      at: Calendar.strftime(f.inserted_at, "%Y-%m-%d %H:%M"),
+      amount: f.amount,
+      channel: f.channel,
+      external_reference: f.external_reference || "—",
+      posted_by: f.posted_by
+    }
+  end
+
+  defp adjustment_row(a) do
+    %{
+      at: Calendar.strftime(a.inserted_at, "%Y-%m-%d %H:%M"),
+      direction: a.direction,
+      direction_class: if(a.direction == "CREDIT", do: "badge-green", else: "badge-red"),
+      amount: a.amount,
+      reason: a.reason,
+      reference_id: a.reference_id,
+      maker_checker: "#{a.operator_id} / #{a.supervisor_id}"
+    }
+  end
+
+  defp history_entry_row(e) do
+    %{
+      at: Calendar.strftime(e.at, "%Y-%m-%d %H:%M"),
+      kind: e.kind,
+      kind_class: if(e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"),
+      detail: e.detail,
+      operator: e.operator
+    }
   end
 end

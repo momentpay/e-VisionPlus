@@ -12,6 +12,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
 
   import Ecto.Query, warn: false
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{LogoParameter, BankParameter, SysParameter, ParameterWriter}
@@ -523,59 +524,28 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
       </.empty_state>
     <% else %>
       <div class="card">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>LOGO ID</th>
-              <th>BIN Prefix</th>
-              <th>Description</th>
-              <th>Scheme</th>
-              <th>Type</th>
-              <th>Purchase APR</th>
-              <th>Annual Fee</th>
-              <th>STIP</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for logo <- @filtered do %>
-              <tr>
-                <td><span class="mono"><%= logo.logo_id %></span></td>
-                <td><span class="mono"><%= logo.bin_prefix %></span></td>
-                <td>
-                  <div style="font-weight:500;"><%= logo.description %></div>
-                  <div class="text-xs text-muted">ORG: <%= logo.bank_id %> / SYS: <%= logo.sys_id %></div>
-                </td>
-                <td>
-                  <span :if={logo.card_scheme} class="badge badge-blue"><%= logo.card_scheme %></span>
-                  <span :if={!logo.card_scheme} class="text-muted text-xs">—</span>
-                </td>
-                <td>
-                  <span :if={logo.product_type} class="badge badge-gray"><%= logo.product_type %></span>
-                  <span :if={!logo.product_type} class="text-muted text-xs">—</span>
-                </td>
-                <td class="font-mono"><%= logo.purchase_apr %>%</td>
-                <td class="font-mono"><%= logo.annual_fee %></td>
-                <td>
-                  <span class={"badge #{if logo.stip_enabled, do: "badge-green", else: "badge-gray"}"}>
-                    <%= if logo.stip_enabled, do: "ON", else: "OFF" %>
-                  </span>
-                </td>
-                <td>
-                  <div class="actions">
-                    <button phx-click="logo_plans" phx-target={@myself}
-                      phx-value-id={logo.logo_id} class="btn btn-sm btn-secondary">📊 Plans</button>
-                    <button :if={@can_edit} phx-click="logo_edit" phx-target={@myself}
-                      phx-value-id={logo.logo_id} class="btn btn-sm btn-secondary">Edit</button>
-                    <button :if={@can_edit} phx-click="logo_delete" phx-target={@myself}
-                      phx-value-id={logo.logo_id} class="btn btn-sm btn-danger"
-                      data-confirm={"Delete product #{logo.logo_id}?"}>Delete</button>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+        <.ag_grid
+          id="logo-list-grid"
+          columns={[
+            %{field: "logo_id", header: "LOGO ID", type: "mono", width: 110},
+            %{field: "bin_prefix", header: "BIN Prefix", type: "mono", width: 110},
+            %{field: "description", header: "Description", flex: 1.5},
+            %{field: "org_sys", header: "ORG / SYS", width: 150},
+            %{field: "card_scheme", header: "Scheme", type: "badge", classField: "card_scheme_class", width: 110},
+            %{field: "product_type", header: "Type", type: "badge", classField: "product_type_class", width: 110},
+            %{field: "purchase_apr", header: "Purchase APR", type: "mono", width: 130},
+            %{field: "annual_fee", header: "Annual Fee", type: "mono", width: 120},
+            %{field: "stip_label", header: "STIP", type: "badge", classField: "stip_class", width: 90},
+            %{field: "actions", header: "", type: "actions", width: 210,
+              actions: [
+                %{label: "📊 Plans", event: "logo_plans", param: "logo_id"},
+                %{label: "Edit", event: "logo_edit", param: "logo_id", whenField: "can_edit", whenValue: true},
+                %{label: "Delete", event: "logo_delete", param: "logo_id", whenField: "can_edit", whenValue: true,
+                  danger: true, confirm: "Delete product {logo_id}?"}
+              ]}
+          ]}
+          rows={Enum.map(@filtered, &logo_row(&1, @can_edit))}
+        />
       </div>
     <% end %>
     """
@@ -1132,72 +1102,28 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
         </div>
       <% else %>
         <div class="card">
-          <div class="table-wrap">
-            <table class="data-table">
-              <colgroup>
-                <col style="width:90px"/>
-                <col style="width:160px"/>
-                <col style="width:80px"/>
-                <col style="width:80px"/>
-                <col style="width:110px"/>
-                <col style="width:60px"/>
-                <col style="width:100px"/>
-                <col style="width:60px"/>
-                <col style="width:80px"/>
-                <col style="width:60px"/>
-                <col/>
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Plan ID</th>
-                  <th>Type</th>
-                  <th>APR</th>
-                  <th>Promo APR</th>
-                  <th>Promo Expiry</th>
-                  <th>Grace</th>
-                  <th>Min Pay %</th>
-                  <th>Priority</th>
-                  <th>EMI Tenor</th>
-                  <th>Active</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for p <- @logo_plans do %>
-                  <% eff = PlanSegment.effective_apr(p) %>
-                  <tr>
-                    <td class="mono fw-600"><%= p.plan_id %></td>
-                    <td>
-                      <span class={"badge #{plan_badge(p.plan_type)}"}>
-                        <%= p.plan_type %>
-                      </span>
-                    </td>
-                    <td class="mono"><%= eff %>%</td>
-                    <td class="mono"><%= if p.promo_apr, do: "#{p.promo_apr}%", else: "—" %></td>
-                    <td><%= if p.promo_expiry_date, do: Date.to_string(p.promo_expiry_date), else: "—" %></td>
-                    <td><%= if p.grace_eligible, do: "✓", else: "✗" %></td>
-                    <td class="mono"><%= if p.min_payment_pct, do: "#{p.min_payment_pct}%", else: "—" %></td>
-                    <td><%= p.payment_priority %></td>
-                    <td><%= if p.emi_tenor_months, do: "#{p.emi_tenor_months}m", else: "—" %></td>
-                    <td>
-                      <span class={"badge #{if p.active, do: "badge-green", else: "badge-gray"}"}>
-                        <%= if p.active, do: "Active", else: "Off" %>
-                      </span>
-                    </td>
-                    <td>
-                      <div class="actions">
-                        <button :if={@can_edit} phx-click="plan_edit" phx-target={@myself}
-                          phx-value-id={p.plan_id} class="btn btn-sm btn-secondary">Edit</button>
-                        <button :if={@can_edit} phx-click="plan_delete" phx-target={@myself}
-                          phx-value-id={p.plan_id} class="btn btn-sm btn-danger"
-                          data-confirm={"Delete plan #{p.plan_id}?"}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
+          <.ag_grid
+            id="logo-plan-segments-grid"
+            columns={[
+              %{field: "plan_id", header: "Plan ID", type: "mono", width: 100},
+              %{field: "plan_type", header: "Type", type: "badge", classField: "plan_type_class", width: 150},
+              %{field: "effective_apr", header: "APR", type: "mono", width: 90},
+              %{field: "promo_apr", header: "Promo APR", type: "mono", width: 100},
+              %{field: "promo_expiry_date", header: "Promo Expiry", width: 130},
+              %{field: "grace_eligible", header: "Grace", width: 80},
+              %{field: "min_payment_pct", header: "Min Pay %", type: "mono", width: 100},
+              %{field: "payment_priority", header: "Priority", type: "number", width: 90},
+              %{field: "emi_tenor_months", header: "EMI Tenor", width: 100},
+              %{field: "active_label", header: "Active", type: "badge", classField: "active_class", width: 100},
+              %{field: "actions", header: "", type: "actions", width: 150,
+                actions: [
+                  %{label: "Edit", event: "plan_edit", param: "plan_id", whenField: "can_edit", whenValue: true},
+                  %{label: "Delete", event: "plan_delete", param: "plan_id", whenField: "can_edit", whenValue: true,
+                    danger: true, confirm: "Delete plan {plan_id}?"}
+                ]}
+            ]}
+            rows={Enum.map(@logo_plans, &plan_segment_row(&1, @can_edit))}
+          />
         </div>
       <% end %>
     </div>
@@ -1209,4 +1135,40 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   defp plan_badge("EMI"),              do: "badge-blue"
   defp plan_badge("BALANCE_TRANSFER"), do: "badge-purple"
   defp plan_badge(_),                  do: "badge-gray"
+
+  defp logo_row(logo, can_edit) do
+    %{
+      logo_id: logo.logo_id,
+      bin_prefix: logo.bin_prefix,
+      description: logo.description,
+      org_sys: "ORG: #{logo.bank_id} / SYS: #{logo.sys_id}",
+      card_scheme: logo.card_scheme,
+      card_scheme_class: "badge-blue",
+      product_type: logo.product_type,
+      product_type_class: "badge-gray",
+      purchase_apr: "#{logo.purchase_apr}%",
+      annual_fee: logo.annual_fee,
+      stip_label: if(logo.stip_enabled, do: "ON", else: "OFF"),
+      stip_class: if(logo.stip_enabled, do: "badge-green", else: "badge-gray"),
+      can_edit: can_edit
+    }
+  end
+
+  defp plan_segment_row(p, can_edit) do
+    %{
+      plan_id: p.plan_id,
+      plan_type: p.plan_type,
+      plan_type_class: plan_badge(p.plan_type),
+      effective_apr: "#{PlanSegment.effective_apr(p)}%",
+      promo_apr: if(p.promo_apr, do: "#{p.promo_apr}%", else: "—"),
+      promo_expiry_date: if(p.promo_expiry_date, do: Date.to_string(p.promo_expiry_date), else: "—"),
+      grace_eligible: if(p.grace_eligible, do: "✓", else: "✗"),
+      min_payment_pct: if(p.min_payment_pct, do: "#{p.min_payment_pct}%", else: "—"),
+      payment_priority: p.payment_priority,
+      emi_tenor_months: if(p.emi_tenor_months, do: "#{p.emi_tenor_months}m", else: "—"),
+      active_label: if(p.active, do: "Active", else: "Off"),
+      active_class: if(p.active, do: "badge-green", else: "badge-gray"),
+      can_edit: can_edit
+    }
+  end
 end

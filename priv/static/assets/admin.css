@@ -1477,6 +1477,12 @@ textarea::placeholder { color: var(--text-faint); }
 .data-table tr.row-alert:hover td,
 .admin-table tr.row-alert:hover td { background: var(--danger-bg); filter: brightness(.97); }
 
+/* The row for whatever the page is currently viewing — e.g. the
+   currency account you're on, among its wallet's siblings. Same gap
+   as .row-alert above: referenced by markup, defined nowhere. */
+.data-table tr.row-active td,
+.admin-table tr.row-active td { background: var(--accent-wash); }
+
 /* Digits that sit in a column should line up. */
 .data-table td.mono,
 .admin-table td.mono,

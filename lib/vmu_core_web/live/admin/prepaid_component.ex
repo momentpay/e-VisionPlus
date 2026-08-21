@@ -25,6 +25,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, CMS.PrepaidAccount, CMS.PrepaidAccountOpening, CMS.PrepaidLedgerEntry,
                  CMS.PrepaidLedger, CMS.PrepaidAdjustmentCommand, CMS.PrepaidBlockHistory,
@@ -1281,26 +1282,19 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
     <div class="form-pane-section-title">
       Ledger History (<%= length(@ledger_entries) %>)
     </div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Remaining</th><th>Expiry</th><th>Channel / Ref</th></tr></thead>
-        <tbody>
-          <%= if @ledger_entries == [] do %>
-            <tr><td colspan="6" class="empty-row" style="text-align:center;">No ledger activity yet.</td></tr>
-          <% end %>
-          <%= for e <- @ledger_entries do %>
-            <tr>
-              <td><%= Calendar.strftime(e.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{entry_type_cls(e.entry_type)}"}><%= e.entry_type %></span></td>
-              <td class="mono"><%= money(e.amount) %></td>
-              <td class="mono"><%= if e.remaining_amount, do: money(e.remaining_amount), else: "—" %></td>
-              <td><%= e.expiry_date || "—" %></td>
-              <td><%= e.channel || e.external_reference || "—" %></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="prepaid-ledger-history-grid"
+      empty_message="No ledger activity yet."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "entry_type", header: "Type", type: "badge", classField: "entry_type_class", width: 120},
+        %{field: "amount", header: "Amount", type: "money", width: 120},
+        %{field: "remaining_amount", header: "Remaining", type: "money", width: 120},
+        %{field: "expiry_date", header: "Expiry", width: 120},
+        %{field: "channel_ref", header: "Channel / Ref", flex: 1}
+      ]}
+      rows={Enum.map(@ledger_entries, &ledger_entry_row/1)}
+    />
     """
   end
 
@@ -1464,26 +1458,19 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
       </div>
     <% end %>
 
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Reason</th><th>Reference</th><th>Maker / Checker</th></tr></thead>
-        <tbody>
-          <%= if @adjustments == [] do %>
-            <tr><td colspan="6" class="empty-row" style="text-align:center;">No adjustments posted.</td></tr>
-          <% end %>
-          <%= for a <- @adjustments do %>
-            <tr>
-              <td><%= Calendar.strftime(a.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{if a.direction == "CREDIT", do: "badge-green", else: "badge-red"}"}><%= a.direction %></span></td>
-              <td class="mono"><%= money(a.amount) %></td>
-              <td><%= a.reason %></td>
-              <td><%= a.reference_id %></td>
-              <td style="font-size:12px;"><code><%= a.operator_id %></code> / <code><%= a.supervisor_id %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="prepaid-adjustments-grid"
+      empty_message="No adjustments posted."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "direction", header: "Direction", type: "badge", classField: "direction_class", width: 110},
+        %{field: "amount", header: "Amount", type: "money", width: 130},
+        %{field: "reason", header: "Reason", flex: 1},
+        %{field: "reference_id", header: "Reference", width: 150},
+        %{field: "maker_checker", header: "Maker / Checker", type: "mono", width: 220}
+      ]}
+      rows={Enum.map(@adjustments, &adjustment_row/1)}
+    />
     """
   end
 
@@ -1603,5 +1590,29 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
       </div>
     </div>
     """
+  end
+
+  defp ledger_entry_row(e) do
+    %{
+      at: Calendar.strftime(e.inserted_at, "%Y-%m-%d %H:%M"),
+      entry_type: e.entry_type,
+      entry_type_class: entry_type_cls(e.entry_type),
+      amount: e.amount,
+      remaining_amount: e.remaining_amount,
+      expiry_date: e.expiry_date || "—",
+      channel_ref: e.channel || e.external_reference || "—"
+    }
+  end
+
+  defp adjustment_row(a) do
+    %{
+      at: Calendar.strftime(a.inserted_at, "%Y-%m-%d %H:%M"),
+      direction: a.direction,
+      direction_class: if(a.direction == "CREDIT", do: "badge-green", else: "badge-red"),
+      amount: a.amount,
+      reason: a.reason,
+      reference_id: a.reference_id,
+      maker_checker: "#{a.operator_id} / #{a.supervisor_id}"
+    }
   end
 end

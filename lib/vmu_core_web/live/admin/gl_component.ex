@@ -267,7 +267,7 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="gl-admin">
+    <div id={@id} class="gl-admin">
       <h2 :if={!@embedded}>General Ledger</h2>
 
       <p :if={@flash_msg} class="flash"><%= @flash_msg %></p>

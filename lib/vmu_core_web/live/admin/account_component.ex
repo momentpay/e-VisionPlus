@@ -1268,7 +1268,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <%!-- Koṣa domain-model alignment (2026-07-28) — when embedded inline
            inside another page (e.g. Customer's Arrangements sub-tabs via
            CustomerComponent), this component's own page title/"Back to

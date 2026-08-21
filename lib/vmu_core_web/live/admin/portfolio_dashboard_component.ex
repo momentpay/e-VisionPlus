@@ -95,7 +95,7 @@ defmodule VmuCoreWeb.Live.Admin.PortfolioDashboardComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Portfolio Dashboard" subtitle="Live totals across every institution — read-only" />
 
       <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem">

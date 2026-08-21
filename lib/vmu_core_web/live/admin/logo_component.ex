@@ -448,7 +448,7 @@ defmodule VmuCoreWeb.Live.Admin.LogoComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Products / Logos" subtitle="Card product templates (LOGO level in the parameter hierarchy)">
         <:actions>
           <button :if={@mode == :list && @can_edit} phx-click="logo_new" phx-target={@myself} class="btn btn-primary">

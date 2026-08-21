@@ -68,7 +68,7 @@ defmodule VmuCoreWeb.Live.Admin.AuditLogComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Audit Trail"
                     subtitle="Operator actions and PII access — append-only, compliance view" />
 

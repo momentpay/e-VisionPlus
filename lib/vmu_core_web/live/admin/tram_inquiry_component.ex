@@ -86,7 +86,7 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="TRAM Transaction Inquiry"
                     subtitle="Lifecycle search across the transaction repository" />
 

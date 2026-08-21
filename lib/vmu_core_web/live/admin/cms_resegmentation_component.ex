@@ -117,7 +117,7 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Cycle Resegmentation" subtitle="Rebalance billing-day distribution (FR-058) — policy is configured per bank in Module Configuration">
       </.page_header>
 

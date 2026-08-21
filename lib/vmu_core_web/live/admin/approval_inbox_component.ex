@@ -261,7 +261,7 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Approval Inbox"
                     subtitle="Pending 4-eyes items across modules — maker ≠ checker and authority limits enforced">
         <:actions>

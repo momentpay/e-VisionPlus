@@ -1048,7 +1048,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Corporate Card Programmes (HCS)" subtitle="Company facilities and employee cards">
           <:actions>

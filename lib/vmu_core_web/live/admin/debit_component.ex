@@ -766,7 +766,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
           <:actions>

@@ -400,7 +400,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Sub-Product Blocks"
         subtitle="Tier overrides within a LOGO — Gold / Platinum / Basic / Corporate etc.">
         <:actions>

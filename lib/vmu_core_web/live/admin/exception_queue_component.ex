@@ -103,7 +103,7 @@ defmodule VmuCoreWeb.Live.Admin.ExceptionQueueComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="FAS Exception Queue"
                     subtitle="Unmatched reversals, hold aging alerts, and risk declines" />
 

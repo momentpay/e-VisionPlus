@@ -778,7 +778,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Prepaid Cards" subtitle="Closed-loop stored-value accounts (not Debit)">
           <:actions>

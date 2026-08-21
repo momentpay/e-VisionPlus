@@ -715,7 +715,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Digital Wallet" subtitle="Stored-value wallet accounts">
           <:actions>

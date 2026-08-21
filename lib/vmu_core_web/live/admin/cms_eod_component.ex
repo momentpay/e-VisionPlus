@@ -61,7 +61,7 @@ defmodule VmuCoreWeb.Live.Admin.CmsEodComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="EOD Job Status" subtitle="Per-run stage completion + jobs needing attention (FR-057)">
         <:actions>
           <button class="btn-sm" phx-click="refresh" phx-target={@myself}>Refresh</button>

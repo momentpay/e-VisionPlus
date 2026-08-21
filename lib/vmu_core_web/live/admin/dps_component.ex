@@ -313,7 +313,7 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= case @view do %>
         <% :list -> %>
           <.render_list {assigns} />

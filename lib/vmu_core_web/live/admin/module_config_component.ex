@@ -41,7 +41,8 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
        scope_type: "system",
        bank_id: "",
        logo_id: "",
-       form_data: %{}
+       form_data: %{},
+       modules: @modules
      )
      |> load_sys()
      |> load_banks()
@@ -235,7 +236,7 @@ defmodule VmuCoreWeb.Live.Admin.ModuleConfigComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Module Configuration" subtitle="Per-module operational settings — configurable by customer, market, or product (CTA/ASM/DPS and beyond)">
         <:actions>
           <button :if={!@edit_mode && @can_edit}

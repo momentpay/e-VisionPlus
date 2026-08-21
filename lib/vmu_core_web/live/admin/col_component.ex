@@ -427,7 +427,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Collections & Recovery" subtitle="Cases by status, DPD bucket, and assignment">
         <:actions>
           <button class="btn-sm" phx-click="show_agency_files" phx-target={@myself}>📁 Agency Files</button>

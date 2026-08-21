@@ -12,6 +12,7 @@ defmodule VmuCore.CMS.StatementGenerator do
 
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.InterestEngine, CMS.AccountStateCoordinator}
   alias Decimal, as: D
+  alias VmuCore.GL.LedgerQuery
 
   @doc """
   Generate and persist a statement for account_id on statement_date.
@@ -21,7 +22,9 @@ defmodule VmuCore.CMS.StatementGenerator do
   def generate(account_id, statement_date, opts \\ []) do
     purchase_apr = Keyword.get(opts, :apr_percentage,      D.new("24.00"))
     cash_apr     = Keyword.get(opts, :cash_apr_percentage, purchase_apr)   # fall back to purchase_apr if not set
-    min_pct      = Keyword.get(opts, :min_payment_pct,    D.new("0.05"))
+    # Percentages, matching how the parameter cascade stores them (5.0 = 5%).
+    min_pct      = Keyword.get(opts, :min_payment_pct,   D.new("5.0"))
+    min_floor    = Keyword.get(opts, :min_payment_floor, D.new("25.00"))
 
     with {:ok, account} <- load_account(account_id),
          {:ok, bucket}  <- latest_bucket(account_id, statement_date) do
@@ -39,7 +42,13 @@ defmodule VmuCore.CMS.StatementGenerator do
       total_interest = interest.total
       new_retail     = D.add(bucket.retail_balance, total_interest)
       stmt_balance   = BalanceBucket.total(%{bucket | retail_balance: new_retail})
-      min_payment    = InterestEngine.minimum_payment(stmt_balance, min_pct)
+      # PERCENTAGE_OF_BALANCE — the model every configured product selects via
+      # `logo_parameters.min_payment_calculation`. This previously called
+      # `InterestEngine.minimum_payment/2`, which does not exist: the real
+      # function is the component-based `/5`, and `min_pct` was being passed
+      # where `fees_due` belongs. Statement generation raised for every account
+      # as a result (found 2026-08-04 running EOD end to end).
+      min_payment    = InterestEngine.minimum_payment_pct_of_balance(stmt_balance, min_pct, min_floor)
       next_stmt_date = next_statement_date(account.cycle_code, statement_date)
 
       Repo.update_all(
@@ -108,14 +117,13 @@ defmodule VmuCore.CMS.StatementGenerator do
   defp payments_received(account_id, statement_date, days_in_cycle) do
     start_date = Date.add(statement_date, -days_in_cycle)
 
-    Repo.one(
-      from e in VmuCore.CMS.LedgerEntry,
-        where: e.account_id == ^account_id
-          and e.transaction_code == "PAYMENT"
-          and e.posting_date >= ^start_date
-          and e.posting_date <= ^statement_date,
-        select: coalesce(sum(e.cr_amount), ^D.new(0))
-    ) || D.new(0)
+    # GL Phase C2 — see GL.LedgerQuery.
+    LedgerQuery.sum_amount(
+      account_ref: account_id,
+      transaction_code: "PAYMENT",
+      from: start_date,
+      to: statement_date
+    )
   end
 
   # True ADB: use daily snapshots from cms_daily_balance_snapshots (G10).
@@ -133,7 +141,15 @@ defmodule VmuCore.CMS.StatementGenerator do
   defp daily_balances_for(account_id, start_date, end_date, field) do
     snapshots =
       from(s in "cms_daily_balance_snapshots",
-        where: s.account_id == ^account_id
+        # `type(^account_id, Ecto.UUID)` is required here, unlike every other
+        # query in this module. This one is **schemaless** — the source is a
+        # table name, not a schema module — so Ecto has no field definition to
+        # cast the parameter against and passes the string straight through.
+        # `cms_daily_balance_snapshots.account_id` is a Postgres `uuid`, which
+        # wants a 16-byte binary, so an uncast string raised
+        # `Postgrex expected a binary of 16 bytes` and every statement
+        # generation failed (found 2026-08-04 while running EOD end to end).
+        where: s.account_id == type(^account_id, Ecto.UUID)
           and s.snapshot_date >= ^start_date
           and s.snapshot_date <= ^end_date,
         select: %{date: s.snapshot_date, balance: field(s, ^field)},

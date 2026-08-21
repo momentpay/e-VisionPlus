@@ -8,11 +8,12 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   alias VmuCore.CMS.{
     Account, BalanceBucket, BlockCodeHistory, NonMonetaryEvent,
     SupplementaryCard, PlanSegment, TempLimit, FeeWaiver, FinancialAdjustment,
-    LedgerEntry, AccountStateCoordinator, EmiSchedule
+    AccountStateCoordinator, EmiSchedule, Arrangements
   }
   alias VmuCore.Shared.{Customer, BankParameter, LogoParameter, BlockParameter}
-  alias VmuCore.CTA.{Cards, CardLifecycle}
+  alias VmuCore.CTA.{Cards, CardLifecycle, CredentialVault}
   alias VmuCore.ASM.AuditLog
+  alias VmuCore.NTS.{Tokens, TokenLifecycle}
 
   @card_block_reasons [
     {"Lost",     "LOST"},
@@ -72,6 +73,12 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        bank_filter: "",
        logo_filter: "",
        dpd_filter: "",
+       # Koṣa domain-model alignment (2026-07-28) — "credit" is this page's
+       # original scope; "all" is a read-only cross-product rollup driven
+       # by CMS.Arrangement, each row linking out to its own product page.
+       list_scope: "credit",
+       all_accounts: [],
+       all_product_filter: "",
        # Detail
        account: nil,
        customer: nil,
@@ -89,6 +96,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        # CTA-P3: card generation list + event timeline for the Cards tab
        cards: [],
        card_events: [],
+       nts_tokens: [],
        selected_card_id: nil,
        # Constants for templates (module attrs not accessible via @ in HEEx)
        block_codes:          @block_codes,
@@ -100,6 +108,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        # Action panel
        active_action: :none,
        action_data: %{},
+       revealed: nil,
        supp_search: "",
        supp_search_results: [],
        # Wizard
@@ -110,7 +119,9 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
        logos_for_bank: [],
        blocks_for_logo: [],
        selected_logo: nil,
-       bank_options: []
+       bank_options: [],
+       loaded_deep_link_id: nil,
+       embedded: false
      )
      |> load_bank_options()
      |> load_accounts()}
@@ -118,7 +129,26 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   @impl true
   def update(assigns, socket) do
-    {:ok, assign(socket, assigns)}
+    socket = assign(socket, assigns)
+
+    # Koṣa domain-model alignment (2026-07-28) — a "View in Accounts (CMS)"
+    # link from the Customer/All-Products Arrangements panels lands here
+    # with ?view=<account_id>; open straight to that account's detail
+    # instead of the bare list. Guarded by loaded_deep_link_id so this
+    # only fires once per link click, not on every subsequent re-render.
+    socket =
+      case assigns[:deep_link_id] do
+        id when is_binary(id) and id != "" and id != socket.assigns.loaded_deep_link_id ->
+          socket
+          |> assign(mode: :detail, detail_tab: 1, active_action: :none, result: nil)
+          |> load_detail(id)
+          |> assign(loaded_deep_link_id: id)
+
+        _ ->
+          socket
+      end
+
+    {:ok, socket}
   end
 
   # ── Data Loading ─────────────────────────────────────────────────────────────
@@ -149,6 +179,20 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     assign(socket, accounts: accounts, customers_map: custs_map)
   end
 
+  # Koṣa domain-model alignment (2026-07-28) — cross-product rollup, driven
+  # by CMS.Arrangement instead of CMS.Account, for the "All Products" tab.
+  defp load_all_accounts(socket) do
+    s = socket.assigns
+
+    rows =
+      Arrangements.search(%{
+        product_type: s.all_product_filter,
+        search: s.acc_search
+      })
+
+    assign(socket, all_accounts: rows)
+  end
+
   defp search_accounts(search, status_f, bank_f, logo_f, dpd_f) do
     query = from(a in Account, order_by: [desc: a.inserted_at], limit: 100)
 
@@ -156,7 +200,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       if search != "" and search != nil do
         cust_ids =
           Repo.all(from c in Customer,
-            where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%"),
+            where: ilike(c.first_name, ^"%#{search}%") or ilike(c.last_name, ^"%#{search}%") or
+                   ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^"%#{search}%"),
             select: c.customer_id)
         where(query, [a], a.last_four == ^search or a.customer_id in ^cust_ids)
       else
@@ -195,9 +240,9 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       else
         []
       end
-      fees = Repo.all(from e in LedgerEntry,
-        where: e.account_id == ^account_id and e.transaction_code == "FEE",
-        order_by: [desc: e.posting_date], limit: 30)
+      # GL Phase C2 — the waiver list comes from FeeWaiver itself, so the
+      # entries offered are exactly the ones `waive/1` can find.
+      fees = FeeWaiver.list_fee_entries(account_id)
       adjs = FinancialAdjustment.list_for(account_id)
       tlim  = TempLimit.active_for(account_id)
       stmts = Repo.all(from b in BalanceBucket,
@@ -209,6 +254,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       # CTA-P3: plastic generation list + event timeline for the Cards tab
       cta_cards = Cards.by_account(account_id)
       card_evts = AuditLog.for_subjects(Enum.map(cta_cards, & &1.card_id), action_prefix: "card_")
+      nts_tokens = Tokens.list_for_cards(Enum.map(cta_cards, & &1.card_id))
 
       assign(socket,
         account:           acc,
@@ -224,7 +270,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         statements:        stmts,
         emi_schedules:     emis,
         cards:             cta_cards,
-        card_events:       card_evts
+        card_events:       card_evts,
+        nts_tokens:        nts_tokens
       )
     else
       assign(socket, result: {:error, "Account not found."})
@@ -233,9 +280,26 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   # ── Events: List ─────────────────────────────────────────────────────────────
 
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @acc_search assign from the last
+  # render. Both the Credit account list search and the "All Products"
+  # tab's search never actually worked as a result.
   @impl true
-  def handle_event("acc_search", %{"q" => q}, socket) do
-    {:noreply, socket |> assign(acc_search: q) |> load_accounts()}
+  def handle_event("acc_search", %{"value" => q}, socket) do
+    socket = assign(socket, acc_search: q)
+    socket = if socket.assigns.list_scope == "all", do: load_all_accounts(socket), else: load_accounts(socket)
+    {:noreply, socket}
+  end
+
+  def handle_event("acc_scope", %{"scope" => scope}, socket) do
+    socket = assign(socket, list_scope: scope)
+    socket = if scope == "all", do: load_all_accounts(socket), else: load_accounts(socket)
+    {:noreply, socket}
+  end
+
+  def handle_event("all_product_filter", %{"product_type" => pt}, socket) do
+    {:noreply, socket |> assign(all_product_filter: pt) |> load_all_accounts()}
   end
 
   def handle_event("acc_filter", params, socket) do
@@ -307,6 +371,61 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
                        selected_card_id: card_id, result: nil)}
   end
 
+  # Way4 parity plan Phase 1 item 1 (2026-07-25) — issue a brand-new card
+  # (PRIMARY/SUPPLEMENTARY/VIRTUAL), the first admin-UI consumer of
+  # CardLifecycle.issue_new/2 / issue_virtual_with_credentials/2.
+  def handle_event("card_issue_open", _params, socket) do
+    {:noreply, assign(socket, active_action: :card_issue, result: nil, revealed: nil)}
+  end
+
+  def handle_event("card_issue_save", params, socket) do
+    account = socket.assigns.account
+    card_type = params["card_type"] || "PRIMARY"
+    opts = [emboss_name: blank_to_nil(params["emboss_name"]), activate: params["activate"] == "true"]
+
+    result =
+      if card_type == "VIRTUAL" do
+        CardLifecycle.issue_virtual_with_credentials(account, opts)
+      else
+        CardLifecycle.issue_new(account, Keyword.put(opts, :card_type, card_type))
+      end
+
+    case result do
+      {:ok, card} ->
+        message =
+          if card_type == "VIRTUAL" do
+            "Virtual card gen #{card.generation} issued and activated — use " <>
+              "\"Reveal\" once to show the cardholder their PAN/CVV (one-time only)."
+          else
+            "#{card_type} card gen #{card.generation} issued."
+          end
+
+        {:noreply, socket |> load_detail(account.account_id)
+                   |> assign(active_action: :none, result: {:ok, message})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, result: {:error, "Issuance failed — #{inspect(reason)}"})}
+    end
+  end
+
+  # Exactly-once reveal (CTA.CredentialVault) — a second click for the same
+  # card_id, or one after the vault's TTL, correctly returns :not_found;
+  # never logged, never re-shown after this render cycle moves on.
+  def handle_event("card_reveal", %{"id" => card_id}, socket) do
+    case CredentialVault.reveal(card_id) do
+      {:ok, credentials} ->
+        {:noreply, assign(socket, revealed: Map.put(credentials, :card_id, card_id), result: nil)}
+
+      {:error, :not_found} ->
+        {:noreply, assign(socket, revealed: nil,
+                     result: {:error, "Nothing to reveal — already revealed, expired, or not a virtual-card issuance."})}
+    end
+  end
+
+  def handle_event("card_reveal_dismiss", _params, socket) do
+    {:noreply, assign(socket, revealed: nil)}
+  end
+
   def handle_event("card_activate_save", params, socket) do
     card_id = socket.assigns.selected_card_id
 
@@ -350,6 +469,20 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
       {:error, reason} ->
         {:noreply, assign(socket, result: {:error, "Unblock failed — #{inspect(reason)}"})}
+    end
+  end
+
+  # NTS Phase E — admin console manual "remove device" action.
+  def handle_event("nts_token_remove", %{"id" => token_id}, socket) do
+    operator = Map.get(socket.assigns, :current_operator)
+
+    case TokenLifecycle.delete_token(token_id, operator: operator) do
+      :ok ->
+        {:noreply, socket |> load_detail(socket.assigns.account.account_id)
+                   |> assign(result: {:ok, "Wallet token removed."})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, result: {:error, "Remove failed — #{inspect(reason)}"})}
     end
   end
 
@@ -500,13 +633,25 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   # ── Events: Wizard ───────────────────────────────────────────────────────────
 
-  def handle_event("cust_search_wizard", %{"q" => q}, socket) do
+  # Real bug found live (2026-07-28, testing Debit's copy of this same
+  # pattern): phx-keyup always sends the input's live-typed text under
+  # "value" automatically — the old phx-value-q binding just re-sent
+  # last render's @customer_search (stale, always one keystroke behind,
+  # empty on the very first character), and this handler read that
+  # stale key instead of the live one. This wizard's customer search
+  # never actually worked as a result.
+  def handle_event("cust_search_wizard", %{"value" => q}, socket) do
     results =
       if String.length(q || "") >= 2 do
         term    = "%#{q}%"
         bank_id = socket.assigns.form_data["bank_id"] || ""
+        # Real bug found live (2026-07-28, during Debit wizard testing —
+        # same pattern copied from here): matching first_name/last_name
+        # separately means a combined "First Last" search never matches
+        # either field alone — also matches on the concatenated full name.
         base    = from c in Customer,
           where: (ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                  ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
                   ilike(c.email, ^term) or ilike(c.mobile_number, ^term)),
           limit: 10
         base    = if bank_id != "", do: where(base, [c], c.bank_id == ^bank_id), else: base
@@ -602,6 +747,14 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         |> BalanceBucket.changeset(%{account_id: new_acc.account_id, balance_date: Date.utc_today()})
         |> Repo.insert()
 
+        # Koṣa domain-model alignment (2026-07-28) — records the real
+        # cross-product index, same convention as the other three
+        # product-opening flows.
+        Arrangements.record(%{
+          customer_id: new_acc.customer_id, product_type: "CREDIT",
+          account_ref: new_acc.account_id, opened_at: new_acc.open_date || Date.utc_today()
+        })
+
         socket =
           socket
           |> load_detail(new_acc.account_id)
@@ -618,7 +771,11 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   # ── Events: Phase 4B Financial Operations ────────────────────────────────────
 
   # Supplementary card account search
-  def handle_event("supp_search", %{"q" => q}, socket) do
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @supp_search assign. This search
+  # never actually worked as a result.
+  def handle_event("supp_search", %{"value" => q}, socket) do
     acc = socket.assigns.account
     results =
       if String.length(q || "") >= 2 do
@@ -628,7 +785,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           where: a.bank_id == ^acc.bank_id and
                  a.account_id != ^acc.account_id and
                  (a.last_four == ^q or
-                  ilike(c.first_name, ^term) or ilike(c.last_name, ^term)),
+                  ilike(c.first_name, ^term) or ilike(c.last_name, ^term) or
+                  ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term)),
           preload: [],
           limit: 8,
           select: %{account_id: a.account_id, last_four: a.last_four, emboss_name: a.emboss_name,
@@ -735,8 +893,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     # (waivers are bounded by the fee entry itself, not free-form input)
     result =
       with {:ok, checker} <- resolve_checker(socket, params["supervisor_id"], nil) do
-        FeeWaiver.waive_by_entry_id(
-          entry_id:      params["entry_id"],
+        FeeWaiver.waive(
+          original_idempotency_key: params["original_idempotency_key"],
           account_id:    acc.account_id,
           reason:        params["reason"] || "",
           operator_id:   maker_id(socket),
@@ -1013,6 +1171,10 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     Enum.find(assigns.cards, &(&1.card_id == assigns.selected_card_id))
   end
 
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(v), do: v
+
   # Tri-state select: current field value (true/false/nil) vs. the option's
   # string form value ("true"/"false"/"").
   defp tri_selected(true,  "true"),  do: true
@@ -1106,19 +1268,28 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   def render(assigns) do
     ~H"""
     <div>
-      <.page_header
-        title="Accounts (CMS)"
-        subtitle="Credit Management System — account base segments, balances and card operations"
-      >
-        <:actions>
-          <%= if @mode == :list do %>
-            <button phx-click="acc_new" phx-target={@myself} class="btn btn-primary">+ Open Account</button>
-          <% end %>
-          <%= if @mode in [:detail, :form] do %>
-            <button phx-click="acc_back" phx-target={@myself} class="btn btn-secondary">← Back to List</button>
-          <% end %>
-        </:actions>
-      </.page_header>
+      <%!-- Koṣa domain-model alignment (2026-07-28) — when embedded inline
+           inside another page (e.g. Customer's Arrangements sub-tabs via
+           CustomerComponent), this component's own page title/"Back to
+           List" chrome is redundant and confusing (there is no meaningful
+           "list" to go back to from that context). Matches the header-less
+           embeddable-component convention Avenza's own Party 360 view
+           already established (docs/party-product-tab-taxonomy.md). --%>
+      <%= if not @embedded do %>
+        <.page_header
+          title="Accounts (CMS)"
+          subtitle="Credit Management System — account base segments, balances and card operations"
+        >
+          <:actions>
+            <%= if @mode == :list do %>
+              <button phx-click="acc_new" phx-target={@myself} class="btn btn-primary">+ Open Account</button>
+            <% end %>
+            <%= if @mode in [:detail, :form] do %>
+              <button phx-click="acc_back" phx-target={@myself} class="btn btn-secondary">← Back to List</button>
+            <% end %>
+          </:actions>
+        </.page_header>
+      <% end %>
 
       <%= if @result do %>
         <% {kind, msg} = @result %>
@@ -1152,6 +1323,24 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
     ~H"""
     <div>
+      <div class="card-header" style="display:flex;gap:8px;margin-bottom:16px;padding:0;border:none;">
+        <button
+          class={"btn btn-sm #{if @list_scope == "credit", do: "btn-primary", else: "btn-secondary"}"}
+          phx-click="acc_scope" phx-value-scope="credit" phx-target={@myself}
+        >
+          Credit Accounts
+        </button>
+        <button
+          class={"btn btn-sm #{if @list_scope == "all", do: "btn-primary", else: "btn-secondary"}"}
+          phx-click="acc_scope" phx-value-scope="all" phx-target={@myself}
+        >
+          All Products (Arrangements)
+        </button>
+      </div>
+
+      <%= if @list_scope == "all" do %>
+        <%= render_all_products_list(assigns) %>
+      <% else %>
       <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
         <div class="stat-card">
           <div class="stat-label">Total Accounts</div>
@@ -1181,7 +1370,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
             value={@acc_search}
             phx-keyup="acc_search" phx-key="Enter"
             phx-debounce="300"
-            phx-value-q={@acc_search}
             phx-target={@myself}
           />
           <select class="input" style="width:150px;"
@@ -1280,9 +1468,103 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           </table>
         </div>
       </div>
+      <% end %>
     </div>
     """
   end
+
+  # Koṣa domain-model alignment (2026-07-28) — read-only cross-product
+  # rollup: one row per Arrangement (Credit/Debit/Prepaid/Corporate),
+  # linking out to whichever admin page actually owns that account for
+  # detail/actions. This tab never duplicates product logic — it's a
+  # navigation aid, not a second account-management surface.
+  defp render_all_products_list(assigns) do
+    ~H"""
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <input
+          type="text"
+          class="input"
+          style="flex:1;min-width:220px;"
+          placeholder="Search by customer name…"
+          value={@acc_search}
+          phx-keyup="acc_search" phx-key="Enter"
+          phx-debounce="300"
+          phx-target={@myself}
+        />
+        <select class="input" style="width:220px;"
+          phx-change="all_product_filter" phx-target={@myself} name="product_type">
+          <option value="">All Product Types</option>
+          <option value="CREDIT">Credit</option>
+          <option value="DEBIT">Debit</option>
+          <option value="PREPAID">Prepaid</option>
+          <option value="CORPORATE_FACILITY">Corporate — Facility</option>
+          <option value="CORPORATE_EMPLOYEE">Corporate — Employee</option>
+          <option value="CORPORATE_FLEET">Corporate — Fleet</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Product</th>
+              <th>Status</th>
+              <th>Summary</th>
+              <th>Opened</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= if @all_accounts == [] do %>
+              <tr><td colspan="6" class="empty-row">No arrangements found.</td></tr>
+            <% end %>
+            <%= for row <- @all_accounts do %>
+              <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
+              <tr>
+                <td>
+                  <%= if row.customer do %>
+                    <div class="fw-600"><%= row.customer.first_name %> <%= row.customer.last_name %></div>
+                    <div style="font-size:11px;color:var(--text-secondary)"><%= row.customer.email %></div>
+                  <% else %>
+                    <span class="text-muted">—</span>
+                  <% end %>
+                </td>
+                <td><span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span></td>
+                <td>
+                  <%= if row.status do %>
+                    <span class={"badge #{status_cls(row.status)}"}><%= row.status %></span>
+                  <% else %>
+                    <span class="text-muted">—</span>
+                  <% end %>
+                </td>
+                <td style="font-size:12px;"><%= row.summary || "—" %></td>
+                <td style="font-size:12px;"><%= date_s(row.arrangement.opened_at) %></td>
+                <td>
+                  <a class="btn btn-sm btn-secondary" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  defp arrangement_target("CREDIT"), do: {"account", "Accounts (CMS)"}
+  defp arrangement_target("DEBIT"), do: {"debit", "Debit Cards"}
+  defp arrangement_target("PREPAID"), do: {"prepaid", "Prepaid Cards"}
+  defp arrangement_target("CORPORATE_FACILITY"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_EMPLOYEE"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target("CORPORATE_FLEET"), do: {"hcs", "Corporate Cards (HCS)"}
+  defp arrangement_target(_), do: {"account", "Accounts (CMS)"}
+
+  defp arrangement_badge_cls("CREDIT"), do: "badge-blue"
+  defp arrangement_badge_cls("DEBIT"), do: "badge-green"
+  defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
+  defp arrangement_badge_cls(_), do: "badge-gray"
 
   # ── Detail view ──────────────────────────────────────────────────────────────
 
@@ -1391,8 +1673,17 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         </div>
       </div>
 
-      <%!-- Action panels --%>
-      <%= if @active_action != :none do %>
+      <%!-- Account-level action panels only — card-level actions
+           (:card_issue/:card_activate/:card_block/etc.) render inside
+           tab_cards/1's own gated block instead, contextually within the
+           Cards tab. Found live 2026-07-25 (Way4 parity plan Phase 1 item
+           1's first-ever test for this file): this condition previously
+           fired for ANY non-:none action, so every card_* action was
+           silently rendering its panel TWICE — once here, once in
+           tab_cards — with no test coverage to ever catch it. --%>
+      <%= if @active_action != :none and @active_action not in
+              [:card_issue, :card_activate, :card_block, :card_unblock,
+               :card_replace, :card_renew, :card_channels] do %>
         <%= render_action_panel(assigns) %>
       <% end %>
 
@@ -1761,11 +2052,11 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           <%= if @fee_entries == [] do %>
             <div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No FEE ledger entries found for this account.</div>
           <% else %>
-            <select class="input" name="action[entry_id]" required>
+            <select class="input" name="action[original_idempotency_key]" required>
               <option value="">— Select a fee entry —</option>
               <%= for e <- @fee_entries do %>
-                <option value={e.entry_id}>
-                  <%= date_s(e.posting_date) %> · <%= money(e.dr_amount) %> · <%= e.narrative || e.idempotency_key %>
+                <option value={e.idempotency_key}>
+                  <%= date_s(e.posting_date) %> · <%= money(e.amount) %> · <%= e.narrative || e.idempotency_key %>
                 </option>
               <% end %>
             </select>
@@ -1851,6 +2142,49 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     """
   end
 
+  # Way4 parity plan Phase 1 item 1 (2026-07-25).
+  defp render_action_panel(%{active_action: :card_issue} = assigns) do
+    ~H"""
+    <div class="action-panel" style="margin-bottom:16px;">
+      <div class="action-panel-title">
+        <span>💳 Issue New Card</span>
+        <button class="btn btn-sm btn-ghost" phx-click="action_close" phx-target={@myself}>✕ Close</button>
+      </div>
+      <form phx-submit="card_issue_save" phx-target={@myself}>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Card type</label>
+            <select class="input" name="card_type">
+              <option value="PRIMARY">Primary</option>
+              <option value="SUPPLEMENTARY">Supplementary</option>
+              <option value="VIRTUAL">Virtual</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Emboss name (optional — defaults to account holder)</label>
+            <input type="text" class="input" name="emboss_name" maxlength="26"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" name="activate" value="true"/> Activate immediately
+          </label>
+        </div>
+        <div class="form-hint">
+          A brand-new generation-1 card with a freshly generated PAN.
+          Virtual cards always activate immediately and generate a real
+          CVV — reveal the PAN/CVV exactly once afterward via the
+          "Reveal" button on that card's row.
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="submit" class="btn btn-primary">Issue Card</button>
+          <button type="button" class="btn btn-ghost" phx-click="action_close" phx-target={@myself}>Cancel</button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
   defp render_action_panel(%{active_action: :link_supp} = assigns) do
     ~H"""
     <div class="action-panel" style="margin-bottom:16px;">
@@ -1866,7 +2200,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           placeholder="Search by last 4 digits or cardholder name…"
           value={@supp_search}
           phx-keyup="supp_search" phx-debounce="300"
-          phx-value-q={@supp_search} phx-target={@myself}/>
+          phx-target={@myself}/>
       </div>
       <%= if @supp_search_results != [] do %>
         <div class="table-wrap" style="margin-bottom:12px;">
@@ -2246,15 +2580,15 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
               <tr>
                 <td><%= date_s(e.posting_date) %></td>
                 <td>
-                  <%= if Decimal.compare(e.dr_amount, Decimal.new(0)) == :gt and e.gl_account_dr == "1001" do %>
+                  <%= if e.direction == "DEBIT" do %>
                     <span class="badge badge-red">DEBIT</span>
                   <% else %>
                     <span class="badge badge-green">CREDIT</span>
                   <% end %>
                 </td>
-                <td class="mono"><%= money(e.dr_amount) %></td>
+                <td class="mono"><%= money(e.amount) %></td>
                 <td style="font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;"><%= e.narrative %></td>
-                <td style="font-size:11px;color:var(--text-secondary);"><%= e.source_ref %></td>
+                <td style="font-size:11px;color:var(--text-secondary);"><%= e.reference %></td>
               </tr>
             <% end %>
           </tbody>
@@ -2267,11 +2601,24 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   defp tab_cards(assigns) do
     ~H"""
     <div>
-      <div class="form-pane-section-title">
-        Cards (<%= length(@cards) %> generation<%= if length(@cards) != 1, do: "s" %>)
+      <div class="form-pane-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Cards (<%= length(@cards) %> generation<%= if length(@cards) != 1, do: "s" %>)</span>
+        <button class="btn btn-sm btn-primary" phx-click="card_issue_open" phx-target={@myself}>+ Issue New Card</button>
       </div>
 
-      <%= if @active_action in [:card_activate, :card_block, :card_unblock, :card_replace, :card_renew, :card_channels] do %>
+      <%= if @revealed do %>
+        <div style="margin-bottom:16px;background:#fef3c7;border:1px solid #fcd34d;padding:12px 16px;border-radius:8px;font-size:13px;">
+          <div style="font-weight:600;margin-bottom:6px;">🔓 One-Time Reveal — will not be shown again</div>
+          <div style="display:flex;gap:24px;font-family:monospace;font-size:14px;">
+            <span>PAN: <strong><%= @revealed.pan %></strong></span>
+            <span>CVV: <strong><%= @revealed.cvv %></strong></span>
+            <span>Expiry: <strong><%= @revealed.expiry %></strong></span>
+          </div>
+          <button class="btn btn-xs btn-ghost" style="margin-top:8px;" phx-click="card_reveal_dismiss" phx-target={@myself}>Dismiss</button>
+        </div>
+      <% end %>
+
+      <%= if @active_action in [:card_issue, :card_activate, :card_block, :card_unblock, :card_replace, :card_renew, :card_channels] do %>
         <%= render_action_panel(assigns) %>
       <% end %>
 
@@ -2328,6 +2675,10 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
                         <button class="btn btn-xs" phx-click="card_action_open"
                           phx-value-a="card_renew" phx-value-id={c.card_id} phx-target={@myself}>Renew</button>
                       <% end %>
+                      <%= if c.card_type == "VIRTUAL" and c.status == "ACTIVE" do %>
+                        <button class="btn btn-xs btn-success" phx-click="card_reveal"
+                          phx-value-id={c.card_id} phx-target={@myself}>Reveal</button>
+                      <% end %>
                     </div>
                   </td>
                 </tr>
@@ -2336,6 +2687,8 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           </table>
         </div>
       <% end %>
+
+      <.nts_tokens_panel tokens={@nts_tokens} myself={@myself} />
 
       <div class="form-pane-section-title" style="margin-top:20px;">
         Supplementary Cards (<%= length(@supp_cards) %>)
@@ -2690,7 +3043,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
             value={@customer_search}
             phx-keyup="cust_search_wizard"
             phx-debounce="300"
-            phx-value-q={@customer_search}
             phx-target={@myself}
             style="width:100%;max-width:480px;"
           />

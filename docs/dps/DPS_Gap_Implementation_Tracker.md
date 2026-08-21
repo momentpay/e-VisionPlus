@@ -10,18 +10,92 @@ linkage — built and smoke-tested during TRAM-P5, per `DPS_Module_Requirements.
 That history stays in the requirements doc's existing gap-analysis table. This tracker
 covers new phases going forward, starting with configuration.
 
-> ### ⏭️ NEXT UP — DPS-P5 (not started): Ops UI
-> DPS-P1 through P4 (below) are all backend/config work, deliberately verified via
-> scripts, **not through a browser** — there is still no DPS admin screen at all.
-> Roadmap 6.9–6.12 / `DPS_Module_Requirements.md` §5 "Ops UI" row. When this is
-> picked up, it should surface everything DPS-P1–P4 already built:
-> case list + detail view, deadline monitor, evidence upload/list panel
-> (`VmuCore.DPS.Evidence`), case-notes/assignment panel (`VmuCore.DPS.CaseNotes`),
-> and a reason-code admin screen (`VmuCore.DPS.ReasonCode`) — all of it exists and
-> is tested at the code layer with zero UI today. This was explicitly deferred
-> (not forgotten) during DPS-P3 planning to keep that phase scoped to
-> "scaffolding" — see DPS-P3's "Context" section above for the original scope
-> decision.
+---
+
+## DPS-P5 — Ops UI ✅ (2026-07-23)
+
+Builds the screen DPS-P1–P4 never had: case list + detail, a deadline
+monitor, an evidence upload/list panel, a case-notes/assignment panel, and
+reason-code reference-data admin. This was also this repo's **first-ever
+LiveView test** (`test/vmu_core_web/live/admin/dps_component_test.exs`) and
+surfaced a cluster of real, pre-existing bugs nothing had ever exercised
+through a browser or a real FK-constrained insert before.
+
+| # | Task | File(s) | Status |
+|---|---|---|---|
+| P5.1 | `VmuCoreWeb.Live.Admin.DpsComponent` — list (open/closed/per-status filters, pagination), detail (case summary, status transition, deadline monitor with overdue/due-soon/ok badges, assignment, case notes, evidence panel), reason-code CRUD, "File a New Dispute" form | `lib/vmu_core_web/live/admin/dps_component.ex` | ✅ |
+| P5.2 | Real file upload (`allow_upload`/`live_file_input`) + a plain controller download route (`VmuCoreWeb.DpsEvidenceController`) gated by the same `dps`/`view` permission — a genuine round-trip through `VmuCore.DPS.Evidence`'s existing `attach/3`/`fetch_data/1`/`delete/2`, not a stub | `lib/vmu_core_web/controllers/dps_evidence_controller.ex`, `router.ex` | ✅ |
+| P5.3 | Registered `"dps"` as a real admin module: `RolePermission.@modules`, a default-matrix grant per role (SUPERVISOR/RISK full; OPS/CS_AGENT view+create, no edit/approve; COMPLIANCE view-only), sidebar + routing in `AdminLive` | `lib/vmu_core/asm/role_permission.ex`, `lib/vmu_core_web/live/admin/admin_live.ex` | ✅ |
+
+**6 real bugs found and fixed while building this** (all pre-existing —
+DPS-P1–P4's own backend was never exercised through a real browser session,
+a real file FK, or a real `Oban testing: :inline` test run before today):
+
+1. **`Dispute.file/1`/`transition/2` returned stale structs.** Both hand-patched
+   only specific fields (`status`, `network_ref`) onto the struct fetched
+   *before* their own `Repo.update_all` writes — `provisional_credit_posted`
+   (set by `post_provisional_credit/1`) and `closed_at` (set by `transition/2`
+   itself) were correct in the database but never reflected in what the
+   function returned to its caller. Fixed by re-fetching after all writes
+   complete, rather than hand-patching. Confirmed via the pre-existing
+   `DisputeLifecycleTest`, which had been asserting on these exact stale
+   fields (see #4 below — that suite had never actually run to completion).
+2. **`put_provisional_credit_deadline/1`/`maybe_file_with_network/3` crashed
+   on any non-UUID `account_id`** (`Ecto.Query.CastError`) instead of
+   falling through to their existing "account not found" handling — `:binary_id`
+   casts leniently at the changeset level but not at query-dump time. Guarded
+   with a `valid_uuid?/1` check before every `Repo.get`.
+3. **`DeadlineJob.perform/1` never verified its own deadline had arrived** —
+   it treated "the job ran" as proof "the deadline passed," which holds in
+   production only because Oban's `scheduled_at` naturally delays real
+   execution. Under this project's own `Oban testing: :inline` config, a
+   freshly-filed dispute cascaded straight through CHARGEBACK_FILED to
+   CLOSED_WIN in the same call. Same risk exists in production for any early
+   retry. Fixed: re-verifies `Date.compare(Date.utc_today(), deadline)`
+   before acting; skips (logged) instead of acting early.
+4. **`test/vmu_core/dps/dispute_lifecycle_test.exs` — pre-existing, was never
+   passing.** Used a plain fake string as `account_id`, but `dps_disputes.
+   account_id` has a real FK to `cms_accounts`; every test in the file
+   raised `Ecto.ChangeError` at insert. Not something this session broke —
+   confirmed via `git log` this file has no history of ever inserting
+   successfully. Fixed with a real `CMS.Account`/`Shared.Customer` fixture
+   (same pattern now shared with `DpsComponentTest`).
+5. **The test DB (`vmu_core_test`) carries no seeded SYS/BANK/LOGO/BLOCK
+   rows at all** — `priv/repo/seeds.exs` only ever populates the dev DB.
+   Both DPS test files now build their own minimal parameter hierarchy
+   fixture inside the sandboxed transaction rather than depending on an
+   external seed step.
+6. **The Endpoint had no `secret_key_base` configured for `:test`** — only
+   `dev.exs` set one. Every session/cookie-dependent test (i.e. any test of
+   the authenticated admin console) failed identically with "cookie store
+   expects conn.secret_key_base to be set," regardless of what the test did.
+   This is very likely *why* no LiveView test existed anywhere in this repo
+   before today. Added a distinct test-only value to `config/test.exs`.
+
+Also added `{:lazy_html, ">= 0.1.0", only: :test}` — `phoenix_live_view`
+1.1's test helpers require it directly; the pre-existing `floki` transitive
+dependency wasn't sufficient on its own.
+
+**Verification (2026-07-23) — 11/11 tests passing** (`dps_component_test.exs`
++ the now-fixed `dispute_lifecycle_test.exs`), real Postgres via Sandbox, no
+mocking: filed a dispute through the live form and confirmed the real row;
+deadline badges render overdue/ok correctly; assign/note/transition all
+persist and are reflected on reload; a real file upload → real `DbStore`
+row → real HTTP download round-trip (byte-identical) → real delete; reason-code
+create; CS_AGENT role gating (sees "+ File Dispute," does not see
+edit-only controls — this caught a real gap where the transition form
+wasn't `:if`-gated in the template at all, only in the event handler).
+Confirmed via isolation runs that 10 pre-existing failures in unrelated
+files (`COL.WriteOffRecoveryTest`, `CMS.InterestIntegrationTest`,
+`FAS.AuthorizationIntegrationTest`) and a pre-existing compile error in
+`test/vmu_core/lms/points_lifecycle_test.exs` are untouched by this work —
+same class of "verification was always done via live scripts, not `mix
+test`" gap found repeatedly elsewhere this session, flagged but out of
+scope here.
+
+**Not built in this phase:** real S3/Azure evidence backends and real
+VROL/Mastercom network integration remain stubs (DPS-P3's own scope,
+unchanged); no i18n; no bulk/export actions on the case list.
 
 ---
 

@@ -151,6 +151,62 @@ defmodule VmuCoreWeb.AdminUI do
     """
   end
 
+  # ── Provisioned wallet tokens (NTS Phase E, 2026-08-01) ─────────────────────
+  # Shared across Credit/Debit/Prepaid admin components (any product's cards
+  # can carry a provisioned token) — one table markup, not three copies.
+
+  attr :tokens, :list, required: true
+  attr :myself, :any, required: true
+
+  def nts_tokens_panel(assigns) do
+    ~H"""
+    <div class="form-pane-section-title" style="margin-top:20px;">
+      Wallet Tokens (<%= length(@tokens) %>)
+    </div>
+    <%= if @tokens == [] do %>
+      <div class="empty-row" style="padding:20px;text-align:center;">No wallet tokens provisioned.</div>
+    <% else %>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Wallet</th><th>Device</th><th>Card</th><th>DPAN</th><th>Status</th><th>Provisioned</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            <%= for t <- @tokens do %>
+              <tr>
+                <td><%= t.wallet %></td>
+                <td><%= t.device_name || t.device_id || "—" %></td>
+                <td class="mono">**** <%= t.last_four || "----" %></td>
+                <td class="mono"><%= if t.dpan, do: "…#{String.slice(t.dpan, -4, 4)}", else: "—" %></td>
+                <td><span class={"badge #{nts_token_status_cls(t.status)}"}><%= t.status %></span></td>
+                <td><%= if t.provisioned_at, do: Calendar.strftime(t.provisioned_at, "%Y-%m-%d"), else: "—" %></td>
+                <td>
+                  <%= if t.status in ["PENDING", "PUSHED", "ACTIVE", "SUSPENDED"] do %>
+                    <button class="btn btn-xs btn-danger" phx-click="nts_token_remove"
+                      phx-value-id={t.token_id} phx-target={@myself}
+                      data-confirm="Remove this device's wallet token? The cardholder will need to re-add the card to their wallet.">Remove</button>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+    """
+  end
+
+  defp nts_token_status_cls(status) do
+    case status do
+      "ACTIVE"              -> "badge-green"
+      "SUSPENDED"           -> "badge-yellow"
+      "PENDING"              -> "badge-yellow"
+      "PUSHED"              -> "badge-yellow"
+      "DELETED"             -> "badge-red"
+      _                     -> "badge-gray"
+    end
+  end
+
   # ── Step navigation bar ───────────────────────────────────────────────────
 
   attr :steps,        :list,    required: true

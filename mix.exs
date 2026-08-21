@@ -18,7 +18,7 @@ defmodule VmuCore.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :eldap],
       mod: {VmuCore.Application, []}
     ]
   end
@@ -41,6 +41,10 @@ defmodule VmuCore.MixProject do
       {:bandit, "~> 1.5", override: true},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      # phoenix_live_view 1.1's test helpers (Phoenix.LiveViewTest) require this
+      # directly — found live, 2026-07-23, building this repo's first LiveView
+      # test (DPS-P5); floki (already a transitive dep) isn't enough on its own.
+      {:lazy_html, ">= 0.1.0", only: :test},
 
       # --- Distributed Process Registry ---
       {:horde, "~> 0.9"},
@@ -51,6 +55,20 @@ defmodule VmuCore.MixProject do
 
       # --- High-throughput clearing pipeline (G7) ---
       {:broadway, "~> 1.1"},
+
+      # --- Outbound notification gateway calls (CMS FR-070) ---
+      # Already resolved transitively (a path dep pulls it in) — declared
+      # explicitly here so vmu_core's own code can compile against it.
+      # Test-time HTTP faking uses Req.Test (built into req itself) rather
+      # than a real listener — Bypass's ranch ~> 1.3 requirement conflicts
+      # with muNSwitch/wallet-app's ranch ~> 2.1.
+      {:req, "~> 0.5"},
+
+      # --- SSO/OIDC ID-token verification (ASM item 6) ---
+      # Already resolved transitively; declared explicitly for the same
+      # reason as req above. LDAP/AD auth uses Erlang/OTP's built-in
+      # :eldap — no dependency needed.
+      {:jose, "~> 1.11"},
 
       # --- Standalone Switch ---
       # Protocol/types engine (packagers, MTIConverter, FAS.Authorizer behaviour) plus the

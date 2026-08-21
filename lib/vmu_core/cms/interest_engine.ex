@@ -175,6 +175,57 @@ defmodule VmuCore.CMS.InterestEngine do
       ...> )
       #Decimal<95.00>  # 50 + 25 + 0 + max(20, 25) = 100
   """
+  @doc """
+  Minimum payment under the **PERCENTAGE_OF_BALANCE** model:
+  `max(statement_balance × pct, floor)`.
+
+  This is the model `logo_parameters.min_payment_calculation` selects for every
+  product currently configured, with `min_payment_pct` and `min_payment_floor`
+  supplying the two inputs. `minimum_payment/5` below implements a different,
+  component-based model (interest + fees + past due + 1% of principal) and is
+  kept for products configured that way.
+
+  ## Units
+
+  `pct` is a **percentage**, not a fraction — `5.0` means 5%, matching how
+  `min_payment_pct` is stored in the parameter cascade and displayed in the
+  admin UI. Passing `0.05` would compute a minimum payment of 0.05% of the
+  balance, so a value below 1 raises rather than silently under-billing the
+  cardholder.
+
+      iex> InterestEngine.minimum_payment_pct_of_balance(
+      ...>   Decimal.new("1000.00"), Decimal.new("5.0"), Decimal.new("25.00"))
+      #Decimal<50.00>
+
+      iex> InterestEngine.minimum_payment_pct_of_balance(
+      ...>   Decimal.new("100.00"), Decimal.new("5.0"), Decimal.new("25.00"))
+      #Decimal<25.00>
+  """
+  @spec minimum_payment_pct_of_balance(Decimal.t(), Decimal.t(), Decimal.t()) :: Decimal.t()
+  def minimum_payment_pct_of_balance(statement_balance, pct, floor_amount) do
+    if D.compare(pct, D.new(1)) == :lt and D.compare(pct, D.new(0)) == :gt do
+      raise ArgumentError,
+            "min_payment_pct must be a percentage (5.0 = 5%), got #{D.to_string(pct)}. " <>
+              "A fraction here would under-bill by a factor of 100."
+    end
+
+    computed =
+      statement_balance
+      |> D.mult(pct)
+      |> D.div(D.new(100))
+      |> D.round(2, :ceiling)
+
+    # Never bill more than the balance — a floor above a small balance would
+    # otherwise demand more than the cardholder owes.
+    capped = if D.compare(computed, statement_balance) == :gt, do: statement_balance, else: computed
+
+    cond do
+      D.compare(statement_balance, floor_amount) != :gt -> statement_balance
+      D.compare(capped, floor_amount) == :gt -> capped
+      true -> floor_amount
+    end
+  end
+
   @spec minimum_payment(
           Decimal.t(),
           Decimal.t(),

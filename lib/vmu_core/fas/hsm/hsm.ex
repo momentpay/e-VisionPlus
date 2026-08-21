@@ -45,15 +45,34 @@ defmodule VmuCore.FAS.HSM do
               :ok | {:error, :cvv_mismatch}
 
   @doc """
+  Generate a CVV / CVV2 / iCVV value — the forward counterpart to
+  `verify_cvv/4` (payShield's `CW` command; found needed 2026-07-25
+  building virtual card issuance — a newly-minted card needs a real CVV
+  computed for it, not just the ability to verify one presented at
+  authorization time). Same field meanings as `verify_cvv/4` minus the
+  value being verified.
+  """
+  @callback generate_cvv(pan :: String.t(), expiry :: String.t(), service_code :: String.t()) ::
+              {:ok, cvv :: String.t()} | {:error, term()}
+
+  @doc """
   Verify an EMV Application Request Cryptogram (ARQC) from DE55 tag 9F26.
 
-  - `pan_token`       — SHA-256 hex of PAN (for key derivation lookup)
+  - `pan`             — full PAN (with check digit) — real EMV key
+                        derivation (payShield's KW command) needs the
+                        actual PAN, not just its hash; `pan_token` alone
+                        is not sufficient for a real HSM (found 2026-07-24
+                        building `ProductionHSM` — `pan_token` is a
+                        one-way SHA-256, irreversible, so a real HSM call
+                        genuinely needs both)
+  - `pan_token`       — SHA-256 hex of PAN (kept for session-key-cache
+                        lookup / logging without the raw PAN)
   - `atc`             — Application Transaction Counter from tag 9F36 (2 bytes)
   - `unpredictable_no` — Terminal unpredictable number from tag 9F37 (4 bytes)
   - `txn_data`        — serialised transaction data (amount, currency, date, etc.)
   - `arqc`            — 8-byte ARQC from tag 9F26 to verify
   """
-  @callback verify_arqc(pan_token :: String.t(), atc :: binary(),
+  @callback verify_arqc(pan :: String.t(), pan_token :: String.t(), atc :: binary(),
                         unpredictable_no :: binary(), txn_data :: binary(),
                         arqc :: binary()) ::
               :ok | {:error, :arqc_mismatch} | {:error, :key_not_found}
@@ -62,19 +81,36 @@ defmodule VmuCore.FAS.HSM do
   Generate an Authorisation Response Cryptogram (ARPC) to include in DE55 of
   the 0110 response. Uses Method 1 (XOR ARQC with ARC, re-encrypt).
 
-  - `arqc` — 8-byte ARQC from the request
-  - `arc`  — 2-byte Authorization Response Code (e.g. <<0x00, 0x00>> for "00")
+  - `pan`   — full PAN, same reason as `verify_arqc/6`
+  - `atc`, `unpredictable_no` — same session-key-derivation inputs
+    `verify_arqc/6` takes; found needed here too 2026-07-24 building
+    `ProductionHSM` — real ARPC generation uses the same session key as
+    ARQC verification, derived from the same ATC/UN, not just the ARQC
+    value itself. The caller (`EmvHandler.build_arpc/4`) already has both
+    from the same parsed EMV data `verify_arqc/6` used.
+  - `arqc`  — 8-byte ARQC from the request
+  - `arc`   — 2-byte Authorization Response Code (e.g. <<0x00, 0x00>> for "00")
   - `pan_token` — for session key derivation
   """
-  @callback generate_arpc(arqc :: binary(), arc :: binary(), pan_token :: String.t()) ::
+  @callback generate_arpc(pan :: String.t(), atc :: binary(), unpredictable_no :: binary(),
+                          arqc :: binary(), arc :: binary(), pan_token :: String.t()) ::
               {:ok, binary()} | {:error, term()}
 
   @doc """
-  Verify a PIN block from DE52 against the stored PIN hash for the card.
+  Verify a PIN block from DE52 against the stored reference for the card.
 
-  `pin_block_hex` — hex-encoded ISO 9564 Format-0 PIN block (as received in DE52
-  after switch-side ZPK translation — plain PIN block XOR'd with PAN block,
-  NOT still encrypted under ZPK).
+  `pin_block_hex` — hex-encoded ISO 9564 Format-0 PIN block **still
+  encrypted under the bank's Zone PIN Key (ZPK)**, exactly as received in
+  DE52 — never decoded to plaintext by the caller or by this callback.
+  (Corrected 2026-07-24 — an earlier version of this doc, and the
+  original `SoftHSM`, described this as already decoded/XOR'd-with-PAN
+  plaintext; that is not how DE52 PIN blocks work in a real network
+  message, and decoding it in application code is exactly what a real
+  HSM/PCI-compliant PIN flow exists to avoid. `ProductionHSM` passes this
+  block, still ZPK-encrypted, straight to payShield's BE command
+  ("Verify an Interchange PIN Using the Comparison Method"), which
+  compares it against the card's stored `CardPin.reference_pin_lmk`
+  entirely inside the HSM.)
 
   Returns:
     `:ok`                   — PIN correct; try counter reset to 0
@@ -139,13 +175,17 @@ defmodule VmuCore.FAS.HSM do
   def verify_cvv(pan, expiry, service_code, cvv),
     do: adapter().verify_cvv(pan, expiry, service_code, cvv)
 
-  @doc "Delegates `verify_arqc/5` to the configured adapter."
-  def verify_arqc(pan_token, atc, un, txn_data, arqc),
-    do: adapter().verify_arqc(pan_token, atc, un, txn_data, arqc)
+  @doc "Delegates `generate_cvv/3` to the configured adapter."
+  def generate_cvv(pan, expiry, service_code),
+    do: adapter().generate_cvv(pan, expiry, service_code)
 
-  @doc "Delegates `generate_arpc/3` to the configured adapter."
-  def generate_arpc(arqc, arc, pan_token),
-    do: adapter().generate_arpc(arqc, arc, pan_token)
+  @doc "Delegates `verify_arqc/6` to the configured adapter."
+  def verify_arqc(pan, pan_token, atc, un, txn_data, arqc),
+    do: adapter().verify_arqc(pan, pan_token, atc, un, txn_data, arqc)
+
+  @doc "Delegates `generate_arpc/6` to the configured adapter."
+  def generate_arpc(pan, atc, un, arqc, arc, pan_token),
+    do: adapter().generate_arpc(pan, atc, un, arqc, arc, pan_token)
 
   @doc "Delegates `verify_pin/3` to the configured adapter."
   def verify_pin(pin_block_hex, pan, pan_token),

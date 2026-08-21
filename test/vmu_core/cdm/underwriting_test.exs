@@ -4,9 +4,14 @@ defmodule VmuCore.CDM.UnderwritingTest do
   alias VmuCore.CDM.LimitAllocator
   alias Decimal, as: D
 
-  @sys_id "SYS01"
-  @bank_id "BANK01"
-  @logo_id "LOGO01"
+  # sys/bank/logo ids are varchar(4) throughout the parameter cascade.
+  # "SYS01"/"BANK01"/"LOGO01" could never match a stored row, so these lookups
+  # always missed and the tests silently exercised LimitAllocator's fallback
+  # path rather than a configured product. Shortened 2026-08-04 so they are at
+  # least capable of resolving.
+  @sys_id "SYS1"
+  @bank_id "BNK1"
+  @logo_id "LGO1"
 
   describe "LimitAllocator.calculate/6" do
     test "PRIME tier: 2x income multiplier" do

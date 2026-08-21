@@ -43,6 +43,7 @@ defmodule VmuCore.CMS.EOD.EodSchedulerJob do
   import Ecto.Query
 
   alias VmuCore.{Repo, CMS.Account, CMS.EOD.LockAccountsJob, CMS.EOD.ReinstateLimitJob}
+  alias VmuCore.CMS.EOD.ApplyCycleResegmentationJob
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -53,7 +54,6 @@ defmodule VmuCore.CMS.EOD.EodSchedulerJob do
 
     if due_cycle_codes == [] do
       Logger.info("[EODScheduler] No active cycle_codes due on #{eod_date}")
-      :ok
     else
       Logger.info("[EODScheduler] Enqueuing LockAccountsJob for cycle_codes=#{inspect(due_cycle_codes)}")
 
@@ -68,12 +68,21 @@ defmodule VmuCore.CMS.EOD.EodSchedulerJob do
       Oban.insert_all(jobs)
 
       Logger.info("[EODScheduler] Enqueued #{length(jobs)} LockAccountsJob(s)")
-
-      # Always run daily temp-limit reinstatement regardless of cycle activity
-      Oban.insert(ReinstateLimitJob.new(%{"eod_date" => Date.to_iso8601(eod_date)}))
-
-      :ok
     end
+
+    # Both jobs below run every day regardless of whether any cycle_code is
+    # due — found live, 2026-07-24, wiring in ApplyCycleResegmentationJob:
+    # ReinstateLimitJob's own comment already said "always run daily
+    # regardless of cycle activity," but the call was nested inside the
+    # `else` branch above, so on any day with zero due cycle_codes it
+    # silently never ran at all — a real pre-existing bug, not something
+    # this change introduced. Both moved outside the if/else so they
+    # genuinely always run once per day, matching their own stated intent.
+    eod_date_str = Date.to_iso8601(eod_date)
+    Oban.insert(ReinstateLimitJob.new(%{"eod_date" => eod_date_str}))
+    Oban.insert(ApplyCycleResegmentationJob.new(%{"eod_date" => eod_date_str}))
+
+    :ok
   end
 
   # ---------------------------------------------------------------------------
@@ -104,11 +113,16 @@ defmodule VmuCore.CMS.EOD.EodSchedulerJob do
         [String.pad_leading(to_string(today_day), 2, "0")]
       end
 
-    # Only enqueue for cycle_codes that actually have ACTIVE accounts today
+    # Only enqueue for cycle_codes that actually have ACTIVE accounts today.
+    # account_type == "CREDIT" excludes HCS's EMPLOYEE_CARD/CORPORATE_PARENT
+    # sub-accounts (real bug found live 2026-07-28 — see CMS.Account's
+    # account_type field comment) — those are limit-tracking facilities,
+    # not revolving credit lines, and must never enter interest accrual.
     Repo.all(
       from a in Account,
         where: a.cycle_code in ^matching_codes
-          and a.account_status in ["ACTIVE", "DELINQUENT"],
+          and a.account_status in ["ACTIVE", "DELINQUENT"]
+          and a.account_type == "CREDIT",
         distinct: true,
         select: a.cycle_code
     )

@@ -16,6 +16,9 @@ defmodule VmuCore.FAS.ISO8583.EmvParser do
   | 9B    | Transaction Status Information   | 2       | Terminal status      |
   | 5F2A  | Transaction Currency Code        | 2       | For script commands  |
   | 9F02  | Amount Authorised                | 6       | Txn amount in DE55   |
+  | 82    | Application Interchange Profile  | 2       | CDOL1 (Phase 12)     |
+  | 9F1A  | Terminal Country Code            | 2       | CDOL1 (Phase 12)     |
+  | 9F35  | Terminal Type                    | 1       | CDOL1 (Phase 12)     |
 
   ## Usage
 
@@ -39,12 +42,15 @@ defmodule VmuCore.FAS.ISO8583.EmvParser do
     tsi:          binary() | nil,
     currency_code: binary() | nil,
     amount:       binary() | nil,
+    aip:          binary() | nil,
+    terminal_country_code: binary() | nil,
+    terminal_type: binary() | nil,
     raw_tags:     [{binary(), binary()}]
   }
 
   defstruct [
     :arqc, :unpredictable_no, :atc, :iad, :aid, :tvr, :tsi,
-    :currency_code, :amount,
+    :currency_code, :amount, :aip, :terminal_country_code, :terminal_type,
     raw_tags: []
   ]
 
@@ -157,6 +163,9 @@ defmodule VmuCore.FAS.ISO8583.EmvParser do
       tsi:              Map.get(tag_map, "9b"),
       currency_code:    Map.get(tag_map, "5f2a"),
       amount:           Map.get(tag_map, "9f02"),
+      aip:              Map.get(tag_map, "82"),
+      terminal_country_code: Map.get(tag_map, "9f1a"),
+      terminal_type:    Map.get(tag_map, "9f35"),
       raw_tags:         tags
     }
   end

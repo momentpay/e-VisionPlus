@@ -36,10 +36,10 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
 
   use WalletGl.GlAdapter
   require Logger
-  import Ecto.Query
 
   alias VmuCore.Repo
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.CMS.InternalGlPoster
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.FAS.GL.CardAccountCodes
   alias WalletGl.GlPostingRecord
 
@@ -77,13 +77,26 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
         source_ref:       to_string(record.correlation_id)
       }
 
-      case Repo.insert(LedgerEntry.changeset(%LedgerEntry{}, attrs),
-                       on_conflict: :nothing,
-                       conflict_target: :idempotency_key) do
-        {:ok, _entry}    -> {:ok, key}
-        {:error, cs}     ->
-          Logger.error("[VmuCoreGlAdapter] post_entry failed #{key}: #{inspect(cs.errors)}")
-          {:error, :posting_failed, inspect(cs.errors)}
+      # GL Phase C3 — routed through `InternalGlPoster`, which now translates to
+      # `Posting.RuleEngine`, rather than inserting into `cms_ledger_entries`
+      # directly. This was the last direct writer of that table.
+      #
+      # The attrs above are already in the legacy shape the façade expects, so
+      # this is a call-target change and nothing more.
+      case InternalGlPoster.post(attrs) do
+        {:ok, _entry} ->
+          {:ok, key}
+
+        # Previously `on_conflict: :nothing` made a replayed key look like a
+        # successful insert, so duplicates returned {:ok, key}. Preserved:
+        # posting the same journal reference twice is not an error to a caller
+        # that only wants the entry to exist.
+        {:error, :duplicate} ->
+          {:ok, key}
+
+        {:error, reason} ->
+          Logger.error("[VmuCoreGlAdapter] post_entry failed #{key}: #{inspect(reason)}")
+          {:error, :posting_failed, inspect(reason)}
       end
     else
       {:error, reason} ->
@@ -99,9 +112,8 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
 
   @impl WalletGl.GlAdapter
   def get_posting_status(transaction_id) do
-    exists = Repo.exists?(
-      from e in LedgerEntry, where: e.idempotency_key == ^transaction_id
-    )
+    # GL Phase C2 — see `GL.LedgerQuery`.
+    exists = LedgerQuery.exists?(idempotency_key: transaction_id)
     {:ok, if(exists, do: :posted, else: :pending)}
   end
 
@@ -122,27 +134,36 @@ defmodule VmuCore.FAS.GL.VmuCoreGlAdapter do
 
   @impl WalletGl.GlAdapter
   def get_reconciliation_data(from_date, to_date, account_codes) do
-    base =
-      from e in LedgerEntry,
-        where: e.posting_date >= ^from_date and e.posting_date <= ^to_date
+    # GL Phase C2 — see `GL.LedgerQuery`. `account_codes` filters on either leg,
+    # which `entries/1` cannot express with a single `:gl_account`, so the codes
+    # are applied here. The unbounded `Repo.all` became an explicit high limit:
+    # a reconciliation extract that silently truncated at 500 would report false
+    # totals, and one that loads an unbounded ledger is its own problem.
+    entries =
+      LedgerQuery.entries(
+        from: from_date,
+        to: to_date,
+        limit: 100_000
+      )
+      |> then(fn rows ->
+        if account_codes do
+          Enum.filter(rows, fn e ->
+            e.dr_gl_account in account_codes or e.cr_gl_account in account_codes
+          end)
+        else
+          rows
+        end
+      end)
 
-    query =
-      if account_codes do
-        where(base, [e], e.gl_account_dr in ^account_codes or e.gl_account_cr in ^account_codes)
-      else
-        base
-      end
-
-    entries = Repo.all(query)
-
-    # Aggregate debit and credit totals per account code
+    # Aggregate debit and credit totals per account code. Under double entry the
+    # single `amount` is both the debit and the credit.
     summary =
       Enum.reduce(entries, %{}, fn e, acc ->
         acc
-        |> Map.update(e.gl_account_dr, %{dr: e.dr_amount, cr: Decimal.new(0)},
-             fn m -> %{m | dr: Decimal.add(m.dr, e.dr_amount)} end)
-        |> Map.update(e.gl_account_cr, %{dr: Decimal.new(0), cr: e.cr_amount},
-             fn m -> %{m | cr: Decimal.add(m.cr, e.cr_amount)} end)
+        |> Map.update(e.dr_gl_account, %{dr: e.amount, cr: Decimal.new(0)},
+             fn m -> %{m | dr: Decimal.add(m.dr, e.amount)} end)
+        |> Map.update(e.cr_gl_account, %{dr: Decimal.new(0), cr: e.amount},
+             fn m -> %{m | cr: Decimal.add(m.cr, e.amount)} end)
       end)
 
     {:ok, %{from_date: from_date, to_date: to_date, account_totals: summary,

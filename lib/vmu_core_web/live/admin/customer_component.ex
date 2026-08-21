@@ -22,6 +22,8 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   alias VmuCore.Shared.{Customer, BankParameter, SysParameter}
   alias VmuCore.Shared.ModuleConfigEngine
   alias VmuCore.ASM.Authz
+  alias VmuCore.CMS.Arrangements
+  alias VmuCoreWeb.Live.Admin.{AccountComponent, DebitComponent, PrepaidComponent, HcsComponent, WalletComponent}
 
   @id_types [
     {"-- Select ID Type --", ""},
@@ -89,6 +91,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
        tier_filter:  "",
        bank_filter:  "",
        linked_accounts: [],
+       arrangements: [],
+       detail_tab: 1,
+       arr_family: :credit,
+       arr_selected_ref: nil,
        current_operator: nil,
        can_edit: false,
        can_create: false
@@ -141,6 +147,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         where(query, [c],
           ilike(c.first_name, ^term) or
           ilike(c.last_name,  ^term) or
+          ilike(fragment("? || ' ' || ?", c.first_name, c.last_name), ^term) or
           ilike(c.email,      ^term) or
           ilike(c.mobile_number, ^term) or
           ilike(c.id_number,  ^term)
@@ -158,8 +165,12 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   # ── Events ─────────────────────────────────────────────────────────────────
 
+  # Real bug found live (2026-07-28): phx-keyup always sends the input's
+  # live-typed text under "value" automatically — the old phx-value-q
+  # binding just re-sent the stale @search assign from the last render.
+  # This main customer list search never actually worked as a result.
   @impl true
-  def handle_event("cust_search", %{"q" => q}, socket) do
+  def handle_event("cust_search", %{"value" => q}, socket) do
     {:noreply, socket |> assign(search: q) |> load_customers()}
   end
 
@@ -221,7 +232,11 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     cust = Enum.find(socket.assigns.customers, &(to_string(&1.customer_id) == id))
     if cust do
       accounts = Customer.list_accounts_for(cust.customer_id)
-      {:noreply, assign(socket, mode: :detail, viewing: cust, linked_accounts: accounts, result: nil)}
+      arrangements = Arrangements.search(%{customer_id: cust.customer_id})
+      arr_family = default_arr_family(arrangements)
+      {:noreply, assign(socket, mode: :detail, detail_tab: 1, arr_family: arr_family,
+                         arr_selected_ref: first_ref_for_family(arrangements, arr_family),
+                         viewing: cust, linked_accounts: accounts, arrangements: arrangements, result: nil)}
     else
       {:noreply, socket}
     end
@@ -243,6 +258,25 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   def handle_event("cust_section", %{"s" => s}, socket) do
     {:noreply, assign(socket, cust_section: String.to_integer(s))}
+  end
+
+  def handle_event("detail_tab", %{"t" => t}, socket) do
+    {:noreply, assign(socket, detail_tab: String.to_integer(t))}
+  end
+
+  # Portfolio-in-place sub-tabs (2026-07-28) — switching product family
+  # auto-selects that family's first arrangement (if any) so a customer
+  # with exactly one card of that type shows its detail immediately,
+  # matching the reference design's single-card families.
+  def handle_event("arr_family", %{"f" => f}, socket) do
+    family = String.to_existing_atom(f)
+    first_ref = first_ref_for_family(socket.assigns.arrangements, family)
+
+    {:noreply, assign(socket, arr_family: family, arr_selected_ref: first_ref)}
+  end
+
+  def handle_event("arr_select", %{"ref" => ref}, socket) do
+    {:noreply, assign(socket, arr_selected_ref: ref)}
   end
 
   def handle_event("cust_change", %{"cust" => params}, socket) do
@@ -268,10 +302,15 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         {:ok, saved} ->
           action = if socket.assigns.editing, do: "updated", else: "created"
           accounts = Customer.list_accounts_for(saved.customer_id)
+          arrangements = Arrangements.search(%{customer_id: saved.customer_id})
+          arr_family = default_arr_family(arrangements)
           {:noreply, socket
             |> load_customers()
-            |> assign(mode: :detail, editing: nil, viewing: saved,
-                      linked_accounts: accounts, result: {:ok, "Customer #{action}."})}
+            |> assign(mode: :detail, detail_tab: 1, arr_family: arr_family,
+                      arr_selected_ref: first_ref_for_family(arrangements, arr_family),
+                      editing: nil, viewing: saved,
+                      linked_accounts: accounts, arrangements: arrangements,
+                      result: {:ok, "Customer #{action}."})}
 
         {:error, cs} ->
           msg = Enum.map_join(cs.errors, "; ", fn {f, {m, _}} -> "#{f}: #{m}" end)
@@ -311,9 +350,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       case cust |> Customer.changeset(attrs) |> Repo.update() do
         {:ok, updated} ->
           accounts = Customer.list_accounts_for(updated.customer_id)
+          arrangements = Arrangements.search(%{customer_id: updated.customer_id})
           {:noreply, socket
             |> load_customers()
-            |> assign(viewing: updated, linked_accounts: accounts,
+            |> assign(viewing: updated, linked_accounts: accounts, arrangements: arrangements,
                       result: {:ok, "KYC status updated to #{status}."})}
         {:error, _} ->
           {:noreply, assign(socket, result: {:error, "Failed to update KYC status."})}
@@ -526,7 +566,6 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
               placeholder="Search by name, email, mobile or ID number…"
               value={@search}
               phx-keyup="cust_search"
-              phx-value-q={@search}
               phx-target={@myself}
               phx-debounce="300"
               style="padding-left:32px;width:100%;"
@@ -655,29 +694,32 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
     is_corporate = cust.customer_tier in ["BUSINESS", "CORPORATE"]
     assigns = assign(assigns, cust: cust, is_corporate: is_corporate)
     ~H"""
-    <!-- Detail header card -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-body" style="display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;">
-        <div style="display:flex;gap:20px;align-items:center;">
-          <div style="width:56px;height:56px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+    <!-- Detail header (2026-07-28b UI cleanup — identity + KYC actions
+         combined into one compact card instead of two full cards each
+         with their own header/padding; cuts the excess vertical space
+         between the page title and the tabs below). -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-body" style="padding:16px 20px;display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;">
+        <div style="display:flex;gap:16px;align-items:center;">
+          <div style="width:44px;height:44px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">
             <%= if @is_corporate, do: "🏢", else: "👤" %>
           </div>
           <div>
-            <div style="font-size:20px;font-weight:700;color:var(--text-primary);">
+            <div style="font-size:18px;font-weight:700;color:var(--text-primary);line-height:1.2;">
               <%= full_name(@cust) %>
             </div>
-            <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">
+            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">
               CIF: <%= @cust.customer_id %>
             </div>
-            <div style="margin-top:8px;display:flex;gap:8px;">
+            <div style="margin-top:6px;display:flex;gap:6px;">
               <span class={"badge #{kyc_badge_class(@cust.kyc_status)}"}><%= @cust.kyc_status || "PENDING" %></span>
               <span class={"badge #{tier_badge_class(@cust.customer_tier)}"}><%= @cust.customer_tier || "RETAIL" %></span>
               <span class="badge badge-gray"><%= @cust.bank_id %></span>
             </div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-          <button :if={@can_edit} phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-secondary">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button :if={@can_edit} phx-click="cust_edit_from_detail" phx-target={@myself} class="btn btn-sm btn-secondary">
             Edit Customer
           </button>
           <button :if={@can_edit} phx-click="cust_delete" phx-target={@myself}
@@ -687,53 +729,80 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- KYC workflow actions -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <div class="card-title">KYC Verification Workflow</div>
-        <div class="card-subtitle">Current status: <%= @cust.kyc_status || "PENDING" %></div>
-      </div>
-      <div class="card-body">
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-          <%= if @cust.kyc_status != "VERIFIED" do %>
-            <button phx-click="kyc_verify" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-primary"
-              style="background:var(--success);border-color:var(--success);"
-              data-confirm={"Mark #{full_name(@cust)} as KYC VERIFIED?"}>
-              ✓ Verify Customer
-            </button>
-          <% end %>
-          <%= if @cust.kyc_status != "REJECTED" do %>
-            <button phx-click="kyc_reject" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-danger"
-              data-confirm={"Mark #{full_name(@cust)} as KYC REJECTED?"}>
-              ✗ Reject
-            </button>
-          <% end %>
-          <%= if @cust.kyc_status != "PENDING" do %>
-            <button phx-click="kyc_reset" phx-target={@myself}
-              phx-value-id={@cust.customer_id}
-              class="btn btn-secondary"
-              data-confirm={"Reset KYC status for #{full_name(@cust)} back to PENDING?"}>
-              ↺ Reset to Pending
-            </button>
-          <% end %>
-        </div>
+      <!-- Inline KYC action row — a slim divider strip rather than a
+           second full card, since these are contextual actions on the
+           identity above, not a separate information section. -->
+      <div style="border-top:1px solid var(--border);padding:10px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <span class="text-sm text-muted" style="margin-right:4px;">KYC:</span>
+        <%= if @cust.kyc_status != "VERIFIED" do %>
+          <button phx-click="kyc_verify" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-primary"
+            style="background:var(--success);border-color:var(--success);"
+            data-confirm={"Mark #{full_name(@cust)} as KYC VERIFIED?"}>
+            ✓ Verify
+          </button>
+        <% end %>
+        <%= if @cust.kyc_status != "REJECTED" do %>
+          <button phx-click="kyc_reject" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-danger"
+            data-confirm={"Mark #{full_name(@cust)} as KYC REJECTED?"}>
+            ✗ Reject
+          </button>
+        <% end %>
+        <%= if @cust.kyc_status != "PENDING" do %>
+          <button phx-click="kyc_reset" phx-target={@myself}
+            phx-value-id={@cust.customer_id}
+            class="btn btn-sm btn-secondary"
+            data-confirm={"Reset KYC status for #{full_name(@cust)} back to PENDING?"}>
+            ↺ Reset to Pending
+          </button>
+        <% end %>
         <%= if @cust.kyc_verified_at do %>
-          <div class="text-sm text-muted" style="margin-top:10px;">
-            Verified at: <%= NaiveDateTime.to_string(@cust.kyc_verified_at) %>
-          </div>
+          <span class="text-sm text-muted" style="margin-left:4px;">
+            Verified at <%= NaiveDateTime.to_string(@cust.kyc_verified_at) %>
+          </span>
         <% end %>
       </div>
     </div>
 
-    <!-- Detail info grid -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-      <!-- Personal info -->
+    <!-- Detail tabs (2026-07-28 — replaces the old always-scrolled 2x2
+         info grid + full-width Arrangements card with the same
+         detail-tabs pattern AccountComponent already uses, so this page
+         doesn't require scrolling through every section to find one). -->
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="detail-tabs">
+        <%= for {idx, label, icon} <- detail_tabs(@is_corporate) do %>
+          <div class={"detail-tab#{if @detail_tab == idx, do: " active"}"}
+            phx-click="detail_tab" phx-value-t={idx} phx-target={@myself}>
+            <%= icon %> <%= label %>
+          </div>
+        <% end %>
+      </div>
+      <div style="padding:20px;">
+        <%= case @detail_tab do %>
+          <% 1 -> %> <%= tab_overview(assigns) %>
+          <% 2 -> %> <%= tab_identity_kyc(assigns) %>
+          <% 3 -> %> <%= tab_corporate(assigns) %>
+          <% 4 -> %> <%= tab_arrangements(assigns) %>
+          <% _ -> %> <p>Invalid tab.</p>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp detail_tabs(is_corporate) do
+    [{1, "Overview", "📋"}, {2, "Identity & KYC", "🪪"}] ++
+      (if is_corporate, do: [{3, "Corporate", "🏢"}], else: []) ++
+      [{4, "Arrangements", "🔗"}]
+  end
+
+  defp tab_overview(assigns) do
+    ~H"""
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div class="card">
         <div class="card-header"><div class="card-title">Personal Information</div></div>
         <div class="card-body">
@@ -746,7 +815,6 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
           ]}/>
         </div>
       </div>
-      <!-- Contact info -->
       <div class="card">
         <div class="card-header"><div class="card-title">Contact Details</div></div>
         <div class="card-body">
@@ -761,57 +829,162 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
         </div>
       </div>
     </div>
+    """
+  end
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-      <!-- Identity / KYC -->
+  defp tab_identity_kyc(assigns) do
+    ~H"""
+    <div class="card">
+      <div class="card-header"><div class="card-title">Identity Documents</div></div>
+      <div class="card-body">
+        <.kv_detail rows={[
+          {"ID Type",   @cust.id_type},
+          {"ID Number", masked(@cust.id_number, "cif.id_number", @cust.sys_id, @current_operator)},
+          {"Expiry",    date_s(@cust.id_expiry)},
+          {"KYC Status",@cust.kyc_status || "PENDING"}
+        ]}/>
+      </div>
+    </div>
+    """
+  end
+
+  defp tab_corporate(assigns) do
+    ~H"""
+    <%= if @is_corporate do %>
       <div class="card">
-        <div class="card-header"><div class="card-title">Identity Documents</div></div>
+        <div class="card-header"><div class="card-title">Corporate Details</div></div>
         <div class="card-body">
           <.kv_detail rows={[
-            {"ID Type",   @cust.id_type},
-            {"ID Number", masked(@cust.id_number, "cif.id_number", @cust.sys_id, @current_operator)},
-            {"Expiry",    date_s(@cust.id_expiry)},
-            {"KYC Status",@cust.kyc_status || "PENDING"}
+            {"Company",       @cust.company_name},
+            {"Reg. Number",   @cust.registration_number},
+            {"Reg. Country",  @cust.registration_country},
+            {"Reg. Date",     date_s(@cust.registration_date)}
           ]}/>
         </div>
       </div>
-      <!-- Corporate (conditional) or Linked accounts -->
-      <%= if @is_corporate do %>
-        <div class="card">
-          <div class="card-header"><div class="card-title">Corporate Details</div></div>
-          <div class="card-body">
-            <.kv_detail rows={[
-              {"Company",       @cust.company_name},
-              {"Reg. Number",   @cust.registration_number},
-              {"Reg. Country",  @cust.registration_country},
-              {"Reg. Date",     date_s(@cust.registration_date)}
-            ]}/>
-          </div>
-        </div>
-      <% else %>
-        <div class="card">
-          <div class="card-header"><div class="card-title">Linked Accounts</div></div>
-          <div class="card-body">
-            <%= if @linked_accounts == [] do %>
-              <p class="text-sm text-muted">No accounts linked to this customer.</p>
-            <% else %>
-              <%= for acc <- @linked_accounts do %>
-                <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-                  <div>
-                    <span class="mono" style="font-size:12px;"><%= acc.account_id |> to_string() |> String.slice(0,12) %>…</span>
-                    <span class="badge badge-gray" style="margin-left:8px;"><%= acc.logo_id %></span>
-                  </div>
-                  <span class={"badge #{if acc.account_status == "ACTIVE", do: "badge-green", else: "badge-gray"}"}>
-                    <%= acc.account_status %>
-                  </span>
-                </div>
-              <% end %>
-            <% end %>
-          </div>
+    <% else %>
+      <p class="text-sm text-muted">This customer is not a corporate account.</p>
+    <% end %>
+    """
+  end
+
+  # Arrangements (Koṣa domain-model alignment, 2026-07-28; reworked into
+  # sub-tabs-with-inline-detail 2026-07-28b per architect-supplied
+  # reference design) — every product relationship this customer has,
+  # across Credit/Debit/Prepaid/Corporate, grouped into sub-tabs by
+  # product family. Picking a specific card embeds that product's own
+  # admin LiveComponent directly on this page via the same ?view=
+  # deep-link mechanism AdminLive's URL-based navigation uses — it just
+  # never leaves the Customer page. Replaces the old flat list of "View
+  # in X" links that always navigated away.
+  #
+  # Known rough edge: the embedded component's own "Back to list"
+  # control (if clicked) shows that WHOLE product's full list inline,
+  # not just this customer's — each family's own dedicated admin page
+  # is still the right place for that broader list/search/create
+  # workflow; this view is for "I'm already looking at one customer,
+  # show me their card" navigation.
+  defp tab_arrangements(assigns) do
+    assigns = assign(assigns, counts: arrangement_counts(assigns.arrangements))
+
+    ~H"""
+    <div class="detail-tabs" style="margin:-20px -20px 16px -20px;">
+      <%= for {family, label, icon} <- arrangement_families() do %>
+        <div class={"detail-tab#{if @arr_family == family, do: " active"}"}
+          phx-click="arr_family" phx-value-f={family} phx-target={@myself}>
+          <%= icon %> <%= label %> <span class="text-muted">(<%= Map.get(@counts, family, 0) %>)</span>
         </div>
       <% end %>
     </div>
+
+    <% rows_for_family = Enum.filter(@arrangements, &(arrangement_family(&1.arrangement.product_type) == @arr_family)) %>
+
+    <%= if rows_for_family == [] do %>
+      <p class="text-sm text-muted">No <%= family_label(@arr_family) %> for this customer.</p>
+    <% else %>
+      <%= if length(rows_for_family) > 1 do %>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+          <%= for row <- rows_for_family do %>
+            <button type="button"
+              class={"btn btn-sm #{if @arr_selected_ref == row.view_ref, do: "btn-primary", else: "btn-secondary"}"}
+              phx-click="arr_select" phx-value-ref={row.view_ref} phx-target={@myself}>
+              <%= row.arrangement.product_type %> — <%= String.slice(row.view_ref, 0, 8) %>…
+              <%= if row.status, do: "(#{row.status})" %>
+            </button>
+          <% end %>
+        </div>
+      <% end %>
+
+      <%= if @arr_selected_ref do %>
+        <.live_component module={arrangement_component(@arr_family)}
+          id={"portfolio-#{@arr_family}-#{@arr_selected_ref}"}
+          current_operator={@current_operator} deep_link_id={@arr_selected_ref} embedded={true} />
+      <% end %>
+    <% end %>
     """
+  end
+
+  defp arrangement_families do
+    [
+      {:credit,    "Credit Card",    "💳"},
+      {:debit,     "Debit Card",     "🏦"},
+      {:prepaid,   "Prepaid Card",   "💰"},
+      {:corporate, "Corporate Card", "🏢"},
+      {:fleet,     "Fleet Card",     "🚚"},
+      {:wallet,    "Digital Wallet", "👛"}
+    ]
+  end
+
+  defp arrangement_family("CREDIT"), do: :credit
+  defp arrangement_family("DEBIT"), do: :debit
+  defp arrangement_family("PREPAID"), do: :prepaid
+  defp arrangement_family("CORPORATE_FACILITY"), do: :corporate
+  defp arrangement_family("CORPORATE_EMPLOYEE"), do: :corporate
+  defp arrangement_family("CORPORATE_FLEET"), do: :fleet
+  defp arrangement_family("WALLET"), do: :wallet
+  defp arrangement_family(_), do: :other
+
+  defp arrangement_component(:credit), do: AccountComponent
+  defp arrangement_component(:debit), do: DebitComponent
+  defp arrangement_component(:prepaid), do: PrepaidComponent
+  defp arrangement_component(:corporate), do: HcsComponent
+  defp arrangement_component(:fleet), do: HcsComponent
+  defp arrangement_component(:wallet), do: WalletComponent
+
+  defp arrangement_counts(arrangements) do
+    Enum.reduce(arrangements, %{}, fn row, acc ->
+      Map.update(acc, arrangement_family(row.arrangement.product_type), 1, &(&1 + 1))
+    end)
+  end
+
+  defp family_label(:credit), do: "credit cards"
+  defp family_label(:debit), do: "debit cards"
+  defp family_label(:prepaid), do: "prepaid cards"
+  defp family_label(:corporate), do: "corporate cards"
+  defp family_label(:fleet), do: "fleet cards"
+  defp family_label(:wallet), do: "digital wallets"
+
+  # First family (in display order) that has at least one arrangement —
+  # so opening a Debit-only customer's Arrangements tab doesn't default
+  # to an empty Credit Card sub-tab.
+  defp default_arr_family(arrangements) do
+    families_with_data = arrangements |> Enum.map(&arrangement_family(&1.arrangement.product_type)) |> MapSet.new()
+
+    arrangement_families()
+    |> Enum.find(fn {family, _, _} -> MapSet.member?(families_with_data, family) end)
+    |> case do
+      {family, _, _} -> family
+      nil -> :credit
+    end
+  end
+
+  defp first_ref_for_family(arrangements, family) do
+    arrangements
+    |> Enum.filter(&(arrangement_family(&1.arrangement.product_type) == family))
+    |> case do
+      [first | _] -> first.view_ref
+      [] -> nil
+    end
   end
 
   # ── Form view (2-pane: section nav + fields) ────────────────────────────────

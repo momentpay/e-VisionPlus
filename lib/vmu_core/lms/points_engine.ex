@@ -13,7 +13,8 @@ defmodule VmuCore.LMS.PointsEngine do
 
   require Logger
   alias VmuCore.LMS.{Account, Group, PointsLedger, RateEngine, GlProvisioner}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
   alias Decimal, as: D
 
@@ -30,7 +31,7 @@ defmodule VmuCore.LMS.PointsEngine do
         where: a.ar_account_id == ^ar_account_id and a.status == "ACTIVE",
         preload: [scheme: :groups]
       )
-      |> Repo.all()
+      |> @repo.all()
 
     Enum.each(enrollments, fn lms_account ->
       process_for_enrollment(lms_account, amount, txn_date, merchant_id, clearing_id)
@@ -97,12 +98,12 @@ defmodule VmuCore.LMS.PointsEngine do
         inserted_at:        DateTime.utc_now()
       })
 
-    case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :idempotency_key) do
+    case @repo.insert(changeset, on_conflict: :nothing, conflict_target: :idempotency_key) do
       {:ok, %PointsLedger{id: nil}} ->
         :ok  # duplicate — already processed
 
       {:ok, entry} ->
-        update_account_balance(lms_account.id, points)
+        update_account_balance(lms_account.id, points, warehouse_state)
         GlProvisioner.post_provisioning(lms_account.scheme_id, entry)
         Logger.debug("[LMS] Earned #{points} pts for account=#{lms_account.id} plan=#{plan.id}")
 
@@ -111,8 +112,19 @@ defmodule VmuCore.LMS.PointsEngine do
     end
   end
 
-  defp update_account_balance(lms_account_id, points) do
-    Repo.update_all(
+  # LMS-P1 (2026-07-11): open_to_redeem must track earn too, not just be
+  # zeroed on redemption — WAREHOUSE-state points aren't redeemable yet
+  # (no release job exists to promote them to ACTIVE — see tracker), so
+  # only ACTIVE-state earn increments the redeemable balance.
+  defp update_account_balance(lms_account_id, points, "ACTIVE") do
+    @repo.update_all(
+      from(a in Account, where: a.id == ^lms_account_id),
+      inc: [points_balance: points, lifetime_earned: points, open_to_redeem: points]
+    )
+  end
+
+  defp update_account_balance(lms_account_id, points, _warehouse_state) do
+    @repo.update_all(
       from(a in Account, where: a.id == ^lms_account_id),
       inc: [points_balance: points, lifetime_earned: points]
     )
@@ -127,6 +139,6 @@ defmodule VmuCore.LMS.PointsEngine do
       where: g.id in ^group_ids and g.group_type == "BONUS"
         and gm.merchant_id == ^merchant_id
     )
-    |> Repo.all()
+    |> @repo.all()
   end
 end

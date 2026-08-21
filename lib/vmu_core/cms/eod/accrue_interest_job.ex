@@ -6,6 +6,11 @@ defmodule VmuCore.CMS.EOD.AccrueInterestJob do
   resolved from ParameterEngine (Block → Logo → Bank → System cascade).
   Posts the interest to cms_ledger_entries via InternalGlPoster (idempotent).
   Enqueues AgeBucketsJob on success.
+
+  **COL-P9:** an ACTIVE `APR_REDUCTION` workout plan
+  (`VmuCore.COL.WorkoutCommand.active_apr_override/2`) takes priority over
+  penalty APR escalation — a negotiated hardship rate is the point of a
+  workout, so it wins over a punitive one.
   """
 
   use Oban.Worker, queue: :eod, max_attempts: 3, unique: [period: 86_400]
@@ -32,11 +37,13 @@ defmodule VmuCore.CMS.EOD.AccrueInterestJob do
         _          -> base_purchase_apr
       end
 
-    # Penalty APR escalation (3K): if account DPD >= dpd_trigger, override both APRs
+    # Penalty APR escalation (3K): if account DPD >= dpd_trigger, override both APRs.
+    # A workout APR reduction (COL-P9) takes priority over penalty escalation.
     {purchase_apr, cash_apr} = resolve_effective_aprs(
       account,
       base_purchase_apr,
-      base_cash_apr
+      base_cash_apr,
+      eod_date
     )
 
     days_in_cycle = days_in_cycle(account.cycle_code, eod_date)
@@ -68,38 +75,50 @@ defmodule VmuCore.CMS.EOD.AccrueInterestJob do
   # both purchase and cash APRs are replaced with penalty_apr for this billing cycle.
   # This is logged at WARNING level so the escalation is visible in EOD audit logs.
   #
-  defp resolve_effective_aprs(account, base_purchase_apr, base_cash_apr) do
+  defp resolve_effective_aprs(account, base_purchase_apr, base_cash_apr, eod_date) do
     alias VmuCore.Shared.ParameterEngine
     alias VmuCore.CMS.PenaltyAprManager
+    alias VmuCore.COL.WorkoutCommand
 
-    dpd       = account.delinquency_bucket || 0
-    sys_id    = account.sys_id
-    bank_id   = account.bank_id
-    logo_id   = account.logo_id
-    block_id  = account.block_id
+    case WorkoutCommand.active_apr_override(account.account_id, eod_date) do
+      {:ok, workout_apr} ->
+        Logger.warning(
+          "[AccrueInterest] Workout APR override account=#{account.account_id} " <>
+          "APR #{base_purchase_apr}% → #{workout_apr}% (penalty escalation skipped)"
+        )
 
-    # CMS-G1 ADR-C2: penalty pricing PERSISTS once triggered — penalized?/3 is
-    # true while penalty_apr_active, even after DPD falls below the trigger.
-    # Deactivation only happens via the cure rule at statement cycle.
-    with {:ok, penalty_apr}     when not is_nil(penalty_apr) <-
-           ParameterEngine.get(sys_id, bank_id, logo_id, block_id, :penalty_apr),
-         {:ok, dpd_trigger}     when not is_nil(dpd_trigger) <-
-           ParameterEngine.get(sys_id, bank_id, logo_id, block_id, :penalty_apr_dpd_trigger),
-         true <- PenaltyAprManager.penalized?(account, dpd, dpd_trigger),
-         true <- Decimal.compare(penalty_apr, Decimal.new(0)) == :gt do
+        {workout_apr, workout_apr}
 
-      # Persist activation on first trigger (idempotent when already active)
-      if dpd >= dpd_trigger, do: PenaltyAprManager.maybe_activate(account, dpd)
+      :none ->
+        dpd       = account.delinquency_bucket || 0
+        sys_id    = account.sys_id
+        bank_id   = account.bank_id
+        logo_id   = account.logo_id
+        block_id  = account.block_id
 
-      Logger.warning(
-        "[AccrueInterest] Penalty APR pricing account=#{account.account_id} " <>
-        "DPD=#{dpd} trigger=#{dpd_trigger} active=#{account.penalty_apr_active} " <>
-        "APR #{base_purchase_apr}% → #{penalty_apr}%"
-      )
+        # CMS-G1 ADR-C2: penalty pricing PERSISTS once triggered — penalized?/3 is
+        # true while penalty_apr_active, even after DPD falls below the trigger.
+        # Deactivation only happens via the cure rule at statement cycle.
+        with {:ok, penalty_apr}     when not is_nil(penalty_apr) <-
+               ParameterEngine.get(sys_id, bank_id, logo_id, block_id, :penalty_apr),
+             {:ok, dpd_trigger}     when not is_nil(dpd_trigger) <-
+               ParameterEngine.get(sys_id, bank_id, logo_id, block_id, :penalty_apr_dpd_trigger),
+             true <- PenaltyAprManager.penalized?(account, dpd, dpd_trigger),
+             true <- Decimal.compare(penalty_apr, Decimal.new(0)) == :gt do
 
-      {penalty_apr, penalty_apr}
-    else
-      _ -> {base_purchase_apr, base_cash_apr}
+          # Persist activation on first trigger (idempotent when already active)
+          if dpd >= dpd_trigger, do: PenaltyAprManager.maybe_activate(account, dpd)
+
+          Logger.warning(
+            "[AccrueInterest] Penalty APR pricing account=#{account.account_id} " <>
+            "DPD=#{dpd} trigger=#{dpd_trigger} active=#{account.penalty_apr_active} " <>
+            "APR #{base_purchase_apr}% → #{penalty_apr}%"
+          )
+
+          {penalty_apr, penalty_apr}
+        else
+          _ -> {base_purchase_apr, base_cash_apr}
+        end
     end
   end
 

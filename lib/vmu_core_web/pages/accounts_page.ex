@@ -13,6 +13,7 @@ defmodule VmuCoreWeb.Pages.AccountsPage do
   import Ecto.Query
 
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, FAS.Authorization}
+  alias VmuCore.GL.LedgerQuery
 
   @impl true
   def menu_link(_, _), do: {:ok, "Accounts"}
@@ -121,9 +122,9 @@ defmodule VmuCoreWeb.Pages.AccountsPage do
           <%= for e <- @recent_gl do %>
             <tr style={@row_style}>
               <td style={@td}>{e.posting_date}</td>
-              <td style={@td}><code>{e.transaction_code}</code></td>
-              <td style={@td}>{e.dr_amount}</td>
-              <td style={@td}>{e.cr_amount}</td>
+              <td style={@td}><code>{e.event_type}</code></td>
+              <td style={@td}>{e.amount}</td>
+              <td style={@td}>{e.amount}</td>
               <td style={@td}>{e.narrative}</td>
             </tr>
           <% end %>
@@ -225,20 +226,11 @@ defmodule VmuCoreWeb.Pages.AccountsPage do
     )
   end
 
-  defp recent_gl_entries do
-    Repo.all(
-      from e in "cms_ledger_entries",
-      order_by: [desc: e.posting_date, desc: e.inserted_at],
-      limit: 15,
-      select: %{
-        posting_date:     e.posting_date,
-        transaction_code: e.transaction_code,
-        dr_amount:        e.dr_amount,
-        cr_amount:        e.cr_amount,
-        narrative:        e.narrative
-      }
-    )
-  end
+  # GL Phase C2 — see `GL.LedgerQuery`. The display shows `event_type` rather
+  # than the legacy `transaction_code`: it is the finer vocabulary of the two,
+  # separating a wallet withdrawal from a card purchase and a credit adjustment
+  # from a debit one, all of which the legacy enum collapsed.
+  defp recent_gl_entries, do: LedgerQuery.entries(limit: 15)
 
   defp status_color("ACTIVE"),     do: "#059669"
   defp status_color("DELINQUENT"), do: "#d97706"

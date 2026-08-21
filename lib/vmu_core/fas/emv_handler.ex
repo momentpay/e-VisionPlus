@@ -6,8 +6,8 @@ defmodule VmuCore.FAS.EmvHandler do
 
   When DE55 is present in the 0100 request:
   1. `EmvParser.parse/1` extracts ARQC (9F26), ATC (9F36), UN (9F37)
-  2. `HSM.verify_arqc/5` cryptographically verifies the chip cryptogram
-  3. If approved, `HSM.generate_arpc/3` builds the Issuer Authentication Data
+  2. `HSM.verify_arqc/6` cryptographically verifies the chip cryptogram
+  3. If approved, `HSM.generate_arpc/6` builds the Issuer Authentication Data
   4. The ARPC is returned as a DE55 fragment for inclusion in the 0110 response
 
   ## 7H — Issuer Scripts
@@ -50,11 +50,12 @@ defmodule VmuCore.FAS.EmvHandler do
             Logger.debug("[EMV] DE55 present but no ARQC tag 9F26")
             :skip
 
-          {:ok, %EmvParser{arqc: arqc, atc: atc, unpredictable_no: un}} ->
-            txn_data = build_txn_data(fields)
+          {:ok, %EmvParser{arqc: arqc, atc: atc, unpredictable_no: un} = emv} ->
+            txn_data = build_txn_data(fields, emv)
             atc  = atc  || <<0, 0>>
             un   = un   || <<0, 0, 0, 0>>
-            HSM.verify_arqc(pan_token, atc, un, txn_data, arqc)
+            pan  = Map.get(fields, 2, "")
+            HSM.verify_arqc(pan, pan_token, atc, un, txn_data, arqc)
 
           {:error, reason} ->
             Logger.warning("[EMV] DE55 parse failed: #{inspect(reason)}")
@@ -79,8 +80,10 @@ defmodule VmuCore.FAS.EmvHandler do
         {:ok, nil}
 
       de55 ->
+        pan = Map.get(fields, 2, "")
+
         with {:ok, emv}   <- EmvParser.parse(de55),
-             {:ok, arpc}  <- build_arpc(emv, rc, pan_token),
+             {:ok, arpc}  <- build_arpc(pan, emv, rc, pan_token),
              {:ok, scripts} <- build_scripts(pan_token, script_commands) do
           # Tag 8A = Authorization Response Code: 2 ASCII bytes of RC
           arc_bytes  = <<String.to_integer(String.at(rc, 0)), String.to_integer(String.at(rc, 1))>>
@@ -111,19 +114,26 @@ defmodule VmuCore.FAS.EmvHandler do
   """
   @spec inject_de55(ISOMsg.t(), binary() | nil) :: ISOMsg.t()
   def inject_de55(msg, nil), do: msg
+
   def inject_de55(msg, de55_bin) do
-    ISOMsg.set(msg, 55, Base.encode16(de55_bin, case: :lower))
+    # DE55's field packager (ISO87BPackager) is {:binary_interpreter} — raw
+    # binary, no encoding transformation (same as DE52's IFB_BINARY, see
+    # Phase 10's finding: a hex-encoded string here silently desyncs the
+    # wire layout instead of erroring). Set the raw bytes directly.
+    ISOMsg.set(msg, 55, de55_bin)
   end
 
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
 
-  defp build_arpc(%EmvParser{arqc: nil}, _rc, _pan_token), do: {:ok, <<0::64>>}
+  defp build_arpc(_pan, %EmvParser{arqc: nil}, _rc, _pan_token), do: {:ok, <<0::64>>}
 
-  defp build_arpc(%EmvParser{arqc: arqc}, rc, pan_token) do
+  defp build_arpc(pan, %EmvParser{arqc: arqc, atc: atc, unpredictable_no: un}, rc, pan_token) do
     arc = rc_to_arc(rc)
-    HSM.generate_arpc(arqc, arc, pan_token)
+    atc = atc || <<0, 0>>
+    un  = un  || <<0, 0, 0, 0>>
+    HSM.generate_arpc(pan, atc, un, arqc, arc, pan_token)
   end
 
   defp build_scripts(pan_token, []) do
@@ -141,18 +151,56 @@ defmodule VmuCore.FAS.EmvHandler do
   defp rc_to_arc("61"), do: <<0x06, 0x00>>
   defp rc_to_arc(_),    do: <<0x05, 0x30>>  # generic decline
 
-  # Serialize transaction data elements for ARQC input (simplified)
-  # Real implementation would follow EMV Book 3 Appendix B format
-  defp build_txn_data(fields) do
-    amount   = Map.get(fields, 4,  "") |> String.pad_leading(12, "0")
-    currency = Map.get(fields, 49, "784") |> String.pad_leading(3, "0")
-    date     = Map.get(fields, 13, "000000") |> String.pad_leading(6, "0")
+  # Real CDOL1 transaction data (Phase 12 Part B), replacing the previous
+  # simplified format — that one concatenated amount(12)+currency(3)+date(6)
+  # = 21 ASCII digit characters (odd length) and hex-decoded the result,
+  # which ALWAYS failed (Base.decode16 requires even length) and silently
+  # fell back to all-zero bytes; ARQC verification was never actually
+  # exercised end-to-end before this phase, which is why that went unnoticed.
+  #
+  # There's no physical card here to read a real CDOL1 list from, so this
+  # is one fixed, realistic field set both this module and
+  # TerminalEmulator.Emv (the terminal-side "virtual chip") agree on —
+  # documented once here, mirrored exactly on the terminal side, the same
+  # principle Phase 10 used for the ISO 9564-1 PIN block. Field order and
+  # BCD encoding follow EMV Book 3 Appendix B / Book 4 Table.
+  #
+  # Amount/currency/date come from the ISO message's own DE4/DE49/DE13 (the
+  # actual transaction data); the chip/terminal-risk fields (TVR, AIP,
+  # terminal country/type) come from DE55 itself, since nothing else in the
+  # ISO message carries them. DE13 (this codebase's convention, see
+  # TerminalEmulator.Packet) is MMDD only — no year is transmitted on the
+  # wire in real ISO 8583 either, so the current year is combined in here,
+  # same as any real host would.
+  defp build_txn_data(fields, %EmvParser{} = emv) do
+    amount_authorised = bcd(Map.get(fields, 4, "0"), 12)
+    amount_other       = <<0::48>>
+    terminal_country   = emv.terminal_country_code || <<0x07, 0x84>>
+    tvr                = emv.tvr || <<0, 0, 0, 0, 0>>
+    currency           = bcd(Map.get(fields, 49, "784"), 4)
+    date               = bcd(current_year_2digit() <> Map.get(fields, 13, "0000"), 6)
+    txn_type           = bcd(Map.get(fields, 3, "00") |> String.slice(0, 2), 2)
+    un                 = emv.unpredictable_no || <<0, 0, 0, 0>>
+    terminal_type      = emv.terminal_type || <<0x22>>
+    aip                = emv.aip || <<0, 0>>
 
-    (amount <> currency <> date)
-    |> Base.decode16(case: :mixed)
-    |> case do
-      {:ok, bin} -> bin
-      _          -> <<0::80>>
-    end
+    amount_authorised <> amount_other <> terminal_country <> tvr <>
+      currency <> date <> txn_type <> un <> terminal_type <> aip
+  end
+
+  defp current_year_2digit do
+    Date.utc_today().year |> rem(100) |> Integer.to_string() |> String.pad_leading(2, "0")
+  end
+
+  defp bcd(digit_string, target_digit_count) do
+    digit_string
+    |> String.replace(~r/\D/, "")
+    |> String.pad_leading(target_digit_count, "0")
+    |> String.slice(-target_digit_count, target_digit_count)
+    |> String.to_charlist()
+    |> Enum.map(&(&1 - ?0))
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn [hi, lo] -> hi * 16 + lo end)
+    |> :binary.list_to_bin()
   end
 end

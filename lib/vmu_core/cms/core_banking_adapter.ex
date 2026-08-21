@@ -4,14 +4,31 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
 
   ## Purpose (3J)
 
-  After each EOD cycle, GL entries posted to `cms_ledger_entries` must be
-  extracted and transmitted to the core banking system for settlement and
-  general ledger reconciliation. This adapter:
+  After each EOD cycle, journal entries must be extracted and transmitted to the
+  core banking system for settlement and general ledger reconciliation. This
+  adapter:
 
   1. Queries all un-extracted entries for a given account and date.
   2. Groups entries into a standardised extract payload.
   3. Submits the payload to the configured core banking endpoint.
-  4. Marks entries as extracted (`extracted_at` timestamp).
+  4. Records the extraction against each entry.
+
+  ## Source (GL Phase C3)
+
+  Reads `journal_entries` through `GL.Extraction`, not `cms_ledger_entries`.
+  This was the **last reader** on the legacy table, and the only one that needed
+  something the new model lacked -- per-entry extraction state. `GL.Extraction`
+  is that state, held beside the journal rather than stamped into it.
+
+  ## This module had never run
+
+  Every entry point raised `key :id not found`. `CMS.LedgerEntry`'s primary key
+  is `entry_id` and the schema has no `id` field at all, yet `build_payload/3`
+  and `mark_extracted/1` both referenced `e.id`. Found 2026-08-06 by calling
+  `extract_all/1` during the C3 migration. Rewriting onto `journal_entries` --
+  whose primary key *is* `id` -- resolves it, but the defect is worth recording:
+  it is the third instance of the same slip here, after
+  `HCS.ConsolidatedStatementGenerator` and `CMS.StatementGenerator`.
 
   ## Configuration
 
@@ -27,28 +44,27 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
 
   ## Idempotency
 
-  Each GL entry carries a unique `idempotency_key` set by the posting function.
-  The extract marks entries with `extracted_at`; re-running the extract for the
-  same date will skip already-extracted rows. This makes the extract safe to
-  replay on failure.
+  Each entry carries a unique `idempotency_key` from its posting set, and
+  `GL.Extraction` keys on `(journal_entry_id, destination)`. Re-running the
+  extract for the same date marks nothing and re-sends nothing, so it is safe
+  to replay after a failed transmission.
 
   ## GL account mapping
 
-  Standard CMS double-entry accounts:
-  | GL Code | Description                  |
-  |---------|------------------------------|
-  | 1001    | Card Receivables              |
-  | 1003    | Unearned Revenue              |
-  | 1004    | Fee Receivables               |
-  | 2001    | Interest Income               |
-  | 2002    | Fee Income                    |
-  | 3001    | Adjustment / Suspense         |
+  Account codes go out through `GL.ExportMap`, so a bank's own chart can differ
+  from the internal one without a second remap.
+
+  The internal chart is `gl_accounts`, and it is authoritative. This moduledoc
+  used to restate six codes inline, and after the Phase 4A remap four of them
+  were wrong -- it had 2001 as "Interest Income" (it is Customer Credit
+  Liability) and 2002 as "Fee Income" (it is the HCS parent payable). Restating
+  a registry in prose is how those drift; read `GL.ChartOfAccounts` instead.
   """
 
   require Logger
-  import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.LedgerEntry}
+  alias VmuCore.GL.{Extraction, ExportMap}
+  alias VmuCore.Posting.Rules
 
   @type extract_result :: {:ok, %{count: integer(), total_amount: Decimal.t()}} | {:error, term()}
 
@@ -59,7 +75,7 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
   """
   @spec extract_for(binary(), Date.t()) :: extract_result()
   def extract_for(account_id, eod_date) do
-    entries = fetch_unextracted(account_id, eod_date)
+    entries = Extraction.unextracted(eod_date, account_ref: account_id)
 
     if Enum.empty?(entries) do
       {:ok, %{count: 0, total_amount: Decimal.new(0)}}
@@ -68,9 +84,9 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
 
       case submit(payload) do
         :ok ->
-          mark_extracted(entries)
+          Extraction.mark!(entries, batch_ref: payload.batch_ref)
           total = Enum.reduce(entries, Decimal.new(0), fn e, acc ->
-            Decimal.add(acc, e.dr_amount || Decimal.new(0))
+            Decimal.add(acc, e.amount || Decimal.new(0))
           end)
           Logger.info("[CoreBankingAdapter] Extracted #{length(entries)} entries account=#{account_id} date=#{eod_date} total=#{total}")
           {:ok, %{count: length(entries), total_amount: total}}
@@ -90,13 +106,7 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
   """
   @spec extract_all(Date.t()) :: {:ok, %{accounts: integer(), entries: integer()}} | {:error, term()}
   def extract_all(eod_date) do
-    account_ids =
-      Repo.all(
-        from e in LedgerEntry,
-          where: e.posting_date == ^eod_date and is_nil(e.extracted_at),
-          distinct: true,
-          select: e.account_id
-      )
+    account_ids = Extraction.pending_account_refs(eod_date)
 
     {ok_count, entry_count} =
       Enum.reduce(account_ids, {0, 0}, fn acct_id, {accounts, entries} ->
@@ -113,37 +123,50 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp fetch_unextracted(account_id, eod_date) do
-    Repo.all(
-      from e in LedgerEntry,
-        where: e.account_id   == ^account_id
-          and  e.posting_date == ^eod_date
-          and  is_nil(e.extracted_at),
-        order_by: [asc: e.inserted_at]
-    )
-  end
-
   defp build_payload(account_id, eod_date, entries) do
+    legacy_codes = legacy_code_lookup()
+
     %{
       source:      "CMS",
       extract_ts:  DateTime.utc_now() |> DateTime.to_iso8601(),
       account_id:  account_id,
       posting_date: Date.to_iso8601(eod_date),
+      # Identifies this submission, so a failed transmission can be re-driven
+      # as a unit rather than entry by entry.
+      batch_ref:   "CBA-#{account_id}-#{Date.to_iso8601(eod_date)}",
       entries: Enum.map(entries, fn e ->
+        # Account codes go out through VmuCore.GL.ExportMap (Phase 4A.1), so the
+        # internal chart and a bank's own chart can diverge without a second
+        # remap. Identity by default — with no mapping configured this payload
+        # is byte-identical to what it was before the layer existed.
         %{
           ledger_entry_id:  e.id,
-          transaction_code: e.transaction_code,
-          gl_account_dr:    e.gl_account_dr,
-          gl_account_cr:    e.gl_account_cr,
-          dr_amount:        Decimal.to_string(e.dr_amount || Decimal.new(0)),
-          cr_amount:        Decimal.to_string(e.cr_amount || Decimal.new(0)),
+          # The legacy transaction code, not the engine's event type. The
+          # external contract is stated in the old vocabulary, and
+          # `posting_rules.legacy_transaction_code` maps back to it — so a
+          # consumer still sees PURCHASE where the engine records WITHDRAWAL.
+          transaction_code: Map.get(legacy_codes, {e.event_type, e.product}, e.event_type),
+          event_type:       e.event_type,
+          gl_account_dr:    ExportMap.translate(e.dr_gl_account),
+          gl_account_cr:    ExportMap.translate(e.cr_gl_account),
+          # Under double entry the two sides are equal by construction and the
+          # posting tables keep the single value. Both fields are still emitted
+          # so the payload shape is unchanged for whoever consumes it.
+          dr_amount:        Decimal.to_string(e.amount || Decimal.new(0)),
+          cr_amount:        Decimal.to_string(e.amount || Decimal.new(0)),
           posting_date:     Date.to_iso8601(e.posting_date),
-          value_date:       Date.to_iso8601(e.value_date || eod_date),
+          value_date:       Date.to_iso8601(e.transaction_date || eod_date),
           narrative:        e.narrative,
           idempotency_key:  e.idempotency_key
         }
       end)
     }
+  end
+
+  # Built once per payload rather than queried per entry.
+  defp legacy_code_lookup do
+    Rules.all(active: :all)
+    |> Map.new(fn r -> {{r.event_type, r.product}, r.legacy_transaction_code} end)
   end
 
   defp submit(payload) do
@@ -189,13 +212,4 @@ defmodule VmuCore.CMS.CoreBankingAdapter do
     File.write(path, lines, [:append])
   end
 
-  defp mark_extracted(entries) do
-    ids        = Enum.map(entries, & &1.id)
-    extracted_at = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-
-    Repo.update_all(
-      from(e in LedgerEntry, where: e.id in ^ids),
-      set: [extracted_at: extracted_at]
-    )
-  end
 end

@@ -44,10 +44,9 @@ defmodule VmuCore.CMS.FinancialAdjustment do
       )
   """
 
-  import Ecto.Query
-
-  alias VmuCore.{Repo, CMS.LedgerEntry}
   alias VmuCore.CMS.InternalGlPoster
+  alias VmuCore.Posting.JournalEntry
+  alias VmuCore.GL.LedgerQuery
   alias Decimal, as: D
 
   @doc """
@@ -63,9 +62,10 @@ defmodule VmuCore.CMS.FinancialAdjustment do
     - `:supervisor_id` — (required) UUID of approving supervisor (must differ from operator)
     - `:posting_date`  — `Date.t()` (default: `Date.utc_today/0`)
 
-  Returns `{:ok, %LedgerEntry{}}` or `{:error, reason}`.
+  Returns `{:ok, %Posting.JournalEntry{}}` or `{:error, reason}` — GL Phase C3
+  changed the posting return from a `cms_ledger_entries` row to the journal entry.
   """
-  @spec post_credit(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
+  @spec post_credit(keyword()) :: {:ok, JournalEntry.t()} | {:error, term()}
   def post_credit(opts) do
     post_adjustment(:credit, opts)
   end
@@ -74,24 +74,61 @@ defmodule VmuCore.CMS.FinancialAdjustment do
   Post a debit adjustment — increases the cardholder's outstanding balance.
 
   Same options as `post_credit/1`.
-  Returns `{:ok, %LedgerEntry{}}` or `{:error, reason}`.
+  Returns `{:ok, %Posting.JournalEntry{}}` or `{:error, reason}` — GL Phase C3
+  changed the posting return from a `cms_ledger_entries` row to the journal entry.
   """
-  @spec post_debit(keyword()) :: {:ok, LedgerEntry.t()} | {:error, term()}
+  @spec post_debit(keyword()) :: {:ok, JournalEntry.t()} | {:error, term()}
   def post_debit(opts) do
     post_adjustment(:debit, opts)
   end
 
   @doc """
   List all adjustments for an account, newest first.
+
+  GL Phase C2 — reads the posting tables via `GL.LedgerQuery`, and so returns
+  maps rather than `CMS.LedgerEntry` structs. Each carries an explicit
+  `:direction` and `:reference`.
+
+  **`:direction` is now read, not inferred.** The display previously decided
+  CREDIT vs DEBIT by testing whether the debit leg was the receivable account
+  `"1001"`. That happened to be right, but it is the same class of assumption
+  Phase 4A's account remap invalidated elsewhere, and it would have silently
+  flipped every badge on this screen if the adjustment pair were ever
+  renumbered. `posting_sets.event_type` states the direction outright.
   """
-  @spec list_for(binary()) :: [LedgerEntry.t()]
+  @spec list_for(binary()) :: [map()]
   def list_for(account_id) do
-    Repo.all(
-      from e in LedgerEntry,
-        where: e.account_id == ^account_id
-          and e.transaction_code == "ADJUSTMENT",
-        order_by: [desc: e.posting_date, desc: e.inserted_at]
-    )
+    account_id
+    |> then(&LedgerQuery.entries(account_ref: &1, transaction_code: "ADJUSTMENT"))
+    |> Enum.map(fn e ->
+      direction = if e.event_type == "ADJUSTMENT_DEBIT", do: "DEBIT", else: "CREDIT"
+
+      e
+      |> Map.put(:direction, direction)
+      |> Map.put(:reference, reference_from_key(e.idempotency_key, account_id, e.posting_date))
+    end)
+  end
+
+  # `post_adjustment/2` writes "ADJ:<direction>:<account>:<reference>:<date>".
+  # The operator-supplied reference is the only free-form segment and may itself
+  # contain colons, so it is recovered by stripping the two known ends rather
+  # than by splitting — which would truncate any reference containing one.
+  defp reference_from_key(nil, _account_id, _posting_date), do: nil
+
+  defp reference_from_key(key, account_id, posting_date) do
+    suffix = ":" <> Date.to_iso8601(posting_date)
+
+    Enum.find_value(["credit", "debit"], key, fn dir ->
+      prefix = "ADJ:#{dir}:#{account_id}:"
+
+      with true <- String.starts_with?(key, prefix),
+           true <- String.ends_with?(key, suffix) do
+        key
+        |> binary_slice(byte_size(prefix)..-(byte_size(suffix) + 1)//1)
+      else
+        _ -> nil
+      end
+    end)
   end
 
   # ---------------------------------------------------------------------------

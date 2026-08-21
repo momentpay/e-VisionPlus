@@ -1,26 +1,48 @@
 defmodule VmuCore.CMS.InterestIntegrationTest do
   use ExUnit.Case, async: false
 
+  alias VmuCore.GLFixtures
   alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.InterestEngine,
                  CMS.StatementGenerator, CMS.InternalGlPoster}
   alias Decimal, as: D
 
-  @account_id "cms-int-test-001"
-  @sys_id "SYS01"
-  @bank_id "BANK01"
-  @logo_id "LOGO01"
+  # `cms_accounts.account_id` and `.customer_id` are uuid columns. These were
+  # plain strings ("cms-int-test-001"), which Ecto rejected at insert with
+  # `does not match type :binary_id`, so every test in this file failed in
+  # setup. Fixed 2026-08-04.
+  @account_id "11111111-1111-4111-8111-111111111111"
+  @customer_id "22222222-2222-4222-8222-222222222222"
+  # sys/bank/logo/block ids are varchar(4) across the parameter cascade —
+  # "SYS01"/"BANK01"/"LOGO01" overflowed and raised
+  # `value too long for type character varying(4)` on insert.
+  @sys_id "SYS1"
+  @bank_id "BNK1"
+  @logo_id "LGO1"
+  @block_id "BLK1"
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
     Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+
+    # GL Phase C3: `InternalGlPoster` posts through `Posting.RuleEngine` now, so
+    # a posting needs the chart, the rules, and an institution whose banking
+    # date is open — the period gate refuses one that is not. See
+    # `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!(@sys_id, @bank_id)
 
     Repo.insert!(%Account{
       account_id:     @account_id,
       sys_id:         @sys_id,
       bank_id:        @bank_id,
       logo_id:        @logo_id,
-      block_id:       "BLK01",
-      customer_id:    "cust-001",
+      block_id:       @block_id,
+      customer_id:    @customer_id,
+      # pan_token / last_four / expiry_date are NOT NULL on cms_accounts —
+      # the fixture predates those columns.
+      pan_token:      "tok_interest_integration_test",
+      last_four:      "4242",
+      expiry_date:    "1229",
       credit_limit:   D.new("10000.00"),
       open_to_buy:    D.new("8000.00"),
       account_status: "ACTIVE",
@@ -40,11 +62,14 @@ defmodule VmuCore.CMS.InterestIntegrationTest do
         {Date.add(Date.utc_today(), -i), D.new("1000.00")}
       end
 
-      result = InterestEngine.calculate(daily_balances, [], apr, days_in_cycle, false)
+      # calculate/6 is (retail_daily, cash_daily, purchase_apr, cash_apr,
+      # days_in_cycle, grace_applies). The previous call passed days_in_cycle
+      # as cash_apr and `false` as days_in_cycle.
+      result = InterestEngine.calculate(daily_balances, [], apr, apr, days_in_cycle, false)
 
       # Expected: 1000 × (24%/365) × 30 ≈ 19.73
-      assert D.compare(result.retail, D.new("0")) == :gt
-      assert D.compare(result.retail, D.new("25")) == :lt
+      assert D.compare(result.retail_interest, D.new("0")) == :gt
+      assert D.compare(result.retail_interest, D.new("25")) == :lt
     end
 
     test "grace period suppresses retail interest when full payment received" do
@@ -52,9 +77,9 @@ defmodule VmuCore.CMS.InterestIntegrationTest do
       days = 30
 
       daily_balances = for i <- 0..(days - 1), do: {Date.add(Date.utc_today(), -i), D.new("500.00")}
-      result = InterestEngine.calculate(daily_balances, [], apr, days, _grace = true)
+      result = InterestEngine.calculate(daily_balances, [], apr, apr, days, _grace = true)
 
-      assert D.compare(result.retail, D.new("0")) == :eq
+      assert D.compare(result.retail_interest, D.new("0")) == :eq
     end
   end
 
@@ -85,7 +110,10 @@ defmodule VmuCore.CMS.InterestIntegrationTest do
       attrs = %{
         account_id:       @account_id,
         idempotency_key:  "test-idem-001",
-        transaction_code: "TEST",
+        # Validated against LedgerEntry's fixed list — "TEST" is not a member,
+        # so the changeset was invalid and post/1 never reached the duplicate
+        # check this test exists to exercise.
+        transaction_code: "PURCHASE",
         dr_amount:        D.new("100"),
         cr_amount:        D.new("100"),
         gl_account_dr:    "1001",

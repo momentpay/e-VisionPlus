@@ -54,6 +54,11 @@ defmodule VmuCore.CMS.Account do
 
     # ── Billing ─────────────────────────────────────────────────────────────────
     field :cycle_code,          :integer, default: 1  # Day of month for billing
+    # Pending cycle_code resegmentation (FR-058) — see VmuCore.CMS.CycleResegmentation
+    field :pending_cycle_code,           :integer
+    field :cycle_change_effective_date,  :date
+    field :cycle_change_proration_method, :string
+    field :cycle_code_changed_at,        :naive_datetime
     field :delinquency_bucket,  :integer, default: 0  # 0/30/60/90/120+
     # Penalty APR persistence (CMS-G1 ADR-C2): once triggered, penalty pricing
     # holds until the logo's penalty_apr_cure_rule is satisfied
@@ -78,6 +83,14 @@ defmodule VmuCore.CMS.Account do
     field :velocity_limits,     :map, default: %{}
     field :campaign_code,       :string
 
+    # Real bug found live (2026-07-28) — this field was always PASSED into
+    # the changeset by HCS.CompanyOnboarding but silently dropped since it
+    # didn't exist here, making EMPLOYEE_CARD/CORPORATE_PARENT rows
+    # indistinguishable from real revolving-credit accounts to the EOD
+    # sweep (interest accrual, statement generation). See
+    # priv/repo/migrations/20260728000006_add_account_type_to_cms_accounts.exs.
+    field :account_type,        :string, default: "CREDIT"
+
     has_one :balance_bucket, BalanceBucket, foreign_key: :account_id
 
     timestamps()
@@ -85,15 +98,18 @@ defmodule VmuCore.CMS.Account do
 
   @valid_statuses  ~w[ACTIVE CLOSED SUSPENDED BLOCKED DELINQUENT POSTING]
   @valid_block_codes ~w[L S F C O]
+  @valid_account_types ~w[CREDIT EMPLOYEE_CARD CORPORATE_PARENT]
 
   @required [:customer_id, :sys_id, :bank_id, :logo_id, :block_id,
              :pan_token, :last_four, :expiry_date, :credit_limit]
   @optional [:open_to_buy, :cash_limit, :cash_open_to_buy,
-             :cycle_code, :account_status, :delinquency_bucket,
+             :cycle_code, :pending_cycle_code, :cycle_change_effective_date,
+             :cycle_change_proration_method, :cycle_code_changed_at,
+             :account_status, :delinquency_bucket,
              :penalty_apr_active, :penalty_cure_cycles,
              :next_statement_date, :last_payment_date, :open_date, :close_date,
              :closure_requested_at, :dormant_since,
-             :velocity_limits, :campaign_code,
+             :velocity_limits, :campaign_code, :account_type,
              :emboss_name, :block_code, :block_reason, :blocked_at]
 
   def changeset(account, attrs) do
@@ -101,6 +117,7 @@ defmodule VmuCore.CMS.Account do
     |> cast(attrs, @required ++ @optional)
     |> validate_required(@required)
     |> validate_inclusion(:account_status, @valid_statuses)
+    |> validate_inclusion(:account_type, @valid_account_types)
     |> validate_inclusion(:block_code, @valid_block_codes,
          message: "must be one of L, S, F, C, O")
     |> validate_length(:emboss_name, max: 26)

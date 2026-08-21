@@ -12,9 +12,12 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   use VmuCore.DataCase, async: false
 
   alias VmuCore.FAS.Authorization
+  alias VmuCore.GLFixtures
   alias VmuCore.FAS.STIP
   alias VmuCore.CMS.{Account, AccountStateCoordinator}
+  alias VmuCore.CTA.Cards
   alias VmuCore.Shared.{Customer, ParameterEngine}
+  alias DaSwitchCore.Packagers.ISOMsg
 
   @table :vmu_parameter_cache
 
@@ -44,6 +47,79 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
 
   defp pan_token(pan), do: :crypto.hash(:sha256, pan) |> Base.encode16(case: :lower)
 
+  # Way4 parity plan Phase 1 item 4 (Debit, D3) — a distinct BIN/logo
+  # tagged product_type: "DEBIT", same raw-ETS-insert style this file
+  # already uses (no real ParameterEngine DB round-trip needed for these
+  # tests). Does NOT call ensure_ets_table/0 — that would wipe the
+  # credit hierarchy `setup` already seeded.
+  defp seed_debit_parameter_hierarchy do
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :bin_prefix}, "555555"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :description}, "Test Debit Logo"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0200", :product_type}, "DEBIT"})
+  end
+
+  defp seed_debit_account(pan, initial_balance) do
+    {:ok, customer} =
+      Repo.insert(Customer.changeset(%Customer{}, %{
+        sys_id: "0001", bank_id: "0010", first_name: "Test", last_name: "DebitCardholder"
+      }))
+
+    {:ok, account} =
+      VmuCore.CMS.DebitAccountOpening.open(%{
+        customer_id: customer.customer_id, sys_id: "0001", bank_id: "0010",
+        logo_id: "0200", block_id: "1000"
+      })
+
+    {:ok, _} =
+      VmuCore.CMS.DebitFundingCommand.fund(%{
+        debit_account_id: account.debit_account_id, amount: initial_balance,
+        channel: "ADMIN_MANUAL", posted_by: "operator1"
+      })
+
+    {:ok, _card} =
+      Cards.issue(%{
+        debit_account_id: account.debit_account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
+
+    account
+  end
+
+  # Way4 parity plan Phase 1 item 5 (Prepaid, P3) — same raw-ETS-insert
+  # style as Debit's hierarchy above, a distinct BIN/logo.
+  defp seed_prepaid_parameter_hierarchy do
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :bin_prefix}, "606060"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :description}, "Test Prepaid Logo"})
+    :ets.insert(@table, {{:logo, "0001", "0010", "0300", :product_type}, "PREPAID"})
+  end
+
+  defp seed_prepaid_account(pan, initial_balance) do
+    {:ok, customer} =
+      Repo.insert(Customer.changeset(%Customer{}, %{
+        sys_id: "0001", bank_id: "0010", first_name: "Test", last_name: "PrepaidCardholder"
+      }))
+
+    {:ok, account} =
+      VmuCore.CMS.PrepaidAccountOpening.open(%{
+        customer_id: customer.customer_id, sys_id: "0001", bank_id: "0010",
+        logo_id: "0300", block_id: "1000"
+      })
+
+    {:ok, _} =
+      VmuCore.CMS.PrepaidLedger.load(%{
+        prepaid_account_id: account.prepaid_account_id, amount: initial_balance,
+        channel: "ADMIN_MANUAL", posted_by: "operator1"
+      })
+
+    {:ok, _card} =
+      Cards.issue(%{
+        prepaid_account_id: account.prepaid_account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
+
+    account
+  end
+
   defp seed_account(pan, credit_limit, status \\ "ACTIVE") do
     {:ok, customer} =
       Repo.insert(Customer.changeset(%Customer{}, %{
@@ -66,6 +142,18 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
         account_status: status
       }))
 
+    # Way4 parity plan Phase 1 item 4 (Debit, 2026-07-26) — FAS.Authorization.
+    # resolve_account/1 now resolves via the unified cta_cards master
+    # (CU-1's real fix, re-ported into standalone vmu_core), not
+    # cms_accounts.pan_token directly. A real account always has a real
+    # card issued against it; this fixture predates that model and needs
+    # to issue one explicitly to stay resolvable.
+    {:ok, _card} =
+      Cards.issue(%{
+        account_id: account.account_id, pan_token: pan_token(pan),
+        card_type: "PRIMARY", status: "ACTIVE"
+      })
+
     account
   end
 
@@ -76,6 +164,13 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
   setup do
     seed_parameter_hierarchy()
     STIP.init_cache()
+
+    # GL Phase C3: settlement posts through `Posting.RuleEngine` now, which
+    # needs the chart, the rules, and an open banking date for the institution.
+    # See `VmuCore.GLFixtures`.
+    :ok = GLFixtures.seed_posting_engine!()
+    :ok = GLFixtures.open_institution!("0001", "0010")
+
     :ok
   end
 
@@ -141,6 +236,70 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
     end
   end
 
+  # Phase 12 Part A: a 0200 with no DE38 has nothing to complete - it's a
+  # genuine Single-Message-System sale (PIN-debit/ATM-style: one message,
+  # authorize and post in one shot) and must get the same real decision a
+  # 0100 gets, not CompletionHandler's unconditional approve. A 0200 WITH
+  # a DE38 is still always approved, unchanged - proves the fix doesn't
+  # touch the existing hotel/car-rental completion-advice behavior.
+  describe "MTI 0200 routing (Phase 12 Part A)" do
+    test "0200 with no DE38 gets a real decision - a blocked account is really declined" do
+      pan = "5432107777888899"
+      account = seed_account(pan, Decimal.new("5000.00"), "BLOCKED")
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(11, "100200")
+        |> ISOMsg.set(22, "051")
+        |> ISOMsg.set(41, "TERM0001")
+        |> ISOMsg.set(49, "784")
+
+      assert {:error, {:fas_declined, "62"}} = Authorization.authorize(message)
+
+      AccountStateCoordinator.refresh(account.account_id)
+    end
+
+    test "0200 with no DE38, a good account within OTB, approves through the real decision path" do
+      pan = "5432107777888800"
+      account = seed_account(pan, Decimal.new("5000.00"))
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(11, "100201")
+        |> ISOMsg.set(22, "051")
+        |> ISOMsg.set(41, "TERM0001")
+        |> ISOMsg.set(49, "784")
+
+      assert {:ok, response} = Authorization.authorize(message)
+      assert ISOMsg.get_mti(response) == "0210"
+      assert ISOMsg.get(response, 39) == "00"
+
+      AccountStateCoordinator.refresh(account.account_id)
+    end
+
+    test "0200 with a DE38 (even non-matching) still always approves, unchanged" do
+      pan = "5432107777888801"
+      # Deliberately not seeded - a completion advice cannot be declined
+      # even when nothing matches (CompletionHandler's own safety net).
+
+      message =
+        %ISOMsg{mti: "0200", fields: %{}}
+        |> ISOMsg.set(2, pan)
+        |> ISOMsg.set(4, "000000010000")
+        |> ISOMsg.set(38, "999999")
+        |> ISOMsg.set(11, "100202")
+        |> ISOMsg.set(49, "784")
+
+      assert {:ok, response} = Authorization.authorize(message)
+      assert ISOMsg.get_mti(response) == "0210"
+      assert ISOMsg.get(response, 39) == "00"
+    end
+  end
+
   describe "STIP fallback" do
     test "approves offline when amount is within STIP threshold" do
       STIP.init_cache()
@@ -159,6 +318,64 @@ defmodule VmuCore.FAS.AuthorizationIntegrationTest do
     test "declines offline when no threshold is configured" do
       STIP.init_cache()
       assert {:stip_declined, "91"} = STIP.authorize("0001", "XXXX", Decimal.new("50.00"))
+    end
+  end
+
+  describe "Authorization.process/1 — Debit (Way4 parity plan Phase 1 item 4)" do
+    test "approves a debit transaction within available_balance and decrements it" do
+      seed_debit_parameter_hierarchy()
+      pan = "5555550000000001"
+      account = seed_debit_account(pan, Decimal.new("500.00"))
+
+      request = %{pan: pan, amount: Decimal.new("120.00"), channel: :pos, mcc: "5411"}
+      assert {:ok, "00", approval_code} = Authorization.process(request)
+      assert Regex.match?(~r/^\d{6}$/, approval_code)
+
+      reloaded = Repo.get!(VmuCore.CMS.DebitAccount, account.debit_account_id)
+      assert Decimal.equal?(reloaded.available_balance, Decimal.new("380.00"))
+    end
+
+    test "declines a debit transaction that exceeds available_balance (RC 51), balance untouched" do
+      seed_debit_parameter_hierarchy()
+      pan = "5555550000000002"
+      account = seed_debit_account(pan, Decimal.new("50.00"))
+
+      request = %{pan: pan, amount: Decimal.new("500.00"), channel: :pos, mcc: "5411"}
+      assert {:error, "51"} = Authorization.process(request)
+
+      reloaded = Repo.get!(VmuCore.CMS.DebitAccount, account.debit_account_id)
+      assert Decimal.equal?(reloaded.available_balance, Decimal.new("50.00"))
+    end
+  end
+
+  describe "Authorization.process/1 — Prepaid (Way4 parity plan Phase 1 item 5)" do
+    test "approves a prepaid transaction within the stored-value balance and decrements it" do
+      seed_prepaid_parameter_hierarchy()
+      pan = "6060600000000001"
+      account = seed_prepaid_account(pan, Decimal.new("500.00"))
+
+      request = %{pan: pan, amount: Decimal.new("120.00"), channel: :pos, mcc: "5411"}
+      assert {:ok, "00", approval_code} = Authorization.process(request)
+      assert Regex.match?(~r/^\d{6}$/, approval_code)
+
+      assert Decimal.equal?(
+               VmuCore.CMS.PrepaidLedger.balance(account.prepaid_account_id),
+               Decimal.new("380.00")
+             )
+    end
+
+    test "declines a prepaid transaction that exceeds the stored-value balance (RC 51), balance untouched" do
+      seed_prepaid_parameter_hierarchy()
+      pan = "6060600000000002"
+      account = seed_prepaid_account(pan, Decimal.new("50.00"))
+
+      request = %{pan: pan, amount: Decimal.new("500.00"), channel: :pos, mcc: "5411"}
+      assert {:error, "51"} = Authorization.process(request)
+
+      assert Decimal.equal?(
+               VmuCore.CMS.PrepaidLedger.balance(account.prepaid_account_id),
+               Decimal.new("50.00")
+             )
     end
   end
 

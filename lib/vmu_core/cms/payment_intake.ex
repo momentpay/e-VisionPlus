@@ -29,13 +29,15 @@ defmodule VmuCore.CMS.PaymentIntake do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.LedgerEntry,
+  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket,
                  CMS.InternalGlPoster, CMS.RepaymentDistributor,
-                 CMS.AccountStateCoordinator, CMS.Payment}
+                 CMS.AccountStateCoordinator, CMS.Payment, CMS.PaymentAllocation,
+                 CMS.Notification}
   alias VmuCore.Shared.ParameterEngine
   alias Decimal, as: D
+  alias VmuCore.GL.LedgerQuery
 
-  @valid_channels ~w[gateway direct_debit mobile_wallet branch_cash branch transfer]
+  @valid_channels ~w[gateway direct_debit mobile_wallet branch_cash branch transfer agency]
 
   @doc """
   Apply a payment.
@@ -172,8 +174,12 @@ defmodule VmuCore.CMS.PaymentIntake do
       Repo.exists?(from p in Payment, where: p.reference == ^reference) ->
         {:error, :duplicate_payment}
 
-      # Belt-and-braces: pre-register ledger entries (G1-era payments)
-      Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^ledger_key(reference)) ->
+      # Belt-and-braces: pre-register ledger entries (G1-era payments).
+      # GL Phase C2 — reads the posting tables via `GL.LedgerQuery`. Safe only
+      # because the history backfill ran first: a duplicate guard that cannot
+      # see pre-shadow postings would stop guarding against exactly the G1-era
+      # payments this clause exists for.
+      LedgerQuery.exists?(idempotency_key: ledger_key(reference)) ->
         {:error, :duplicate_payment}
 
       true ->
@@ -199,6 +205,16 @@ defmodule VmuCore.CMS.PaymentIntake do
       result =
         Repo.transaction(fn ->
           persist_bucket!(bucket, new_bucket)
+          # FR-067 — transaction-level detail on top of the bucket-level
+          # move above. Never re-decides amounts; RepaymentDistributor
+          # already assigned each posting to a bucket, this only spreads
+          # that same amount across the account's real outstanding
+          # transactions within it (fifo/lifo/highest-first/proportional,
+          # bank-configured).
+          Enum.each(postings, fn %{bucket_field: field, amount: posted_amount} ->
+            PaymentAllocation.allocate_payment(account, field, posted_amount)
+          end)
+
           post_payment_ledger!(account, amount, channel, reference)
           record_payment!(account, amount, allocated, remainder, channel,
                           reference, postings, suspense_row)
@@ -224,6 +240,14 @@ defmodule VmuCore.CMS.PaymentIntake do
           Logger.info("[PaymentIntake] account=#{account.account_id} " <>
                       "amount=#{amount} allocated=#{allocated} " <>
                       "remainder=#{remainder} channel=#{channel} ref=#{reference}")
+
+          # FR-070 — best-effort, outside the transaction (external HTTP
+          # call); a notification-gateway outage must never affect whether
+          # the payment itself succeeded.
+          Notification.notify_payment_receipt(account, %{
+            amount: amount, allocated: allocated, remainder: remainder,
+            payment_channel: channel, reference: reference
+          })
 
           {:ok, %{allocated: allocated, remainder: remainder, postings: postings}}
 

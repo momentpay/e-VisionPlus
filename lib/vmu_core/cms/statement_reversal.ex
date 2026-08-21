@@ -54,7 +54,7 @@ defmodule VmuCore.CMS.StatementReversal do
   require Logger
   import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.BalanceBucket, CMS.LedgerEntry}
+  alias VmuCore.{Repo, CMS.BalanceBucket}
   alias VmuCore.CMS.{InternalGlPoster, NonMonetaryEvent, StatementGenerator}
   alias Decimal, as: D
 
@@ -107,8 +107,8 @@ defmodule VmuCore.CMS.StatementReversal do
               transaction_code: "STATEMENT_REVERSAL",
               dr_amount:        reversal_amount,
               cr_amount:        reversal_amount,
-              gl_account_dr:    "2001",   # reverse: debit income, credit receivable
-              gl_account_cr:    "1003",
+              gl_account_dr:    "4002",   # reverse of post_interest (1003/4002):
+              gl_account_cr:    "1003",   # debit Interest Income, credit the receivable
               posting_date:     Date.utc_today(),
               value_date:       statement_date,
               narrative:        narrative,

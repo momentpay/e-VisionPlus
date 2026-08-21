@@ -21,11 +21,11 @@ defmodule VmuCore.CMS.ChargeOffRecovery do
   """
 
   require Logger
-  import Ecto.Query
 
-  alias VmuCore.{Repo, CMS.Account, CMS.LedgerEntry}
+  alias VmuCore.{Repo, CMS.Account}
   alias VmuCore.COL.WriteOffProcessor
   alias Decimal, as: D
+  alias VmuCore.GL.LedgerQuery
 
   @doc """
   Record a recovery receipt against a WRITTEN_OFF account.
@@ -60,12 +60,13 @@ defmodule VmuCore.CMS.ChargeOffRecovery do
   @doc "Total recovered against a charged-off account (ledger RECOVERY keys)."
   @spec total_recovered(Ecto.UUID.t()) :: Decimal.t()
   def total_recovered(account_id) do
-    Repo.one(
-      from e in LedgerEntry,
-        where: e.account_id == ^account_id
-           and like(e.idempotency_key, "RECOVERY-%"),
-        select: coalesce(sum(e.dr_amount), 0)
-    ) || D.new(0)
+    # GL Phase C2 — reads the new posting tables via GL.LedgerQuery.
+    # Recoveries are identified by key prefix, not event type: COL writes them
+    # as "RECOVERY-<source_ref>".
+    LedgerQuery.sum_amount(
+      account_ref: account_id,
+      idempotency_key_prefix: "RECOVERY-"
+    )
   end
 
   defp post(account_id, amount, reference) do

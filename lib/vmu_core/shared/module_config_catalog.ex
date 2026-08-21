@@ -30,7 +30,11 @@ defmodule VmuCore.Shared.ModuleConfigCatalog do
   def all do
     VmuCore.CTA.ConfigCatalog.entries() ++
       VmuCore.ASM.ConfigCatalog.entries() ++
-      VmuCore.DPS.ConfigCatalog.entries()
+      VmuCore.DPS.ConfigCatalog.entries() ++
+      VmuCore.CMS.ConfigCatalog.entries() ++
+      VmuCore.COL.ConfigCatalog.entries() ++
+      VmuCore.FAS.ConfigCatalog.entries() ++
+      VmuCore.HCS.ConfigCatalog.entries()
   end
 
   @spec for_module(String.t()) :: [spec()]

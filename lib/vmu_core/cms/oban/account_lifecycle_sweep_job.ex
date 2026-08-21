@@ -28,8 +28,9 @@ defmodule VmuCore.CMS.Oban.AccountLifecycleSweepJob do
   import Ecto.Query
 
   alias VmuCore.{Repo, CMS.Account, CMS.AccountClosure, CMS.NonMonetaryEvent,
-                 CMS.LedgerEntry, CMS.PlanSegment}
+                 CMS.PlanSegment}
   alias VmuCore.FAS.AuthorizationRecord
+  alias VmuCore.GL.LedgerQuery
 
   @system_operator_id "00000000-0000-0000-0000-000000000001"
   @batch_limit 1000
@@ -84,13 +85,32 @@ defmodule VmuCore.CMS.Oban.AccountLifecycleSweepJob do
   # Dormancy
   # ---------------------------------------------------------------------------
 
+  # GL Phase C2 — "accounts posting since the cutoff", from the posting tables
+  # via `GL.LedgerQuery`.
+  #
+  # Kept as a subquery rather than `account_refs/1`'s list: on a live portfolio
+  # the set of recently-active accounts is most of the portfolio, and this runs
+  # daily against every ACTIVE account.
+  #
+  # `product: "CREDIT"` is new, and deliberate. The legacy table mixed all five
+  # products into one column, so this query was implicitly asking "any product's
+  # activity" — harmless only because a debit account id could never collide
+  # with a credit one. Dormancy here is a property of a `cms_accounts` row, so
+  # the filter states that, and it is also what makes the `Ecto.UUID` cast in
+  # `account_refs_query/1` safe.
+  defp recent_ledger_activity(cutoff_date) do
+    LedgerQuery.account_refs_query(
+      product: "CREDIT",
+      from: cutoff_date,
+      as_uuid: true
+    )
+  end
+
   defp flag_dormant do
     cutoff_date = Date.add(Date.utc_today(), -dormancy_days())
     cutoff_dt   = DateTime.new!(cutoff_date, ~T[00:00:00], "Etc/UTC")
 
-    recent_ledger =
-      from e in LedgerEntry, where: e.posting_date >= ^cutoff_date,
-        select: e.account_id, distinct: true
+    recent_ledger = recent_ledger_activity(cutoff_date)
 
     recent_auths =
       from r in AuthorizationRecord,
@@ -132,9 +152,7 @@ defmodule VmuCore.CMS.Oban.AccountLifecycleSweepJob do
     cutoff_date = Date.add(Date.utc_today(), -dormancy_days())
     cutoff_dt   = DateTime.new!(cutoff_date, ~T[00:00:00], "Etc/UTC")
 
-    recent_ledger =
-      from e in LedgerEntry, where: e.posting_date >= ^cutoff_date,
-        select: e.account_id, distinct: true
+    recent_ledger = recent_ledger_activity(cutoff_date)
 
     recent_auths =
       from r in AuthorizationRecord,

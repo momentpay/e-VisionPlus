@@ -16,6 +16,27 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   Note on OTB: The ASC already decremented open_to_buy at auth time. At settlement
   the debit is confirmed (not reversed), so OTB stays correctly reduced — no
   `credit_open_to_buy` call is made. OTB is only restored when the customer pays.
+
+  ## Debit (Way4 parity plan Phase 1 item 4, D4)
+
+  `auth.account_id` may be a `CMS.DebitAccount.debit_account_id` instead
+  of a `CMS.Account.account_id` — found live: this whole confirmation
+  path was 100% credit-shaped (`post_ledger/3` hardcoded credit GL codes,
+  `post_bucket/4`'s `PurchasePosting.post/1` does `Repo.get(Account,
+  ...)`, always `nil` for a debit id, which would roll back every debit
+  settlement confirmation). `do_confirm/3` now branches on `DebitAuthorization.
+  debit_account?/1` first. Debit's `available_balance` was already
+  decremented in real time at authorization (no OTB-then-settle two-phase
+  model for this product) — settlement only needs to post the permanent
+  GL entry and clear the hold, not touch a balance bucket.
+
+  ## Prepaid (Way4 parity plan Phase 1 item 5, P4)
+
+  Same shape as Debit's branch above — `auth.account_id` may also be a
+  `CMS.PrepaidAccount.prepaid_account_id`. The stored-value ledger was
+  already debited at authorization via `PrepaidLedger.spend/3`;
+  settlement only posts the permanent GL entry (`InternalGlPoster.
+  post_prepaid_spend/5`, its own 5002 code) and clears the hold.
   """
 
   require Logger
@@ -24,7 +45,8 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
   alias VmuCore.Repo
   alias VmuCore.FAS.{AuthLookup, PendingHold}
   alias VmuCore.FAS.GL.{CardAccountCodes, VmuCoreGlAdapter}
-  alias VmuCore.CMS.LedgerEntry
+  alias VmuCore.CMS.{PurchasePosting, DebitAuthorization, PrepaidLedger, InternalGlPoster}
+  alias VmuCore.GL.LedgerQuery
   alias WalletGl.GlPostingRecord
   alias WalletSharedKernel.Money
 
@@ -65,18 +87,58 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
     end
   end
 
+  # Way4 parity plan Phase 1 item 4 (Debit, D4) — everything below this
+  # point was unconditionally credit-shaped; `auth.account_id` may now be
+  # a `CMS.DebitAccount.debit_account_id`, which has no balance-bucket or
+  # credit-receivable concept at all. Dispatch first, same convention as
+  # `FAS.Authorization.run_authorization/1`'s product_type branch.
   defp do_confirm(auth, settled_amount, settled_date) do
+    cond do
+      DebitAuthorization.debit_account?(auth.account_id) ->
+        do_confirm_debit(auth, settled_amount, settled_date)
+
+      PrepaidLedger.prepaid_account?(auth.account_id) ->
+        do_confirm_prepaid(auth, settled_amount, settled_date)
+
+      true ->
+        do_confirm_credit(auth, settled_amount, settled_date)
+    end
+  end
+
+  defp do_confirm_credit(auth, settled_amount, settled_date) do
     key = "settlement:#{auth.approval_code}:#{auth.rrn}"
 
     if already_posted?(key) do
       Logger.debug("[SettlementPostingAdapter] Already posted: #{key}")
       # Aggregate may still lag the ledger (e.g. a retried confirm after a
-      # crash between posting and the TRAM sync) — idempotent re-sync
+      # crash between posting and the TRAM sync) — idempotent re-sync.
+      # post_bucket/4 is separately idempotent on the same key, so a retry
+      # here is safe even if the very first attempt posted the GL entry
+      # but crashed before the bucket increment. Best-effort here (no open
+      # transaction to roll back to) — logged, not raised; the
+      # transactional first-attempt path below is where a real failure
+      # blocks the confirmation.
+      case post_bucket(auth, settled_amount, settled_date, key) do
+        :ok -> :ok
+        {:error, reason} ->
+          Logger.warning("[SettlementPostingAdapter] bucket re-sync failed for #{key}: #{inspect(reason)}")
+      end
+
       sync_tram(auth, settled_amount, settled_date)
       :ok
     else
       Repo.transaction(fn ->
         post_ledger(auth, settled_amount, settled_date, key)
+
+        # FR-067 — found live, 2026-07-24: this posted a real GL entry but
+        # never touched the account's outstanding balance anywhere. Atomic
+        # with the GL post (same transaction) — both commit or both roll
+        # back. See VmuCore.CMS.PurchasePosting.
+        case post_bucket(auth, settled_amount, settled_date, key) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback({:bucket_post_failed, reason})
+        end
+
         clear_hold(auth)
       end)
       |> case do
@@ -91,6 +153,73 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
     end
   end
 
+  # Debit has no balance-bucket step at all — `available_balance` was
+  # already decremented in real time at authorization (`CMS.
+  # DebitAuthorization.authorize/2`), unlike credit's OTB-then-settle
+  # two-phase model. Settlement here only needs to (1) make the
+  # already-reserved journal entry permanent and (2) clear the hold.
+  defp do_confirm_debit(auth, settled_amount, settled_date) do
+    key = "settlement:#{auth.approval_code}:#{auth.rrn}"
+
+    if already_posted?(key) do
+      Logger.debug("[SettlementPostingAdapter] Already posted (debit): #{key}")
+      sync_tram(auth, settled_amount, settled_date)
+      :ok
+    else
+      Repo.transaction(fn ->
+        case InternalGlPoster.post_debit_purchase(auth.account_id, settled_amount, settled_date, auth.currency, key) do
+          {:ok, _entry} -> :ok
+          {:error, :duplicate} -> :ok
+          {:error, reason} -> Repo.rollback({:gl_post_failed, reason})
+        end
+
+        clear_hold(auth)
+      end)
+      |> case do
+        {:ok, _} ->
+          sync_tram(auth, settled_amount, settled_date)
+          :ok
+
+        {:error, reason} ->
+          Logger.error("[SettlementPostingAdapter] Failed (debit) #{key}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  # No balance-bucket/ledger step here either — the stored-value ledger
+  # was already debited in real time at authorization (`PrepaidLedger.
+  # spend/3`). Settlement only makes the journal entry permanent and
+  # clears the hold, same shape as do_confirm_debit/3.
+  defp do_confirm_prepaid(auth, settled_amount, settled_date) do
+    key = "settlement:#{auth.approval_code}:#{auth.rrn}"
+
+    if already_posted?(key) do
+      Logger.debug("[SettlementPostingAdapter] Already posted (prepaid): #{key}")
+      sync_tram(auth, settled_amount, settled_date)
+      :ok
+    else
+      Repo.transaction(fn ->
+        case InternalGlPoster.post_prepaid_spend(auth.account_id, settled_amount, settled_date, auth.currency, key) do
+          {:ok, _entry} -> :ok
+          {:error, :duplicate} -> :ok
+          {:error, reason} -> Repo.rollback({:gl_post_failed, reason})
+        end
+
+        clear_hold(auth)
+      end)
+      |> case do
+        {:ok, _} ->
+          sync_tram(auth, settled_amount, settled_date)
+          :ok
+
+        {:error, reason} ->
+          Logger.error("[SettlementPostingAdapter] Failed (prepaid) #{key}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
   # TRAM aggregate sync (TRAM-P3 addendum) — real-time counterpart of the
   # posting cycle's ledger-key check. Fail-safe inside AuthConsumer; runs
   # after the posting transaction commits, never inside it.
@@ -99,8 +228,26 @@ defmodule VmuCore.FAS.SettlementPostingAdapter do
       auth, settled_amount, settled_date)
   end
 
-  defp already_posted?(key) do
-    Repo.exists?(from e in LedgerEntry, where: e.idempotency_key == ^key)
+  # GL Phase C2 — see `GL.LedgerQuery`.
+  defp already_posted?(key), do: LedgerQuery.exists?(idempotency_key: key)
+
+  # FR-067 — the real outstanding-balance side of a purchase, previously
+  # missing entirely. "atm" channel = cash advance (same convention
+  # TRAMS.AuthConsumer.transaction_type/1 already uses); everything else
+  # defaults to a retail purchase.
+  defp post_bucket(auth, amount, posting_date, key) do
+    bucket_field = if auth.channel == "atm", do: "cash_balance", else: "retail_balance"
+
+    case PurchasePosting.post(%{
+           account_id: auth.account_id,
+           amount: amount,
+           bucket_field: bucket_field,
+           transaction_date: posting_date,
+           idempotency_key: key
+         }) do
+      {:ok, _allocation} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp post_ledger(auth, amount, posting_date, key) do

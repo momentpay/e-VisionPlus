@@ -19,6 +19,10 @@ defmodule VmuCore.Application do
       # 2b. Hot card ETS cache — loads LOST/STOLEN/FRAUD-blocked pan_tokens; refreshes every 5 min.
       #     Must start after Repo (2a) but before any FAS authorization traffic.
       VmuCore.FAS.HotCardCache,
+      # 2c. DPAN resolution ETS cache (NTS Phase D, 2026-08-01) — same
+      #     shape/reasoning as HotCardCache above, loads active scheme
+      #     tokens for the authorization hot path.
+      VmuCore.FAS.DpanCache,
       # 3. Horde distributed registry — per-account GenServer lookup across cluster nodes
       {Horde.Registry,
        [name: VmuCore.Shared.Registry, keys: :unique, members: :auto]},
@@ -40,9 +44,22 @@ defmodule VmuCore.Application do
       VmuCore.FAS.RiskFeedSubscriber,
       #     HoldAgingMonitor: polls expired holds every 60s; broadcasts to "fas:hold_alerts"
       VmuCore.FAS.HoldAgingMonitor,
+      # 10a. Virtual card one-time-reveal credential store (Way4 parity
+      #      plan Phase 1 item 1) — ETS-backed, never persisted to Postgres
+      VmuCore.CTA.CredentialVault,
       # 11. Admin web UI — LiveDashboard on http://localhost:4001/dashboard
       VmuCoreWeb.Endpoint
     ]
+
+    # 12. Mock OIDC provider (Way4 parity plan Phase 0 item 6, 2026-07-24) —
+    #     dev/test only, see VmuCoreWeb.MockIdp's moduledoc. Never started
+    #     in a prod release.
+    children =
+      if Mix.env() in [:dev, :test] do
+        children ++ [VmuCoreWeb.MockIdp]
+      else
+        children
+      end
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

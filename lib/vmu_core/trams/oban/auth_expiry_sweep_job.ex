@@ -36,7 +36,8 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
 
   alias VmuCore.Repo
   alias VmuCore.FAS.{PendingHold, AuthorizationRecord}
-  alias VmuCore.CMS.{AccountStateCoordinator, LedgerEntry}
+  alias VmuCore.CMS.AccountStateCoordinator
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.TRAMS.EventStore
 
   @batch_limit 500
@@ -95,9 +96,9 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
         true
 
       auth && auth.approval_code && auth.rrn ->
-        Repo.exists?(
-          from e in LedgerEntry,
-            where: e.idempotency_key == ^"settlement:#{auth.approval_code}:#{auth.rrn}"
+        # GL Phase C2 — see `GL.LedgerQuery`.
+        LedgerQuery.exists?(
+          idempotency_key: "settlement:#{auth.approval_code}:#{auth.rrn}"
         )
 
       true ->
@@ -126,11 +127,27 @@ defmodule VmuCore.TRAMS.Oban.AuthExpirySweepJob do
         locked
       end)
 
-    # OTB restore outside the DB transaction — ASC is an in-memory GenServer.
-    # credit_open_to_buy (not ASC.reverse): the STAN-keyed pending entry in ASC
-    # state is long gone after the multi-day hold period.
-    if hold.account_id do
-      AccountStateCoordinator.credit_open_to_buy(hold.account_id, hold.hold_amount)
+    # OTB/balance restore outside the DB transaction — ASC is an in-memory
+    # GenServer. credit_open_to_buy (not ASC.reverse): the STAN-keyed
+    # pending entry in ASC state is long gone after the multi-day hold
+    # period. Way4 parity plan Phase 1 item 4 (Debit, D3) / item 5
+    # (Prepaid, P3): fas_pending_holds is shared across products (no FK
+    # on account_id, confirmed before reusing it) — branch by kind
+    # before assuming credit. Prepaid uses refund/2 (a generic amount
+    # restore, not credit/1's spend-precise reversal — this touchpoint
+    # only has account_id+amount, not the original spend's breakdown).
+    cond do
+      is_nil(hold.account_id) ->
+        :ok
+
+      VmuCore.CMS.DebitAuthorization.debit_account?(hold.account_id) ->
+        VmuCore.CMS.DebitAuthorization.credit(hold.account_id, hold.hold_amount)
+
+      VmuCore.CMS.PrepaidLedger.prepaid_account?(hold.account_id) ->
+        VmuCore.CMS.PrepaidLedger.refund(hold.account_id, hold.hold_amount)
+
+      true ->
+        AccountStateCoordinator.credit_open_to_buy(hold.account_id, hold.hold_amount)
     end
 
     if txn do

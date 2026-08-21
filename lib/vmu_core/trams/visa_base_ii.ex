@@ -17,8 +17,8 @@ defmodule VmuCore.TRAMS.VisaBaseII do
 
   require Logger
   alias VmuCore.TRAMS.ClearingRecord
-  alias VmuCore.{Repo, CMS.Account, DPS.Dispute}
-  import Ecto.Query
+  alias VmuCore.{Repo, DPS.Dispute}
+  alias VmuCore.CTA.{Card, Cards}
 
   @record_length 80
 
@@ -122,20 +122,35 @@ defmodule VmuCore.TRAMS.VisaBaseII do
     end
   end
 
+  # Way4 parity plan Phase 1 item 4 (Debit, 2026-07-26) — resolves via the
+  # unified card master (`cta_cards`), not `CMS.Account.pan_token`
+  # directly. Found live: the direct-Account lookup could never find a
+  # debit card (no `cms_accounts` row at all), and the intended fix
+  # (resolve through the card master) was real CU-1 work done in the
+  # merged Avenza umbrella that never carried back after the 2026-07-23
+  # platform-of-record reversal — same pattern as `FAS.Authorization.
+  # resolve_account/1`, fixed alongside this.
   defp handle_chargeback(%{pan_token: pan_token, amount: amount, transaction_date: txn_date, reason_code: rc}) do
-    account_id = Repo.one(from a in Account, where: a.pan_token == ^pan_token, select: a.account_id)
+    case Cards.by_pan_token(pan_token) do
+      %Card{account_id: account_id} when not is_nil(account_id) ->
+        file_dispute(account_id, amount, txn_date, rc)
 
-    if account_id do
-      Dispute.file(%{
-        account_id:       account_id,
-        transaction_date: txn_date,
-        dispute_amount:   amount,
-        reason_code:      rc,
-        network:          "VI"
-      })
-    else
-      {:error, :account_not_found}
+      %Card{debit_account_id: debit_account_id} when not is_nil(debit_account_id) ->
+        file_dispute(debit_account_id, amount, txn_date, rc)
+
+      nil ->
+        {:error, :account_not_found}
     end
+  end
+
+  defp file_dispute(account_id, amount, txn_date, rc) do
+    Dispute.file(%{
+      account_id:       account_id,
+      transaction_date: txn_date,
+      dispute_amount:   amount,
+      reason_code:      rc,
+      network:          "VI"
+    })
   end
 
   # EBCDIC to ASCII conversion table (IBM Code Page 500 subset)

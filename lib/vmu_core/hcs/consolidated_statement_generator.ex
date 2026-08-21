@@ -5,7 +5,8 @@ defmodule VmuCore.HCS.ConsolidatedStatementGenerator do
   """
 
   alias VmuCore.HCS.{Company, EmployeeCard, ConsolidatedStatement}
-  alias VmuCore.CMS.{Account, LedgerEntry}
+  alias VmuCore.CMS.BalanceBucket
+  alias VmuCore.GL.LedgerQuery
   alias VmuCore.Repo
   import Ecto.Query
   alias Decimal, as: D
@@ -48,13 +49,25 @@ defmodule VmuCore.HCS.ConsolidatedStatementGenerator do
 
     totals = aggregate_period_activity(employee_account_ids, period_from, period_to)
 
+    # The closing balance is the sum of each employee account's latest balance
+    # bucket, which is where CMS actually keeps a balance.
+    #
+    # Three separate reasons the previous version could not work:
+    # it selected `a.current_balance`, a field `CMS.Account` does not have;
+    # it filtered on `a.id`, a field `CMS.Account` does not have either (its
+    # primary key is `account_id` — the same id-vs-account_id slip
+    # `HCS.CompanyOnboarding` calls out and fixed for itself); and a single
+    # scalar on `cms_accounts` was never the right source regardless, because
+    # the balance is decomposed across `cms_balance_buckets` and summed by
+    # `BalanceBucket.total/1`.
     closing_balance =
-      from(a in Account,
-        where: a.id in ^employee_account_ids,
-        select: coalesce(sum(a.current_balance), 0)
+      from(b in BalanceBucket,
+        where: b.account_id in ^employee_account_ids and b.balance_date <= ^statement_date,
+        distinct: b.account_id,
+        order_by: [asc: b.account_id, desc: b.balance_date]
       )
-      |> Repo.one()
-      |> Kernel.||(D.new(0))
+      |> Repo.all()
+      |> Enum.reduce(D.new(0), fn bucket, acc -> D.add(acc, BalanceBucket.total(bucket)) end)
 
     minimum_payment = D.max(D.mult(closing_balance, D.new("0.05")), D.new(100))
 
@@ -83,28 +96,45 @@ defmodule VmuCore.HCS.ConsolidatedStatementGenerator do
   end
 
   defp aggregate_period_activity(account_ids, period_from, period_to) when account_ids != [] do
-    start_dt = DateTime.new!(period_from, ~T[00:00:00], "UTC")
-    end_dt   = DateTime.new!(period_to,   ~T[23:59:59], "UTC")
+    # "Etc/UTC", not "UTC". The default time zone database only knows the IANA
+    # names, so `DateTime.new!/3` with "UTC" raises
+    # `:utc_only_time_zone_database` — which it did on every call, before this
+    # function reached a single query. `HCS.FleetReport` had it right.
+    start_dt = DateTime.new!(period_from, ~T[00:00:00], "Etc/UTC")
+    end_dt   = DateTime.new!(period_to,   ~T[23:59:59], "Etc/UTC")
 
-    entries =
-      from(l in LedgerEntry,
-        where: l.account_id in ^account_ids
-          and l.inserted_at >= ^start_dt
-          and l.inserted_at <= ^end_dt,
-        select: %{
-          debit_total:  coalesce(sum(l.dr_amount), 0),
-          credit_total: coalesce(sum(l.cr_amount), 0)
-        }
-      )
-      |> Repo.one()
+    # GL Phase C2 — see `GL.LedgerQuery`.
+    #
+    # `inserted_from`/`inserted_to`, not `from`/`to`: this window has always
+    # been over row-write time rather than posting date, and migrating it onto
+    # posting date would change which activity a statement covers.
+    #
+    # HCS rides on `cms_accounts` — onboarding provisions a real `CMS.Account`
+    # per employee and vehicle — so these resolve as product `CREDIT` and were
+    # mirrored like any other posting.
+    #
+    # ## The previous version reported spend and payments as the same number
+    #
+    # It took `spend` from `sum(dr_amount)` and `payments` from
+    # `sum(cr_amount)` over the same rows. Under double entry those columns are
+    # equal on **every** row — `CMS.LedgerEntry`'s changeset enforces it — so
+    # the two totals were always identical, and `fees`/`interest` were
+    # hardcoded to zero besides. A corporate consolidated statement showing
+    # spend == payments is not a rounding problem, it is the wrong question.
+    #
+    # Splitting by event type is the right one, and it fills in the two
+    # hardcoded zeroes as a side effect. Found 2026-08-05 while migrating: the
+    # live figure was 134,953.57 on both sides for every company.
+    window = [account_ref: account_ids, inserted_from: start_dt, inserted_to: end_dt]
 
     %{
-      spend:    (entries && entries.debit_total)  || D.new(0),
-      payments: (entries && entries.credit_total) || D.new(0),
-      fees:     D.new(0),
-      interest: D.new(0)
+      spend:    LedgerQuery.sum_amount(window ++ [transaction_code: ["PURCHASE", "CASH_ADV"]]),
+      payments: LedgerQuery.sum_amount(window ++ [transaction_code: "PAYMENT"]),
+      fees:     LedgerQuery.sum_amount(window ++ [transaction_code: "FEE"]),
+      interest: LedgerQuery.sum_amount(window ++ [transaction_code: "INTEREST"])
     }
   end
+
   defp aggregate_period_activity([], _, _) do
     %{spend: D.new(0), payments: D.new(0), fees: D.new(0), interest: D.new(0)}
   end

@@ -12,8 +12,10 @@ defmodule VmuCore.LMS.GlProvisioner do
   Defaults: provision_rate = 1% of transaction amount; tax_rate = 5%.
   """
 
-  alias VmuCore.CMS.InternalGlPoster
   alias Decimal, as: D
+
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @internal_gl_poster Application.compile_env(:vmu_lms, :cms_internal_gl_poster, VmuCore.CMS.InternalGlPoster)
 
   @doc """
   Posts provisioning GL when points are earned.
@@ -30,7 +32,7 @@ defmodule VmuCore.LMS.GlProvisioner do
     tax_amount       = D.mult(provision_amount, tax_rate)
     total            = D.add(provision_amount, tax_amount) |> D.round(2)
 
-    InternalGlPoster.post(%{
+    @internal_gl_poster.post(%{
       transaction_code: "ADJUSTMENT",
       gl_account_dr:    debit_gl,
       gl_account_cr:    credit_gl,
@@ -45,7 +47,7 @@ defmodule VmuCore.LMS.GlProvisioner do
 
   @doc "Posts GL for merchant settlement (charge merchant for bonus points)."
   def post_merchant_settlement(%VmuCore.LMS.MerchantSettlement{} = settlement) do
-    InternalGlPoster.post(%{
+    @internal_gl_poster.post(%{
       transaction_code: "ADJUSTMENT",
       gl_account_dr:    "7003",
       gl_account_cr:    "7004",

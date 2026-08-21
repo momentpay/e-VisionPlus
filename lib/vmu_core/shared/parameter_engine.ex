@@ -231,6 +231,17 @@ defmodule VmuCore.Shared.ParameterEngine do
       # Core identification
       insert_param(base, sz, :bin_prefix,          logo.bin_prefix)
       insert_param(base, sz, :description,         logo.description)
+      # Found missing 2026-07-24 building ProductionHSM.verify_arqc/6 —
+      # needed to resolve a card's scheme (VISA/MASTERCARD/...) to KW's
+      # Scheme ID without a DB round-trip on the authorization hot path.
+      insert_param(base, sz, :card_scheme,         logo.card_scheme)
+      # Found missing 2026-07-26 building Debit (Way4 Phase 1 item 4) —
+      # `product_type` (CREDIT/DEBIT/PREPAID/...) was pure reference
+      # metadata read by no business logic anywhere in this codebase,
+      # confirmed via grep before this fix — needed so
+      # FAS.Authorization can route DEBIT-tagged transactions without a
+      # DB round-trip on the hot path.
+      insert_param(base, sz, :product_type,        logo.product_type)
 
       # Interest rates
       insert_param(base, sz, :purchase_apr,              logo.purchase_apr)

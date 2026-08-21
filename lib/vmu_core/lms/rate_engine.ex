@@ -11,7 +11,8 @@ defmodule VmuCore.LMS.RateEngine do
   """
 
   alias VmuCore.LMS.{Plan, RateTier}
-  alias VmuCore.Repo
+  # M2 (2026-07-17): config-injected — see vmu_shared's identical fix.
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
   import Ecto.Query
   alias Decimal, as: D
 
@@ -26,7 +27,7 @@ defmodule VmuCore.LMS.RateEngine do
         order_by: [desc: t.tier_order],
         limit: 1
       )
-      |> Repo.one()
+      |> @repo.one()
 
     case tier do
       nil ->
@@ -56,7 +57,7 @@ defmodule VmuCore.LMS.RateEngine do
           (is_nil(p.effective_to) or p.effective_to >= ^transaction_date),
         order_by: p.plan_type
       )
-      |> Repo.all()
+      |> @repo.all()
 
     override = Enum.find(plans, &(&1.plan_type == "OVERRIDE"))
 

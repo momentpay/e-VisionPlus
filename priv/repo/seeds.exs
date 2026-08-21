@@ -272,6 +272,18 @@ Repo.insert_all("cms_accounts", [
     open_date: ~D[2024-01-15], inserted_at: now_naive, updated_at: now_naive}
 ], on_conflict: :nothing)
 
+# Koṣa domain-model alignment (2026-07-28) — CMS.Arrangement didn't exist
+# when this phase was first written, so none of these 10 seed accounts
+# ever got a CREDIT arrangement, and were invisible on the Customer/
+# Accounts "All Products" views despite being real accounts.
+Enum.zip([acc_ahmed, acc_sara, acc_priya, acc_mohammad, acc_jennifer,
+          acc_abdullah, acc_fiona, acc_khalid, acc_rashid, acc_fatima],
+         [cust_ahmed, cust_sara, cust_priya, cust_mohammad, cust_jennifer,
+          cust_abdullah, cust_fiona, cust_khalid, cust_rashid, cust_fatima])
+|> Enum.each(fn {account_id, customer_id} ->
+  VmuCore.CMS.Arrangements.record(%{customer_id: customer_id, product_type: "CREDIT", account_ref: account_id})
+end)
+
 # Balance Buckets
 Repo.insert_all("cms_balance_buckets", [
   %{account_id: acc_ahmed, retail_balance: Decimal.new("1800.00"),
@@ -327,79 +339,85 @@ Repo.insert_all("cms_balance_buckets", [
 ], on_conflict: :nothing)
 
 # GL Ledger entries — representative transactions per account
+#
+# NOTE (2026-08-02): dr_amount and cr_amount are the two sides of one movement
+# and must be EQUAL — `LedgerEntry.changeset/2`'s validate_balanced/1 enforces
+# exactly that. These rows go in via `insert_all`, which bypasses the changeset,
+# and 11 of them were previously seeded with one side 0.00. That produced an
+# unbalanced trial balance from a clean install. Keep both sides equal here.
 Repo.insert_all("cms_ledger_entries", [
   %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("450.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("450.00"), cr_amount: Decimal.new("450.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -15), value_date: Date.add(today, -15),
     narrative: "Carrefour Dubai - Groceries",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_ahmed,
     idempotency_key: "SEED-GL-AHMED-PAY-001", transaction_code: "PAYMENT",
-    dr_amount: Decimal.new("0.00"), cr_amount: Decimal.new("500.00"),
+    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("500.00"),
     gl_account_dr: "2001", gl_account_cr: "1001", currency: "AED",
     posting_date: Date.add(today, -10), value_date: Date.add(today, -10),
     narrative: "Bank transfer payment",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-CASH-001", transaction_code: "CASH_ADV",
-    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("500.00"), cr_amount: Decimal.new("500.00"),
     gl_account_dr: "1002", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -20), value_date: Date.add(today, -20),
     narrative: "ATM Withdrawal - Al Barsha",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_priya,
     idempotency_key: "SEED-GL-PRIYA-INT-001", transaction_code: "INTEREST",
-    dr_amount: Decimal.new("12.50"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("12.50"), cr_amount: Decimal.new("12.50"),
     gl_account_dr: "1003", gl_account_cr: "4002", currency: "AED",
     posting_date: Date.add(today, -1), value_date: Date.add(today, -1),
     narrative: "Monthly interest accrual",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("9800.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("9800.00"), cr_amount: Decimal.new("9800.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -90), value_date: Date.add(today, -90),
     narrative: "Emirates Electronics - Laptop",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_jennifer,
     idempotency_key: "SEED-GL-JENNIFER-FEE-001", transaction_code: "FEE",
-    dr_amount: Decimal.new("150.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("150.00"), cr_amount: Decimal.new("150.00"),
     gl_account_dr: "1004", gl_account_cr: "4001", currency: "AED",
     posting_date: Date.add(today, -60), value_date: Date.add(today, -60),
     narrative: "Late payment fee",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_mohammad,
     idempotency_key: "SEED-GL-MOHAMMAD-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("3000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("3000.00"), cr_amount: Decimal.new("3000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -5), value_date: Date.add(today, -5),
     narrative: "Office Supplies - IKEA", inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_abdullah,
     idempotency_key: "SEED-GL-ABDULLAH-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("75000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("75000.00"), cr_amount: Decimal.new("75000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -8), value_date: Date.add(today, -8),
     narrative: "Emirates Airlines - Business Travel",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_khalid,
     idempotency_key: "SEED-GL-KHALID-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("7000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("7000.00"), cr_amount: Decimal.new("7000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -12), value_date: Date.add(today, -12),
     narrative: "Rolex Boutique - Dubai Mall",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_rashid,
     idempotency_key: "SEED-GL-RASHID-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("2500.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("2500.00"), cr_amount: Decimal.new("2500.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -7), value_date: Date.add(today, -7),
     narrative: "Business Dinner - Four Seasons",
     inserted_at: now_naive, updated_at: now_naive},
   %{entry_id: uid.(), account_id: acc_fatima,
     idempotency_key: "SEED-GL-FATIMA-PUR-001", transaction_code: "PURCHASE",
-    dr_amount: Decimal.new("1000.00"), cr_amount: Decimal.new("0.00"),
+    dr_amount: Decimal.new("1000.00"), cr_amount: Decimal.new("1000.00"),
     gl_account_dr: "1001", gl_account_cr: "2001", currency: "AED",
     posting_date: Date.add(today, -4), value_date: Date.add(today, -4),
     narrative: "Office Stationery - Viking Direct",
@@ -784,6 +802,14 @@ IO.puts("--> Phase 7: HCS")
     industry_code: "6412", liability_model: "CENTRAL", billing_cycle_day: 25,
     credit_limit: Decimal.new("500000.00"), available_limit: Decimal.new("497500.00"),
     max_employee_cards: 100, relationship_manager: "RM-CORP-001",
+    # Koṣa domain-model alignment (2026-07-28) — found live: this was never
+    # set, so the company had no DB-level link to Abdullah Al Zaabi (its
+    # real owner, per the shared @zaabi-group.ae email domain / company
+    # name) despite both existing. Same real gap Arrangements.record/1
+    # below depends on (account_ref: to_string(id), customer_id resolved
+    # via this account) — without it there was no way to derive who owns
+    # this company at all.
+    parent_account_id: acc_abdullah,
     status: "ACTIVE", kyc_status: "VERIFIED",
     kyc_verified_at: DateTime.add(now_utc, -180 * 86400),
     inserted_at: now_utc, updated_at: now_utc},
@@ -792,10 +818,20 @@ IO.puts("--> Phase 7: HCS")
     industry_code: "5199", liability_model: "INDIVIDUAL", billing_cycle_day: 10,
     credit_limit: Decimal.new("100000.00"), available_limit: Decimal.new("100000.00"),
     max_employee_cards: 25, relationship_manager: "RM-CORP-002",
+    parent_account_id: acc_mohammad,
     status: "ACTIVE", kyc_status: "VERIFIED",
     kyc_verified_at: DateTime.add(now_utc, -90 * 86400),
     inserted_at: now_utc, updated_at: now_utc}
 ], returning: [:id], on_conflict: :nothing)
+
+# Koṣa domain-model alignment (2026-07-28) — CMS.Arrangement didn't exist
+# when this phase was first written, so neither company ever got a
+# CORPORATE_FACILITY row; on_conflict: :nothing above means this insert
+# is a no-op on a re-run (existing rows keep whatever parent_account_id
+# they already had), so record/1 is called unconditionally and just
+# swallows the duplicate error on a re-run — cheaper than a second lookup.
+VmuCore.CMS.Arrangements.record(%{customer_id: cust_abdullah, product_type: "CORPORATE_FACILITY", account_ref: to_string(co_zaabi)})
+VmuCore.CMS.Arrangements.record(%{customer_id: cust_mohammad, product_type: "CORPORATE_FACILITY", account_ref: to_string(co_alfarsi)})
 
 {2, [%{id: emp_rashid}, %{id: emp_fatima}]} = Repo.insert_all("hcs_employee_cards", [
   %{company_id: co_zaabi, employee_account_id: acc_rashid,
@@ -959,3 +995,43 @@ IO.puts("    CDM applications: 4  |  Merchants: 4  |  Terminals: 5")
 IO.puts("    LMS accounts: 2  |  Points entries: 5  |  Redemptions: 2")
 IO.puts("    HCS companies: 2  |  Employee cards: 2  |  Spending controls: 4")
 IO.puts("    ITS copy requests: 3  |  Fee claims: 3  |  FARs: 3")
+
+# ============================================================
+# Phase 10: end-to-end test topology, PIN translation
+# ============================================================
+# reference PIN for every seeded test account (Phase 13: load testing
+# needs more than one PIN-verified PAN for genuine multi-account
+# concurrency, not just pan_ahmed) — SoftHSM.verify_pin/3 compares
+# against this after decrypting the incoming DE52 under the configured
+# test ZPK (config :vmu_core, :soft_hsm, zpk: ...). encrypt_reference_dev/1
+# is the same dev-only "encrypted digits, no PAN" helper change_pin/3
+# itself uses (see SoftHSM's moduledoc) — reused here, not reinvented.
+# One shared dev PIN ("1234") for all of them — this is test data, not a
+# security boundary.
+IO.puts("--> Phase 10/13: card PIN (dev reference) for all seeded accounts")
+
+all_seeded_pans = [
+  pan_ahmed, pan_sara, pan_priya, pan_mohammad, pan_jennifer,
+  pan_abdullah, pan_fiona, pan_khalid, pan_rashid, pan_fatima
+]
+
+for pan_token <- all_seeded_pans do
+  card_pin_attrs = %{
+    pan_token: pan_token,
+    reference_pin_lmk: VmuCore.FAS.HSM.SoftHSM.encrypt_reference_dev("1234")
+  }
+
+  case Repo.get_by(VmuCore.CMS.CardPin, pan_token: pan_token) do
+    nil ->
+      %VmuCore.CMS.CardPin{}
+      |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+      |> Repo.insert!()
+
+    existing_card_pin ->
+      existing_card_pin
+      |> VmuCore.CMS.CardPin.changeset(card_pin_attrs)
+      |> Repo.update!()
+  end
+end
+
+IO.puts("    ✓ CardPin set for #{length(all_seeded_pans)} accounts, PIN 1234")

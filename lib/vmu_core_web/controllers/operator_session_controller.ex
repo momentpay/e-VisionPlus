@@ -10,7 +10,7 @@ defmodule VmuCoreWeb.OperatorSessionController do
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
-  alias VmuCore.ASM.Auth
+  alias VmuCore.ASM.{Auth, LdapConfig, OidcConfig}
 
   @admin_path "/visionplus/admin"
 
@@ -18,7 +18,9 @@ defmodule VmuCoreWeb.OperatorSessionController do
     if get_session(conn, "operator_id") && Auth.get_active_operator(get_session(conn, "operator_id")) do
       redirect(conn, to: @admin_path)
     else
-      html(conn, login_page(conn, nil))
+      error = get_session(conn, "login_error")
+      conn = if error, do: delete_session(conn, "login_error"), else: conn
+      html(conn, login_page(conn, error))
     end
   end
 
@@ -84,6 +86,9 @@ defmodule VmuCoreWeb.OperatorSessionController do
         .login-card button { margin-top: 1.25rem; width: 100%; padding: 0.6rem; cursor: pointer; }
         .login-error { margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid #a33;
                        border-radius: 4px; color: #e88; font-size: 0.85rem; }
+        .login-alt { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #2a2f3a; }
+        .login-alt a, .login-alt summary { color: #8a90a0; font-size: 0.85rem; cursor: pointer; }
+        .login-alt form { margin-top: 0.75rem; }
       </style>
     </head>
     <body>
@@ -100,10 +105,48 @@ defmodule VmuCoreWeb.OperatorSessionController do
             <input type="password" id="password" name="password" autocomplete="current-password"/>
             <button type="submit">Sign In</button>
           </form>
+          #{sso_link_html()}
+          #{directory_form_html(csrf)}
         </div>
       </div>
     </body>
     </html>
     """
+  end
+
+  # Shown only when SSO is actually enabled+configured — a broken/dead
+  # link for a bank that hasn't set it up would be worse than no link.
+  defp sso_link_html do
+    case OidcConfig.resolve() do
+      {:ok, _cfg} ->
+        ~s(<div class="login-alt"><a href="/visionplus/admin/auth/oidc/start">Sign in with SSO</a></div>)
+
+      {:error, _} ->
+        ""
+    end
+  end
+
+  defp directory_form_html(csrf) do
+    case LdapConfig.resolve() do
+      {:ok, _cfg} ->
+        """
+        <div class="login-alt">
+          <details>
+            <summary>Sign in with directory (AD/LDAP) credentials</summary>
+            <form method="post" action="/visionplus/admin/login/directory">
+              <input type="hidden" name="_csrf_token" value="#{csrf}"/>
+              <label for="ldap_username">Directory username</label>
+              <input type="text" id="ldap_username" name="username" autocomplete="username"/>
+              <label for="ldap_password">Directory password</label>
+              <input type="password" id="ldap_password" name="password" autocomplete="current-password"/>
+              <button type="submit">Sign In via Directory</button>
+            </form>
+          </details>
+        </div>
+        """
+
+      {:error, _} ->
+        ""
+    end
   end
 end

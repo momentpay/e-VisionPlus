@@ -14,8 +14,9 @@ defmodule VmuCore.LMS.Oban.PointsCalculationJob do
   require Logger
   alias VmuCore.LMS.PointsEngine
   alias VmuCore.TRAMS.ClearingRecord
-  alias VmuCore.Repo
   import Ecto.Query
+
+  @repo Application.compile_env(:vmu_lms, :repo, VmuCore.Repo)
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"batch_date" => batch_date_str}}) do
@@ -34,7 +35,7 @@ defmodule VmuCore.LMS.Oban.PointsCalculationJob do
           currency:           c.currency
         }
       )
-      |> Repo.all()
+      |> @repo.all()
 
     Logger.info("[LMS/PointsCalc] #{length(clearing_records)} matched records")
 

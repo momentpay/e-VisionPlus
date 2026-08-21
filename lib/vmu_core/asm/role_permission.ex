@@ -15,7 +15,7 @@ defmodule VmuCore.ASM.RolePermission do
 
   @actions ~w[view create edit approve]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -55,6 +55,32 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "auth_history", ~w[view]},
       {"SUPERVISOR", "tram_inquiry", ~w[view approve]},
       {"SUPERVISOR", "approvals",    ~w[view approve]},
+      {"SUPERVISOR", "dps",          ~w[view create edit approve]},
+      {"SUPERVISOR", "cms_eod",      ~w[view edit]},
+      {"SUPERVISOR", "cms_resegmentation", ~w[view edit]},
+      {"SUPERVISOR", "col",          ~w[view edit]},
+      {"SUPERVISOR", "collections_mi", ~w[view]},
+      {"SUPERVISOR", "hcs",          ~w[view edit]},
+      # "approve" added 2026-07-28 (Card Products UX Parity Phase 1c) — the
+      # SUPERVISOR checker role for Debit's new 4-eyes Adjustments action,
+      # same convention as "account"'s own approve permission.
+      {"SUPERVISOR", "debit",        ~w[view edit approve]},
+      # "approve" added 2026-07-28 (Card Products UX Parity Phase 2c) —
+      # same as Debit's 4-eyes Adjustments checker permission.
+      {"SUPERVISOR", "prepaid",      ~w[view edit approve]},
+      # Digital Wallet Phase W4 (2026-07-28) — no 4-eyes action exists
+      # for Wallet yet (unlike Debit/Prepaid's Adjustments), so no
+      # "approve" grant here — added if/when one is ever built.
+      {"SUPERVISOR", "wallet",       ~w[view edit]},
+      # KYC-P3.5 (2026-07-29) split the old single "kyc" module in two, per
+      # the user: method template design and request review are different
+      # roles and shouldn't share one screen/permission. Methods is a
+      # config-design surface (SUPERVISOR edits, same pattern as logo/block);
+      # Requests is operational review (SUPERVISOR/OPS/RISK edit, same
+      # pattern as wallet/debit/prepaid). No "approve" grant on Requests yet
+      # — no 4-eyes action exists for KYC approve/reject.
+      {"SUPERVISOR", "kyc_methods",  ~w[view edit]},
+      {"SUPERVISOR", "kyc_requests", ~w[view edit]},
 
       # OPS — operational day-to-day, no approvals
       {"OPS", "logo",         ~w[view]},
@@ -64,12 +90,25 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "exceptions",   ~w[view edit]},
       {"OPS", "auth_history", ~w[view]},
       {"OPS", "tram_inquiry", ~w[view]},
+      {"OPS", "dps",          ~w[view create edit]},
+      {"OPS", "cms_eod",      ~w[view edit]},
+      {"OPS", "cms_resegmentation", ~w[view edit]},
+      {"OPS", "col",          ~w[view edit]},
+      {"OPS", "collections_mi", ~w[view]},
+      {"OPS", "hcs",          ~w[view edit]},
+      {"OPS", "debit",        ~w[view edit]},
+      {"OPS", "prepaid",      ~w[view edit]},
+      {"OPS", "wallet",       ~w[view edit]},
+      {"OPS", "kyc_methods",  ~w[view]},
+      {"OPS", "kyc_requests", ~w[view edit]},
 
       # CS_AGENT — customer service: lookups + contact-data edits
       {"CS_AGENT", "customer",     ~w[view edit]},
       {"CS_AGENT", "account",      ~w[view]},
       {"CS_AGENT", "auth_history", ~w[view]},
       {"CS_AGENT", "tram_inquiry", ~w[view]},
+      {"CS_AGENT", "dps",          ~w[view create]},
+      {"CS_AGENT", "col",          ~w[view]},
 
       # TELLER — lookups only
       {"TELLER", "customer", ~w[view]},
@@ -81,6 +120,15 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "auth_history", ~w[view]},
       {"RISK", "tram_inquiry", ~w[view]},
       {"RISK", "approvals",    ~w[view approve]},
+      {"RISK", "dps",          ~w[view create edit approve]},
+      {"RISK", "col",          ~w[view edit]},
+      {"RISK", "collections_mi", ~w[view]},
+      {"RISK", "hcs",          ~w[view edit]},
+      {"RISK", "debit",        ~w[view edit]},
+      {"RISK", "prepaid",      ~w[view edit]},
+      {"RISK", "wallet",       ~w[view edit]},
+      {"RISK", "kyc_methods",  ~w[view]},
+      {"RISK", "kyc_requests", ~w[view edit]},
 
       # COMPLIANCE — read everything, change nothing
       {"COMPLIANCE", "system",       ~w[view]},
@@ -93,12 +141,25 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "auth_history", ~w[view]},
       {"COMPLIANCE", "tram_inquiry", ~w[view]},
       {"COMPLIANCE", "audit_log",    ~w[view]},
+      {"COMPLIANCE", "dps",          ~w[view]},
+      {"COMPLIANCE", "cms_eod",      ~w[view]},
+      {"COMPLIANCE", "cms_resegmentation", ~w[view]},
+      {"COMPLIANCE", "col",          ~w[view]},
+      {"COMPLIANCE", "collections_mi", ~w[view]},
+      {"COMPLIANCE", "hcs",          ~w[view]},
+      {"COMPLIANCE", "debit",        ~w[view]},
+      {"COMPLIANCE", "prepaid",      ~w[view]},
+      {"COMPLIANCE", "wallet",       ~w[view]},
+      {"COMPLIANCE", "kyc_methods",  ~w[view]},
+      {"COMPLIANCE", "kyc_requests", ~w[view]},
 
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}
 
-      # ADMIN — code short-circuit in Authz; "operators" module is ADMIN-only
-      # precisely because no role rows grant it.
+      # ADMIN — code short-circuit in Authz; "operators" and
+      # "service_accounts" (KYC-P5, 2026-07-29 — API credential
+      # provisioning) are both ADMIN-only precisely because no role rows
+      # grant them.
     ]
   end
 end

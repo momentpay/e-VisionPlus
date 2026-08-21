@@ -27,7 +27,19 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     OperatorComponent,
     ApprovalInboxComponent,
     AuditLogComponent,
-    ModuleConfigComponent
+    ModuleConfigComponent,
+    DpsComponent,
+    CmsEodComponent,
+    CmsResegmentationComponent,
+    ColComponent,
+    CollectionsMiComponent,
+    HcsComponent,
+    DebitComponent,
+    PrepaidComponent,
+    WalletComponent,
+    KycMethodsComponent,
+    KycRequestsComponent,
+    ServiceAccountsComponent
   }
 
   @modules %{
@@ -41,7 +53,19 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     "exceptions"   => %{label: "Exception Queue",         icon: "🚨",  section: :fas},
     "auth_history" => %{label: "Auth History",            icon: "🔍",  section: :fas},
     "tram_inquiry" => %{label: "TRAM Inquiry",            icon: "🧾",  section: :fas},
+    "dps"          => %{label: "Disputes (DPS)",          icon: "⚖️",  section: :fas},
+    "cms_eod"      => %{label: "EOD Job Status",          icon: "🌙",  section: :account},
+    "cms_resegmentation" => %{label: "Cycle Resegmentation", icon: "🔄", section: :account},
+    "col"          => %{label: "Collections & Recovery",  icon: "📮",  section: :account},
+    "collections_mi" => %{label: "Collections MI",        icon: "📊",  section: :account},
+    "hcs"          => %{label: "Corporate Cards (HCS)",   icon: "🏢",  section: :account},
+    "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
+    "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
+    "wallet"       => %{label: "Digital Wallet",            icon: "👛",  section: :account},
+    "kyc_methods"  => %{label: "KYC Methods",               icon: "🪪",  section: :account},
+    "kyc_requests" => %{label: "KYC Requests",              icon: "📋",  section: :account},
     "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
+    "service_accounts" => %{label: "Service Accounts",    icon: "🔑",  section: :security},
     "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
     "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
   }
@@ -54,6 +78,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     {:ok, assign(socket,
       page_title: "VisionPlus Admin",
       active_module: "system",
+      deep_link_id: nil,
       modules: @modules,
       # "module_config" has no RolePermission rows of its own (Module Configuration
       # Framework v1 gate) — whoever can view "system" can view module config too.
@@ -63,11 +88,14 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
   end
 
   @impl true
-  def handle_params(%{"module" => mod}, _uri, socket) when is_map_key(@modules, mod) do
-    {:noreply, assign(socket, active_module: mod)}
+  def handle_params(%{"module" => mod} = params, _uri, socket) when is_map_key(@modules, mod) do
+    # Koṣa domain-model alignment (2026-07-28) — the Arrangements panels
+    # link here with ?view=<id> so "View in X" opens that record's detail
+    # page directly instead of landing on the bare module list.
+    {:noreply, assign(socket, active_module: mod, deep_link_id: Map.get(params, "view"))}
   end
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, active_module: "system")}
+    {:noreply, assign(socket, active_module: "system", deep_link_id: nil)}
   end
 
   defp expand_module_config_visibility(visible) do
@@ -127,6 +155,16 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
 
           <.sidebar_nav_item :if={"customer" in @visible_modules} mod="customer" label="Customers (CIF)" icon="👤" active={@active_module} />
           <.sidebar_nav_item :if={"account" in @visible_modules}  mod="account"  label="Accounts (CMS)"  icon="💳" active={@active_module} />
+          <.sidebar_nav_item :if={"cms_eod" in @visible_modules}  mod="cms_eod"  label="EOD Job Status"  icon="🌙" active={@active_module} />
+          <.sidebar_nav_item :if={"cms_resegmentation" in @visible_modules}  mod="cms_resegmentation"  label="Cycle Resegmentation"  icon="🔄" active={@active_module} />
+          <.sidebar_nav_item :if={"col" in @visible_modules}      mod="col"      label="Collections & Recovery" icon="📮" active={@active_module} />
+          <.sidebar_nav_item :if={"collections_mi" in @visible_modules} mod="collections_mi" label="Collections MI" icon="📊" active={@active_module} />
+          <.sidebar_nav_item :if={"hcs" in @visible_modules} mod="hcs" label="Corporate Cards (HCS)" icon="🏢" active={@active_module} />
+          <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
+          <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
+          <.sidebar_nav_item :if={"wallet" in @visible_modules} mod="wallet" label="Digital Wallet" icon="👛" active={@active_module} />
+          <.sidebar_nav_item :if={"kyc_methods" in @visible_modules} mod="kyc_methods" label="KYC Methods" icon="🪪" active={@active_module} />
+          <.sidebar_nav_item :if={"kyc_requests" in @visible_modules} mod="kyc_requests" label="KYC Requests" icon="📋" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -137,6 +175,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"exceptions" in @visible_modules}   mod="exceptions"   label="Exception Queue" icon="🚨" active={@active_module} />
           <.sidebar_nav_item :if={"auth_history" in @visible_modules} mod="auth_history" label="Auth History"    icon="🔍" active={@active_module} />
           <.sidebar_nav_item :if={"tram_inquiry" in @visible_modules} mod="tram_inquiry" label="TRAM Inquiry"    icon="🧾" active={@active_module} />
+          <.sidebar_nav_item :if={"dps" in @visible_modules}          mod="dps"          label="Disputes (DPS)"  icon="⚖️" active={@active_module} />
         </div>
 
         <% security_visible = Enum.any?(~w[operators approvals audit_log], &(&1 in @visible_modules)) %>
@@ -148,6 +187,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
           <.sidebar_nav_item :if={"approvals" in @visible_modules} mod="approvals" label="Approval Inbox" icon="✅" active={@active_module} />
           <.sidebar_nav_item :if={"audit_log" in @visible_modules} mod="audit_log" label="Audit Trail" icon="📜" active={@active_module} />
           <.sidebar_nav_item :if={"operators" in @visible_modules} mod="operators" label="Operators" icon="🔐" active={@active_module} />
+          <.sidebar_nav_item :if={"service_accounts" in @visible_modules} mod="service_accounts" label="Service Accounts" icon="🔑" active={@active_module} />
         </div>
 
         <div class="sidebar-divider"/>
@@ -217,6 +257,36 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                                  current_operator={@current_operator} />
               <% "account" -> %>
                 <.live_component module={AccountComponent} id="account-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "cms_eod" -> %>
+                <.live_component module={CmsEodComponent} id="cms-eod-component"
+                                 current_operator={@current_operator} />
+              <% "cms_resegmentation" -> %>
+                <.live_component module={CmsResegmentationComponent} id="cms-resegmentation-component"
+                                 current_operator={@current_operator} />
+              <% "col" -> %>
+                <.live_component module={ColComponent} id="col-component"
+                                 current_operator={@current_operator} />
+              <% "collections_mi" -> %>
+                <.live_component module={CollectionsMiComponent} id="collections-mi-component"
+                                 current_operator={@current_operator} />
+              <% "hcs" -> %>
+                <.live_component module={HcsComponent} id="hcs-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "debit" -> %>
+                <.live_component module={DebitComponent} id="debit-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "prepaid" -> %>
+                <.live_component module={PrepaidComponent} id="prepaid-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "wallet" -> %>
+                <.live_component module={WalletComponent} id="wallet-component"
+                                 current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "kyc_methods" -> %>
+                <.live_component module={KycMethodsComponent} id="kyc-methods-component"
+                                 current_operator={@current_operator} />
+              <% "kyc_requests" -> %>
+                <.live_component module={KycRequestsComponent} id="kyc-requests-component"
                                  current_operator={@current_operator} />
               <% "exceptions" -> %>
                 <.live_component module={ExceptionQueueComponent} id="exceptions-component"
@@ -225,8 +295,14 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
                 <.live_component module={AuthHistoryComponent} id="auth-history-component" />
               <% "tram_inquiry" -> %>
                 <.live_component module={TramInquiryComponent} id="tram-inquiry-component" />
+              <% "dps" -> %>
+                <.live_component module={DpsComponent} id="dps-component"
+                                 current_operator={@current_operator} />
               <% "operators" -> %>
                 <.live_component module={OperatorComponent} id="operators-component"
+                                 current_operator={@current_operator} />
+              <% "service_accounts" -> %>
+                <.live_component module={ServiceAccountsComponent} id="service-accounts-component"
                                  current_operator={@current_operator} />
               <% "approvals" -> %>
                 <.live_component module={ApprovalInboxComponent} id="approvals-component"

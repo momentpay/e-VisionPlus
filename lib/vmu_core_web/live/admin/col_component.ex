@@ -503,7 +503,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
 
   def render(%{mode: :agency_files} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Agency Files" subtitle="Assignment file generation + activity file import">
         <:actions>
           <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to cases</button>
@@ -569,7 +569,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title={"Case — #{@account.last_four}"} subtitle={@case_row.status}>
         <:actions>
           <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>

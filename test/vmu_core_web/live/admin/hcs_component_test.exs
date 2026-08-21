@@ -8,12 +8,13 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
   alias VmuCore.Repo
   alias VmuCore.ASM.{Authz, Operator}
-  alias VmuCore.HCS.{Company, CompanyOnboarding}
+  alias VmuCore.HCS.{Company, CompanyOnboarding, Vehicle}
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, ModuleConfigWriter, SysParameter}
   alias Decimal, as: D
 
@@ -119,7 +120,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
 
-    html = view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+    html = view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
 
     assert html =~ company.company_name
     assert html =~ "Employee Cards"
@@ -136,7 +137,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       %{scope_type: "bank", sys_id: sys_id, bank_id: bank_id}, nil)
 
     {:ok, view, _html} = live(authed_conn(maker), "/visionplus/admin/hcs")
-    view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+    view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
     view |> element("button[phx-click=open_action][phx-value-a=request_limit]") |> render_click()
 
     request_html =
@@ -170,7 +171,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='4']") |> render_click()
 
       view |> element("button[phx-click=open_action][phx-value-a=add_vehicle]") |> render_click()
@@ -185,7 +186,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       assert detail_html =~ "Vehicle DXB-E2E-1 added."
       assert detail_html =~ "DXB-E2E-1"
 
-      view |> element("button[phx-click=view_vehicle]") |> render_click()
+      vehicle = Repo.one!(from v in Vehicle, where: v.plate_number == "DXB-E2E-1")
+      view |> with_target("#hcs-component") |> render_click("view_vehicle", %{"id" => vehicle.id})
 
       view |> element("button[phx-click=open_action][phx-value-a=issue_fleet_card]") |> render_click()
 
@@ -226,7 +228,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
         end).()
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='5']") |> render_click()
 
       view |> element("button[phx-click=open_action][phx-value-a=fleet_report]") |> render_click()
@@ -252,7 +254,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
       view |> element("button[phx-click=emp_wizard_new]") |> render_click()
@@ -293,7 +295,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
       view |> element("button[phx-click=emp_wizard_new]") |> render_click()
@@ -346,10 +348,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
-      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_employee", %{"id" => card.id})
       view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
 
       html =
@@ -377,10 +379,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
-      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_employee", %{"id" => card.id})
       view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
 
       ok_html =
@@ -407,10 +409,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
-      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_employee", %{"id" => card.id})
       view |> element("div[phx-click=employee_detail_tab][phx-value-t='2']") |> render_click()
       view |> element("button[phx-click=open_action][phx-value-a=issue_card]") |> render_click()
 
@@ -447,10 +449,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
-      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_employee", %{"id" => card.id})
       view |> element("button[phx-click=open_action][phx-value-a=change_email]") |> render_click()
 
       html =
@@ -470,10 +472,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/hcs")
-      view |> element("button[phx-click=view_company][phx-value-id='#{company.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_company", %{"id" => company.id})
       view |> element("div[phx-click=company_detail_tab][phx-value-t='2']") |> render_click()
 
-      view |> element("button[phx-click=view_employee][phx-value-id='#{card.id}']") |> render_click()
+      view |> with_target("#hcs-component") |> render_click("view_employee", %{"id" => card.id})
 
       html = view |> element("button[phx-click=emp_kyc][phx-value-status=VERIFIED]") |> render_click()
       assert html =~ "KYC status set to VERIFIED"

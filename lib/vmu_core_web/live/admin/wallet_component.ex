@@ -757,7 +757,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
 
   def render(%{mode: :wizard} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Digital Wallet" subtitle="Stored-value wallet accounts">
           <:actions>
@@ -795,7 +795,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @account.customer_name %> — Digital Wallet</div>
       <% else %>

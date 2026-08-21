@@ -824,7 +824,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
   # account has no credit limit and no card is issued at opening time.
   def render(%{mode: :wizard} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Prepaid Cards" subtitle="Closed-loop stored-value accounts (not Debit)">
           <:actions>
@@ -862,7 +862,7 @@ defmodule VmuCoreWeb.Live.Admin.PrepaidComponent do
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @account.customer_name %> — Prepaid Account</div>
       <% else %>

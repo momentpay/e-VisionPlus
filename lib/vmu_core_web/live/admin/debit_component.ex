@@ -815,7 +815,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
   # the separate "Issue Card" action once the account exists).
   def render(%{mode: :wizard} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Debit Cards" subtitle="Real, network-issued debit accounts (not Prepaid)">
           <:actions>
@@ -853,7 +853,7 @@ defmodule VmuCoreWeb.Live.Admin.DebitComponent do
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @account.customer_name %> — Debit Account</div>
       <% else %>

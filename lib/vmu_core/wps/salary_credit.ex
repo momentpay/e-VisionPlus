@@ -74,6 +74,11 @@ defmodule VmuCore.WPS.SalaryCredit do
     |> validate_required(@required)
     |> validate_inclusion(:status, @statuses)
     |> validate_number(:net_amount, greater_than: Decimal.new(0))
+    # Matches the column. Without it an over-long reason raises a Postgrex
+    # error from inside a transaction rather than returning a changeset error —
+    # which is how a single unpayable line took down a whole batch until it was
+    # caught here (2026-08-06).
+    |> validate_length(:failure_reason, max: 300)
     |> unique_constraint([:employer_id, :payment_reference],
       name: :wps_salary_credits_payment_ref_idx,
       message: "this payment reference has already been recorded for this employer"

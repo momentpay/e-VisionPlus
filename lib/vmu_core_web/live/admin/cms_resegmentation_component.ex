@@ -17,6 +17,7 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.CMS.CycleResegmentation
   alias VmuCore.ASM.Authz
@@ -140,15 +141,18 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
             {"Imbalance threshold", "#{@analysis.threshold_pct}%"}
           ]} />
 
-          <table class="data-table" style="margin-top:0.75rem">
-            <thead><tr><th>Cycle Code</th><th>Accounts</th></tr></thead>
-            <tbody>
-              <tr :for={{code, n} <- Enum.sort_by(@analysis.distribution, fn {c, _} -> c end)}>
-                <td><%= code %></td>
-                <td><%= n %></td>
-              </tr>
-            </tbody>
-          </table>
+          <div style="margin-top:0.75rem">
+            <.ag_grid
+              id="reseg-distribution-grid"
+              paginate={false}
+              empty_message="No accounts in this scope."
+              columns={[
+                %{field: "code", header: "Cycle Code", width: 140},
+                %{field: "accounts", header: "Accounts", type: "number", width: 140}
+              ]}
+              rows={Enum.map(Enum.sort_by(@analysis.distribution, fn {c, _} -> c end), fn {code, n} -> %{code: code, accounts: n} end)}
+            />
+          </div>
 
           <button :if={@can_edit} class="btn-sm btn-primary" style="margin-top:0.75rem"
                   phx-click="propose" phx-target={@myself}>
@@ -164,16 +168,17 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
               <.alert kind={:success} message="Distribution is within the configured threshold — no changes proposed." />
             <% :imbalanced -> %>
               <p><%= length(@proposal.moves) %> account(s) proposed to move:</p>
-              <table class="data-table">
-                <thead><tr><th>Account</th><th>From</th><th>To</th></tr></thead>
-                <tbody>
-                  <tr :for={m <- @proposal.moves}>
-                    <td><%= short_id(m.account_id) %></td>
-                    <td><%= m.from_cycle_code %></td>
-                    <td><%= m.to_cycle_code %></td>
-                  </tr>
-                </tbody>
-              </table>
+              <.ag_grid
+                id="reseg-proposal-grid"
+                paginate={false}
+                empty_message="No moves proposed."
+                columns={[
+                  %{field: "account", header: "Account", type: "mono", width: 140},
+                  %{field: "from", header: "From", width: 100},
+                  %{field: "to", header: "To", width: 100}
+                ]}
+                rows={Enum.map(@proposal.moves, &proposal_move_row/1)}
+              />
               <button :if={@can_edit and @proposal.moves != []} class="btn-sm btn-primary" style="margin-top:0.75rem"
                       phx-click="apply_proposal" phx-target={@myself}>
                 Schedule These Moves
@@ -181,6 +186,11 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
           <% end %>
         </.form_card>
 
+        <%!-- Left as plain HTML, not <.ag_grid> — the Cancel button here is
+             driven directly by cms_resegmentation_component_test.exs via
+             element("button[phx-value-id=...]") |> render_click(), which
+             cannot see a client-rendered AG Grid actions cell. See
+             docs/shared/Admin_Menu_Standard.md §5.1. --%>
         <.form_card title="Pending Changes">
           <.empty_state :if={@pending == []} icon="📭" title="No pending resegmentations" />
 
@@ -206,6 +216,14 @@ defmodule VmuCoreWeb.Live.Admin.CmsResegmentationComponent do
       <% end %>
     </div>
     """
+  end
+
+  defp proposal_move_row(m) do
+    %{
+      account: short_id(m.account_id),
+      from: m.from_cycle_code,
+      to: m.to_cycle_code
+    }
   end
 
   defp short_id(id), do: id |> to_string() |> String.slice(0, 8)

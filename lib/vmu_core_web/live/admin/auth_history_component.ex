@@ -20,6 +20,7 @@ defmodule VmuCoreWeb.Live.Admin.AuthHistoryComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, FAS.AuthorizationRecord, FAS.PendingHold}
 
@@ -134,51 +135,25 @@ defmodule VmuCoreWeb.Live.Admin.AuthHistoryComponent do
       </p>
 
       <%# Results table %>
-      <div class="table-wrapper" style="overflow-x:auto">
-        <table class="data-table" style="min-width:900px">
-          <thead>
-            <tr>
-              <th>Date/Time</th>
-              <th>MTI</th>
-              <th>RC</th>
-              <th>Amount</th>
-              <th>Currency</th>
-              <th>Approval Code</th>
-              <th>STAN</th>
-              <th>Terminal</th>
-              <th>Risk Score</th>
-              <th>Hold</th>
-              <th>Path</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @results == [] do %>
-              <tr><td colspan="11" style="text-align:center;color:#888">No results.</td></tr>
-            <% end %>
-            <%= for row <- @results do %>
-              <tr>
-                <td style="white-space:nowrap"><%= format_dt(row.auth.inserted_at) %></td>
-                <td><%= row.auth.mti %></td>
-                <td>
-                  <span class={"badge badge-#{rc_class(row.auth.rc)}"}>
-                    <%= row.auth.rc %>
-                  </span>
-                </td>
-                <td style="text-align:right"><%= Decimal.to_string(row.auth.amount) %></td>
-                <td><%= row.auth.currency %></td>
-                <td><code><%= row.auth.approval_code || "—" %></code></td>
-                <td><code><%= row.auth.stan || "—" %></code></td>
-                <td><%= row.auth.terminal_id || "—" %></td>
-                <td style="text-align:right"><%= risk_score_str(row.auth.risk_score) %></td>
-                <td><%= hold_status(row.hold) %></td>
-                <td class="text-muted" style="font-size:0.8em">
-                  <%= Map.get(row.auth.decision_path, "path", "—") %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="auth-history-grid"
+        paginate={false}
+        empty_message="No results."
+        columns={[
+          %{field: "datetime", header: "Date/Time", width: 140},
+          %{field: "mti", header: "MTI", width: 80},
+          %{field: "rc", header: "RC", type: "badge", classField: "rc_class", width: 80},
+          %{field: "amount", header: "Amount", type: "money", width: 120},
+          %{field: "currency", header: "Currency", width: 90},
+          %{field: "approval_code", header: "Approval Code", type: "mono", width: 130},
+          %{field: "stan", header: "STAN", type: "mono", width: 110},
+          %{field: "terminal_id", header: "Terminal", width: 110},
+          %{field: "risk_score", header: "Risk Score", width: 100},
+          %{field: "hold", header: "Hold", width: 100},
+          %{field: "path", header: "Path", flex: 1}
+        ]}
+        rows={Enum.map(@results, &auth_history_row/1)}
+      />
 
       <%# Pagination %>
       <div class="pagination" style="margin-top:0.75rem">
@@ -268,6 +243,23 @@ defmodule VmuCoreWeb.Live.Admin.AuthHistoryComponent do
       _ ->
         query
     end
+  end
+
+  defp auth_history_row(row) do
+    %{
+      datetime: format_dt(row.auth.inserted_at),
+      mti: row.auth.mti,
+      rc: row.auth.rc,
+      rc_class: "badge-#{rc_class(row.auth.rc)}",
+      amount: row.auth.amount,
+      currency: row.auth.currency,
+      approval_code: row.auth.approval_code || "—",
+      stan: row.auth.stan || "—",
+      terminal_id: row.auth.terminal_id || "—",
+      risk_score: risk_score_str(row.auth.risk_score),
+      hold: hold_status(row.hold),
+      path: Map.get(row.auth.decision_path, "path", "—")
+    }
   end
 
   defp rc_class("00"), do: "success"

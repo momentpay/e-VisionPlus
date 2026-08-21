@@ -30,3 +30,36 @@ vmu_core-*.tar
 # after editing anything under assets/js or assets/css and commit the
 # result alongside your change.
 /assets/node_modules/
+
+# ---------------------------------------------------------------------------
+# Secrets — never commit
+#
+# None of these were tracked when this block was added, which is the only
+# reason ignoring them is sufficient. A key that has already been committed is
+# not protected by .gitignore: it stays in history, and deleting the file later
+# does not remove it. Treat any key that reaches a commit as compromised and
+# rotate it rather than trying to erase it.
+#
+# Named specifically rather than by a blanket *.key / *.pem so that adding a
+# new credential is a deliberate act, and so a legitimately-committable fixture
+# is not silently swallowed.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# Private keys, certificates and vendor credential bundles
+*.key
+*.pem
+*.p12
+*.pfx
+docs/mastercard-private-key/
+docs/nts/MCD_Sandbox_mdes-token_API_Keys/
+docs/nts/Public-Key-Certificate.crt
+
+# Office lock/temp files, which carry document content
+~$*
+*.tmp
+
+# Runtime logs
+/log/

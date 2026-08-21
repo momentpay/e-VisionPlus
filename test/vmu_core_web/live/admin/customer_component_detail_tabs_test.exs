@@ -68,7 +68,10 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentDetailTabsTest do
     operator = operator_fixture("SUPERVISOR")
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/customer")
 
-    html = view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    html =
+      view
+      |> with_target("#customer-component")
+      |> render_click("cust_view", %{"id" => customer.customer_id})
 
     # Overview tab content (Personal + Contact) shown by default, no page reload needed
     assert html =~ "Personal Information"
@@ -94,7 +97,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentDetailTabsTest do
     operator = operator_fixture("SUPERVISOR")
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/customer")
 
-    view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> with_target("#customer-component") |> render_click("cust_view", %{"id" => customer.customer_id})
     html = view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
 
     assert html =~ "Corporate Details"
@@ -116,7 +119,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponentDetailTabsTest do
     operator = operator_fixture("SUPERVISOR")
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/customer")
 
-    view |> element("button[phx-click=cust_view][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> with_target("#customer-component") |> render_click("cust_view", %{"id" => customer.customer_id})
     html = view |> element("div[phx-click=detail_tab][phx-value-t='2']") |> render_click()
 
     assert html =~ "Identity Documents"

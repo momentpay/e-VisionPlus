@@ -17,6 +17,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
 
   import Ecto.Query, warn: false
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{Customer, BankParameter, SysParameter}
@@ -450,6 +451,24 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8) <> "…"
   defp short_id(_), do: "—"
 
+  defp customer_row(c, can_edit, operator) do
+    %{
+      row_id: to_string(c.customer_id),
+      customer_id: short_id(c.customer_id),
+      name: full_name(c),
+      dob: masked(date_s(c.date_of_birth), "cif.date_of_birth", c.sys_id, operator),
+      bank_id: c.bank_id,
+      email: c.email || "—",
+      mobile: if(c.mobile_number, do: "+#{c.mobile_country} #{c.mobile_number}", else: "—"),
+      id_document: "#{c.id_type} · #{masked(c.id_number, "cif.id_number", c.sys_id, operator)}",
+      kyc_status: c.kyc_status || "PENDING",
+      kyc_status_class: kyc_badge_class(c.kyc_status),
+      tier: c.customer_tier || "RETAIL",
+      tier_class: tier_badge_class(c.customer_tier),
+      can_edit: can_edit
+    }
+  end
+
   # ── PII masking (asm.pii_masking_rules, Module Configuration Framework) ─────
   # Empty rules map (default) = unmasked, matching pre-existing behavior.
 
@@ -491,7 +510,7 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       countries_iso2: @countries_iso2
     )
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Customers (CIF)" subtitle="Customer Information File — individual and corporate cardholders">
         <:actions>
           <%= if @mode == :list && @can_create do %>
@@ -608,74 +627,27 @@ defmodule VmuCoreWeb.Live.Admin.CustomerComponent do
       </.empty_state>
     <% else %>
       <div class="card">
-        <table class="data-table">
-          <colgroup>
-            <col style="width:200px"/>
-            <col style="width:90px"/>
-            <col style="width:110px"/>
-            <col/>
-            <col style="width:160px"/>
-            <col style="width:110px"/>
-            <col style="width:100px"/>
-            <col style="width:160px"/>
-          </colgroup>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Bank</th>
-              <th>Customer ID</th>
-              <th>Email / Mobile</th>
-              <th>ID Document</th>
-              <th>KYC Status</th>
-              <th>Tier</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for c <- @customers do %>
-              <tr>
-                <td>
-                  <div style="font-weight:500;"><%= full_name(c) %></div>
-                  <div class="text-sm text-muted"><%= masked(date_s(c.date_of_birth), "cif.date_of_birth", c.sys_id, @current_operator) %></div>
-                </td>
-                <td><span class="mono"><%= c.bank_id %></span></td>
-                <td><span class="mono text-xs" style="color:var(--text-muted)"><%= short_id(c.customer_id) %></span></td>
-                <td>
-                  <div class="text-sm"><%= c.email %></div>
-                  <div class="text-sm text-muted">
-                    <%= if c.mobile_number, do: "+#{c.mobile_country} #{c.mobile_number}" %>
-                  </div>
-                </td>
-                <td>
-                  <div class="text-sm"><%= c.id_type %></div>
-                  <div class="text-sm text-muted"><%= masked(c.id_number, "cif.id_number", c.sys_id, @current_operator) %></div>
-                </td>
-                <td>
-                  <span class={"badge #{kyc_badge_class(c.kyc_status)}"}>
-                    <%= c.kyc_status || "PENDING" %>
-                  </span>
-                </td>
-                <td>
-                  <span class={"badge #{tier_badge_class(c.customer_tier)}"}>
-                    <%= c.customer_tier || "RETAIL" %>
-                  </span>
-                </td>
-                <td>
-                  <div class="actions">
-                    <button phx-click="cust_view" phx-target={@myself}
-                      phx-value-id={c.customer_id} class="btn btn-sm btn-secondary">
-                      View
-                    </button>
-                    <button :if={@can_edit} phx-click="cust_edit" phx-target={@myself}
-                      phx-value-id={c.customer_id} class="btn btn-sm btn-secondary">
-                      Edit
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+        <.ag_grid
+          id="customer-list-grid"
+          empty_message="No customers found."
+          columns={[
+            %{field: "name", header: "Name", flex: 1},
+            %{field: "dob", header: "DOB", width: 110},
+            %{field: "bank_id", header: "Bank", type: "mono", width: 90},
+            %{field: "customer_id", header: "Customer ID", type: "mono", width: 140},
+            %{field: "email", header: "Email", flex: 1},
+            %{field: "mobile", header: "Mobile", width: 140},
+            %{field: "id_document", header: "ID Document", flex: 1},
+            %{field: "kyc_status", header: "KYC Status", type: "badge", classField: "kyc_status_class", width: 120},
+            %{field: "tier", header: "Tier", type: "badge", classField: "tier_class", width: 100},
+            %{field: "actions", header: "", type: "actions", width: 140,
+              actions: [
+                %{label: "View", event: "cust_view", param: "row_id"},
+                %{label: "Edit", event: "cust_edit", param: "row_id", whenField: "can_edit", whenValue: true}
+              ]}
+          ]}
+          rows={Enum.map(@customers, &customer_row(&1, @can_edit, @current_operator))}
+        />
         <div class="card-footer" style="justify-content:flex-start;">
           <span class="text-sm text-muted">
             Showing <%= length(@customers) %> customer<%= if length(@customers) != 1, do: "s" %>

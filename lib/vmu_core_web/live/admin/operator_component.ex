@@ -149,7 +149,7 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Operators" subtitle="Back-office identities, roles, and account state (ADMIN only)">
         <:actions>
           <button class="btn-primary" phx-click="toggle_create" phx-target={@myself}>

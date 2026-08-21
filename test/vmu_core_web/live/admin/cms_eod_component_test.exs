@@ -97,7 +97,7 @@ defmodule VmuCoreWeb.Live.Admin.CmsEodComponentTest do
 
       refute is_nil(job.id)
 
-      html = view |> element("button", "Retry") |> render_click()
+      html = view |> with_target("#cms-eod-component") |> render_click("retry", %{"id" => to_string(job.id)})
       assert html =~ "queued for retry"
 
       # `EodMonitor.retry_job/1`'s real behavior against a real connection

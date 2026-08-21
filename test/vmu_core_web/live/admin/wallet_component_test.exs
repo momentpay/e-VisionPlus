@@ -135,7 +135,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
     |> element("input[phx-keyup=cust_search_wizard]")
     |> render_keyup(%{"value" => "WalletTest#{n}"})
 
-    view |> element("button[phx-click=select_customer][phx-value-id='#{customer.customer_id}']") |> render_click()
+    view |> with_target("#wallet-component") |> render_click("select_customer", %{"id" => customer.customer_id})
 
     step2_html = render(view)
     assert step2_html =~ "Step 2"
@@ -163,7 +163,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-    view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+    view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
     view |> element("button[phx-click=open_action][phx-value-a=load_account]") |> render_click()
 
     html =
@@ -184,7 +184,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-    view |> element("button[phx-click=view_account][phx-value-id='#{sender.wallet_account_id}']") |> render_click()
+    view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => sender.wallet_account_id})
     view |> element("div[phx-click=detail_tab][phx-value-t='2']") |> render_click()
     view |> element("button[phx-click=open_action][phx-value-a=send_transfer]") |> render_click()
 
@@ -211,7 +211,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
     operator = operator_fixture("SUPERVISOR")
 
     {:ok, payee_view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-    payee_view |> element("button[phx-click=view_account][phx-value-id='#{payee.wallet_account_id}']") |> render_click()
+    payee_view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => payee.wallet_account_id})
     payee_view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
 
     qr_html =
@@ -223,7 +223,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
     [_, qr_string] = Regex.run(~r/<textarea[^>]*readonly[^>]*>([^<]+)<\/textarea>/, qr_html)
 
     {:ok, payer_view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-    payer_view |> element("button[phx-click=view_account][phx-value-id='#{payer.wallet_account_id}']") |> render_click()
+    payer_view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => payer.wallet_account_id})
     payer_view |> element("div[phx-click=detail_tab][phx-value-t='3']") |> render_click()
 
     pay_html =
@@ -242,7 +242,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=apply_block]") |> render_click()
 
       block_html =
@@ -278,7 +278,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_address]") |> render_click()
 
       html =
@@ -300,7 +300,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=change_limits]") |> render_click()
 
       html =
@@ -321,7 +321,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
 
       verify_html = view |> element("button[phx-click=wallet_kyc][phx-value-status=VERIFIED]") |> render_click()
       assert verify_html =~ "KYC status set to VERIFIED"
@@ -342,7 +342,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=add_currency]") |> render_click()
 
       html =
@@ -363,7 +363,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
       view |> element("button[phx-click=open_action][phx-value-a=add_currency]") |> render_click()
 
       html =
@@ -385,7 +385,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponentTest do
         })
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/wallet")
-      view |> element("button[phx-click=view_account][phx-value-id='#{account.wallet_account_id}']") |> render_click()
+      view |> with_target("#wallet-component") |> render_click("view_account", %{"id" => account.wallet_account_id})
 
       html = view |> element("button[phx-click=switch_currency][phx-value-id='#{other.wallet_account_id}']") |> render_click()
 

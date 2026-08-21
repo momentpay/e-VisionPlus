@@ -51,6 +51,13 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
 
+  /* Detail drawer. Width is geometry (one value, both themes); the scrim is
+     colour and is restated for dark below. A screen whose detail content
+     genuinely needs more room overrides --drawer-width on its own root
+     rather than fighting the shared panel width. */
+  --drawer-width: 640px;
+  --drawer-scrim: rgb(15 23 42 / .40);
+
   --shadow-sm:   0 1px 2px 0 rgb(15 23 42 / .06);
   --shadow:      0 1px 3px 0 rgb(15 23 42 / .10), 0 1px 2px -1px rgb(15 23 42 / .08);
   --shadow-md:   0 4px 6px -1px rgb(15 23 42 / .10), 0 2px 4px -2px rgb(15 23 42 / .08);
@@ -95,6 +102,10 @@
   --warning: #fbbf24;  --warning-bg: rgb(245 158 11 / .16);
   --danger:  #f87171;  --danger-bg:  rgb(239 68 68 / .16);
   --info:    #38bdf8;  --info-bg:    rgb(14 165 233 / .16);
+
+  /* Deeper on dark — a .40 scrim over a dark canvas barely reads as a
+     scrim at all, so the drawer would not feel layered above the list. */
+  --drawer-scrim: rgb(0 0 0 / .62);
 
   --shadow-sm:   0 1px 2px 0 rgb(0 0 0 / .40);
   --shadow:      0 1px 3px 0 rgb(0 0 0 / .50), 0 1px 2px -1px rgb(0 0 0 / .40);
@@ -1694,4 +1705,102 @@ td.num, th.num { text-align: right; }
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+}
+
+/* ── Detail drawer ──────────────────────────────────────────────────────────
+   The right-side slide-over that replaces same-page detail swaps and in-page
+   detail blocks. See docs/shared/Admin_Detail_UX_Philosophy.md §2.
+
+   The whole thing stays mounted and is toggled by `.is-open` rather than
+   `:if` — a `:if` unmounts the node, leaving the transition nothing to
+   animate from, which is exactly why the reference implementation we looked
+   at snapped instead of sliding. `visibility` (not `display`) keeps it out
+   of the tab order while closed without killing the transition. */
+.drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.drawer-root.is-open {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--drawer-scrim);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.drawer-root.is-open .drawer-backdrop { opacity: 1; }
+
+.drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 100%;
+  max-width: var(--drawer-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-dock);
+  transform: translateX(100%);
+  transition: transform 260ms cubic-bezier(.32, .72, 0, 1);
+}
+
+.drawer-root.is-open .drawer-panel { transform: translateX(0); }
+
+.drawer-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-subtitle {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+/* A drawer is a peer of the page, not a nested card — the screens it hosts
+   already draw their own card chrome, and double framing reads as a bug. */
+.drawer-body > .card {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-backdrop,
+  .drawer-panel { transition: none; }
 }

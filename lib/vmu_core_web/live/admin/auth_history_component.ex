@@ -86,7 +86,7 @@ defmodule VmuCoreWeb.Live.Admin.AuthHistoryComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Authorization History"
                     subtitle="Search fas_authorizations by card, approval code, STAN, or date" />
 

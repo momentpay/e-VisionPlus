@@ -267,7 +267,7 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="gl-admin">
+    <div id={@id} class="gl-admin">
       <h2 :if={!@embedded}>General Ledger</h2>
 
       <p :if={@flash_msg} class="flash"><%= @flash_msg %></p>
@@ -424,22 +424,20 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             </span>
           </div>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>Status</th><th>Idempotency key</th><th>Legacy Dr/Cr</th><th>Shadow Dr/Cr</th><th class="num">Amount</th><th>Differences</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={r <- @shadow_rows} class={r.status == :mismatch && "row-alert"}>
-                <td><span class={["badge", shadow_status_cls(r.status)]}><%= r.status %></span></td>
-                <td><code><%= r.idempotency_key %></code></td>
-                <td><%= if r.legacy, do: "#{r.legacy.gl_account_dr}/#{r.legacy.gl_account_cr}", else: "—" %></td>
-                <td><%= if r.shadow, do: "#{r.shadow.dr_gl_account}/#{r.shadow.cr_gl_account}", else: "—" %></td>
-                <td class="num"><%= (r.legacy && r.legacy.dr_amount) || (r.shadow && r.shadow.amount) %></td>
-                <td class="cell-note"><%= Enum.join(r.differences, "; ") %></td>
-              </tr>
-            </tbody>
-          </table>
-          <p :if={@shadow_rows == []} class="cell-note">Nothing posted in this window.</p>
+          <.ag_grid
+            id="gl-shadow-diff-grid"
+            empty_message="Nothing posted in this window."
+            row_class_field="row_class"
+            columns={[
+              %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 130},
+              %{field: "idempotency_key", header: "Idempotency key", type: "mono", flex: 1},
+              %{field: "legacy", header: "Legacy Dr/Cr", type: "mono", width: 140},
+              %{field: "shadow", header: "Shadow Dr/Cr", type: "mono", width: 140},
+              %{field: "amount", header: "Amount", type: "money", width: 130},
+              %{field: "differences", header: "Differences", flex: 1}
+            ]}
+            rows={Enum.map(@shadow_rows, &shadow_diff_row/1)}
+          />
 
         <% "rules" -> %>
           <div :if={@rules_pending != []} class="alert">
@@ -449,21 +447,19 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             All <%= length(@rules) %> rules post to the reconciled chart.
           </p>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>Product</th><th>Event</th><th>Debit</th><th>Credit</th><th>Txn code</th><th>Source</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={r <- @rules}>
-                <td><%= r.product %></td>
-                <td><%= r.event_type %></td>
-                <td><code><%= r.dr_account %></code></td>
-                <td><code><%= r.cr_account %></code></td>
-                <td><%= r.legacy_transaction_code %></td>
-                <td class="cell-note"><%= r.source_module %></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-posting-rules-grid"
+            empty_message="No posting rules configured."
+            columns={[
+              %{field: "product", header: "Product", width: 160},
+              %{field: "event_type", header: "Event", width: 190},
+              %{field: "dr_account", header: "Debit", type: "mono", width: 110},
+              %{field: "cr_account", header: "Credit", type: "mono", width: 110},
+              %{field: "legacy_transaction_code", header: "Txn code", width: 130},
+              %{field: "source_module", header: "Source", flex: 1}
+            ]}
+            rows={Enum.map(@rules, &posting_rule_row/1)}
+          />
 
         <% "periods" -> %>
           <.institution_picker institutions={@institutions} institution={@institution} target={@myself} />
@@ -474,29 +470,30 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
               · last close point <%= @banking_date.last_closed_date %><% end %>
           </p>
 
-          <table class="data-table">
-            <thead><tr><th>From</th><th>To</th><th>Status</th><th>Closed by</th><th>Actions</th></tr></thead>
-            <tbody>
-              <tr :for={p <- @periods}>
-                <td><%= p.period_start %></td>
-                <td><%= p.period_end %></td>
-                <td><span class={["badge", period_status_cls(p.status)]}><%= p.status %></span></td>
-                <td class="cell-note"><%= p.closed_by %></td>
-                <td>
-                  <button :if={p.status == "OPEN"} phx-click="close_period"
-                          phx-value-id={p.id} phx-target={@myself}>Close</button>
-                  <button :if={p.status == "CLOSED"} phx-click="reopen_period"
-                          phx-value-id={p.id} phx-target={@myself}>Reopen</button>
-                  <button :if={p.status == "CLOSED"} phx-click="lock_period"
-                          phx-value-id={p.id} phx-target={@myself}
-                          data-confirm="Locking is permanent — a locked period can never be reopened. Continue?">
-                    Lock
-                  </button>
-                  <span :if={p.status == "LOCKED"} class="cell-note">permanent</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-periods-grid"
+            paginate={false}
+            empty_message="No accounting periods yet."
+            columns={[
+              %{field: "period_start", header: "From", width: 130},
+              %{field: "period_end", header: "To", width: 130},
+              %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120},
+              %{field: "closed_by", header: "Closed by", flex: 1},
+              %{field: "actions", header: "Actions", type: "actions", width: 250,
+                actions: [
+                  %{label: "Close", event: "close_period", param: "row_id",
+                    whenField: "is_open", whenValue: true},
+                  %{label: "Reopen", event: "reopen_period", param: "row_id",
+                    whenField: "is_closed", whenValue: true},
+                  # Irreversible — keeps the data-confirm the hand-written
+                  # button carried; dropping it here would be a regression.
+                  %{label: "Lock", event: "lock_period", param: "row_id", danger: true,
+                    whenField: "is_closed", whenValue: true,
+                    confirm: "Locking is permanent — a locked period can never be reopened. Continue?"}
+                ]}
+            ]}
+            rows={Enum.map(@periods, &period_row/1)}
+          />
 
         <% "exceptions" -> %>
           <.institution_picker institutions={@institutions} institution={@institution} target={@myself} />
@@ -507,20 +504,19 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             processes ran out of order.
           </p>
 
-          <table :if={@exceptions != []} class="data-table">
-            <thead>
-              <tr><th>Attempted GL date</th><th>Banking date</th><th>Close point</th><th>Reason</th><th>Detail</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={e <- @exceptions}>
-                <td><%= e.attempted_gl_date %></td>
-                <td><%= e.banking_date %></td>
-                <td><%= e.close_point %></td>
-                <td><span class="badge warn"><%= e.reason %></span></td>
-                <td class="cell-note"><%= e.detail %></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            :if={@exceptions != []}
+            id="gl-exceptions-grid"
+            empty_message="No open exceptions."
+            columns={[
+              %{field: "attempted_gl_date", header: "Attempted GL date", width: 170},
+              %{field: "banking_date", header: "Banking date", width: 150},
+              %{field: "close_point", header: "Close point", width: 150},
+              %{field: "reason", header: "Reason", type: "badge", classField: "reason_class", width: 180},
+              %{field: "detail", header: "Detail", flex: 1}
+            ]}
+            rows={Enum.map(@exceptions, &exception_row/1)}
+          />
       <% end %>
     </div>
     """
@@ -576,6 +572,56 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
       normal_balance: a.normal_balance,
       owner_module: a.owner_module,
       status: if(a.active, do: "active", else: "retired")
+    }
+  end
+
+  defp shadow_diff_row(r) do
+    %{
+      status: to_string(r.status),
+      status_class: shadow_status_cls(r.status),
+      # A mismatch is the one row an operator must not scroll past, so it
+      # keeps the row-level highlight the hand-written <tr> had.
+      row_class: r.status == :mismatch && "row-alert",
+      idempotency_key: r.idempotency_key,
+      legacy: if(r.legacy, do: "#{r.legacy.gl_account_dr}/#{r.legacy.gl_account_cr}", else: "—"),
+      shadow: if(r.shadow, do: "#{r.shadow.dr_gl_account}/#{r.shadow.cr_gl_account}", else: "—"),
+      amount: (r.legacy && r.legacy.dr_amount) || (r.shadow && r.shadow.amount),
+      differences: Enum.join(r.differences, "; ")
+    }
+  end
+
+  defp posting_rule_row(r) do
+    %{
+      product: r.product,
+      event_type: r.event_type,
+      dr_account: r.dr_account,
+      cr_account: r.cr_account,
+      legacy_transaction_code: r.legacy_transaction_code,
+      source_module: r.source_module
+    }
+  end
+
+  defp period_row(p) do
+    %{
+      row_id: to_string(p.id),
+      period_start: to_string(p.period_start),
+      period_end: to_string(p.period_end),
+      status: p.status,
+      status_class: period_status_cls(p.status),
+      closed_by: p.closed_by || "—",
+      is_open: p.status == "OPEN",
+      is_closed: p.status == "CLOSED"
+    }
+  end
+
+  defp exception_row(e) do
+    %{
+      attempted_gl_date: to_string(e.attempted_gl_date),
+      banking_date: to_string(e.banking_date),
+      close_point: to_string(e.close_point),
+      reason: e.reason,
+      reason_class: "badge-yellow",
+      detail: e.detail
     }
   end
 

@@ -913,6 +913,45 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   defp status_cls("INACTIVE"),  do: "badge-blue"
   defp status_cls(_),           do: "badge-gray"
 
+  defp company_row(c) do
+    %{
+      row_id: to_string(c.id),
+      company_code: c.company_code,
+      company_name: c.company_name,
+      liability_model: c.liability_model,
+      credit_limit: c.credit_limit,
+      available_limit: c.available_limit,
+      status: c.status,
+      status_class: status_cls(c.status)
+    }
+  end
+
+  defp employee_card_list_row(e) do
+    %{
+      row_id: to_string(e.id),
+      employee_name: e.employee_name,
+      department: e.department || "—",
+      individual_limit: e.individual_limit,
+      daily_spend: e.daily_spend || Decimal.new(0),
+      cash: if(e.can_withdraw_cash, do: "Yes", else: "No"),
+      status: e.status,
+      status_class: status_cls(e.status)
+    }
+  end
+
+  defp vehicle_list_row(v) do
+    %{
+      row_id: to_string(v.id),
+      plate_number: v.plate_number,
+      vin: v.vin || "—",
+      make_model: [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" "),
+      current_driver: v.current_driver || "—",
+      fleet_card: if(v.has_card, do: "Issued", else: "None"),
+      status: v.status,
+      status_class: status_cls(v.status)
+    }
+  end
+
   defp pending_limit_change_row(c) do
     %{
       requested_at: Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M"),
@@ -1048,7 +1087,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if not @embedded do %>
         <.page_header title="Corporate Card Programmes (HCS)" subtitle="Company facilities and employee cards">
           <:actions>
@@ -1096,42 +1135,28 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
         <input class="input" type="text" name="q" value={@search} placeholder="Search company code or name…" style="max-width:320px;"/>
       </form>
 
-      <%!-- Plain HTML, not <.ag_grid> — the View button's phx-click="view_company"
-          is exercised directly by test/vmu_core_web/live/admin/hcs_component_test.exs
-          via `element(...) |> render_click()`, which can only find real
-          server-rendered elements; AG Grid's actions cells are built
-          entirely client-side (phx-update="ignore") and would be invisible
-          to that test. See docs/shared/Admin_Menu_Standard.md §5. --%>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr><th>Code</th><th>Name</th><th>Liability</th><th>Facility Limit</th><th>Available</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody>
-            <%= if @companies == [] do %>
-              <tr><td colspan="7" class="empty-row" style="text-align:center;">No companies found.</td></tr>
-            <% end %>
-            <%= for c <- @companies do %>
-              <tr>
-                <td class="mono"><%= c.company_code %></td>
-                <td><%= c.company_name %></td>
-                <td><%= c.liability_model %></td>
-                <td class="mono"><%= money(c.credit_limit) %></td>
-                <td class="mono"><%= money(c.available_limit) %></td>
-                <td><span class={"badge #{status_cls(c.status)}"}><%= c.status %></span></td>
-                <td><button class="btn btn-xs" phx-click="view_company" phx-value-id={c.id} phx-target={@myself}>View</button></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="hcs-companies-grid"
+        empty_message="No companies found."
+        columns={[
+          %{field: "company_code", header: "Code", type: "mono", width: 120},
+          %{field: "company_name", header: "Name", flex: 1},
+          %{field: "liability_model", header: "Liability", width: 140},
+          %{field: "credit_limit", header: "Facility Limit", type: "money", width: 140},
+          %{field: "available_limit", header: "Available", type: "money", width: 140},
+          %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 110},
+          %{field: "actions", header: "", type: "actions", width: 90,
+            actions: [%{label: "View", event: "view_company", param: "row_id"}]}
+        ]}
+        rows={Enum.map(@companies, &company_row/1)}
+      />
     </div>
     """
   end
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="font-size:16px;font-weight:700;margin-bottom:12px;"><%= @company.company_name %> (<%= @company.company_code %>)</div>
       <% else %>
@@ -1285,29 +1310,21 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       <span>Employee Cards (<%= length(@employee_cards) %>)</span>
       <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="emp_wizard_new" phx-target={@myself}>+ Add Employee Card</button>
     </div>
-    <%!-- Plain HTML — View's phx-click="view_employee" is exercised directly
-        by hcs_component_test.exs; see the note on the companies table above. --%>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Name</th><th>Dept</th><th>Individual Limit</th><th>Daily Spend</th><th>Cash?</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <%= if @employee_cards == [] do %>
-            <tr><td colspan="7" class="empty-row" style="text-align:center;">No employee cards issued.</td></tr>
-          <% end %>
-          <%= for e <- @employee_cards do %>
-            <tr>
-              <td><%= e.employee_name %></td>
-              <td><%= e.department || "—" %></td>
-              <td class="mono"><%= money(e.individual_limit) %></td>
-              <td class="mono"><%= money(e.daily_spend || Decimal.new(0)) %></td>
-              <td><%= if e.can_withdraw_cash, do: "Yes", else: "No" %></td>
-              <td><span class={"badge #{status_cls(e.status)}"}><%= e.status %></span></td>
-              <td><button class="btn btn-xs" phx-click="view_employee" phx-value-id={e.id} phx-target={@myself}>View</button></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="hcs-employee-cards-grid"
+      empty_message="No employee cards issued."
+      columns={[
+        %{field: "employee_name", header: "Name", flex: 1},
+        %{field: "department", header: "Dept", width: 140},
+        %{field: "individual_limit", header: "Individual Limit", type: "money", width: 150},
+        %{field: "daily_spend", header: "Daily Spend", type: "money", width: 130},
+        %{field: "cash", header: "Cash?", width: 90},
+        %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 110},
+        %{field: "actions", header: "", type: "actions", width: 90,
+          actions: [%{label: "View", event: "view_employee", param: "row_id"}]}
+      ]}
+      rows={Enum.map(@employee_cards, &employee_card_list_row/1)}
+    />
     """
   end
 
@@ -1365,29 +1382,21 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       </div>
     <% end %>
 
-    <%!-- Plain HTML — View's phx-click="view_vehicle" is exercised directly
-        by hcs_component_test.exs; see the note on the companies table above. --%>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Plate</th><th>VIN</th><th>Make/Model</th><th>Current Driver</th><th>Fleet Card</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <%= if @vehicles == [] do %>
-            <tr><td colspan="7" class="empty-row" style="text-align:center;">No vehicles registered.</td></tr>
-          <% end %>
-          <%= for v <- @vehicles do %>
-            <tr>
-              <td class="mono"><%= v.plate_number %></td>
-              <td class="mono"><%= v.vin || "—" %></td>
-              <td><%= [v.make, v.model] |> Enum.reject(&is_nil/1) |> Enum.join(" ") %></td>
-              <td><%= v.current_driver || "—" %></td>
-              <td><%= if v.has_card, do: "Issued", else: "None" %></td>
-              <td><span class={"badge #{status_cls(v.status)}"}><%= v.status %></span></td>
-              <td><button class="btn btn-xs" phx-click="view_vehicle" phx-value-id={v.id} phx-target={@myself}>View</button></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="hcs-vehicles-grid"
+      empty_message="No vehicles registered."
+      columns={[
+        %{field: "plate_number", header: "Plate", type: "mono", width: 130},
+        %{field: "vin", header: "VIN", type: "mono", width: 160},
+        %{field: "make_model", header: "Make/Model", flex: 1},
+        %{field: "current_driver", header: "Current Driver", flex: 1},
+        %{field: "fleet_card", header: "Fleet Card", width: 110},
+        %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 110},
+        %{field: "actions", header: "", type: "actions", width: 90,
+          actions: [%{label: "View", event: "view_vehicle", param: "row_id"}]}
+      ]}
+      rows={Enum.map(@vehicles, &vehicle_list_row/1)}
+    />
     """
   end
 
@@ -1440,7 +1449,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   def render(%{mode: :vehicle_detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div style="font-size:16px;font-weight:700;"><%= @selected_vehicle.plate_number %> — <%= @company.company_name %></div>
@@ -1568,7 +1577,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   def render(%{mode: :employee_wizard} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div style="font-size:16px;font-weight:700;">Add Employee Card — <%= @company.company_name %></div>
@@ -1740,7 +1749,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
   def render(%{mode: :employee_detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <%= if @embedded do %>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div style="font-size:16px;font-weight:700;"><%= @selected_employee.employee_name %> — <%= @company.company_name %></div>

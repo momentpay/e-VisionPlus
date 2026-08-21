@@ -427,7 +427,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
   @impl true
   def render(%{mode: :list} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Collections & Recovery" subtitle="Cases by status, DPD bucket, and assignment">
         <:actions>
           <button class="btn-sm" phx-click="show_agency_files" phx-target={@myself}>📁 Agency Files</button>
@@ -461,6 +461,14 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
         <button class="btn-sm btn-success" type="submit">Place selected</button>
       </form>
 
+      <%!-- Plain HTML for a structural reason, not a test one: each row
+           carries a bound checkbox feeding the bulk "Place selected" form
+           above. No ag_grid cell type hosts a bound form control, and AG
+           Grid's own row-selection would need a new selection→LiveView
+           bridge in the contract to drive @selected_case_ids. This list
+           does grow with activity, so it is a genuine candidate once that
+           bridge exists — see docs/shared/Admin_Detail_UX_Philosophy.md §1
+           and the "remaining" note in §Status. --%>
       <div class="table-wrapper">
         <table class="data-table">
           <thead>
@@ -503,7 +511,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
 
   def render(%{mode: :agency_files} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Agency Files" subtitle="Assignment file generation + activity file import">
         <:actions>
           <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to cases</button>
@@ -569,7 +577,7 @@ defmodule VmuCoreWeb.Live.Admin.ColComponent do
 
   def render(%{mode: :detail} = assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title={"Case — #{@account.last_four}"} subtitle={@case_row.status}>
         <:actions>
           <button class="btn-sm" phx-click="back_to_list" phx-target={@myself}>← Back to list</button>

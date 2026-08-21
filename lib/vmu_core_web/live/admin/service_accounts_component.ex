@@ -44,7 +44,7 @@ defmodule VmuCoreWeb.Live.Admin.ServiceAccountsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Service Accounts" subtitle="API credentials for external callers (e.g. /api/v1/kyc/*)">
         <:actions>
           <button type="button" phx-click="toggle_create" phx-target={@myself} class="btn btn-primary">+ New</button>

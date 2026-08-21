@@ -136,7 +136,17 @@ function actionsCellRenderer(hook) {
         // action elsewhere in this app carries — an action here that skips
         // it when the original had one is a regression, not a simplification.
         if (action.confirm && !window.confirm(fillTemplate(action.confirm, params.data))) return
-        hook.pushEventTo(hook.el, action.event, { id: params.data[action.param] })
+
+        // `params` carries extra *static* values into the payload alongside
+        // the row's own id — for a handler keyed on more than the record,
+        // e.g. card_action_open's %{"a" => "card_block", "id" => card_id},
+        // where one event serves several buttons and `a` says which. Row
+        // data still wins nothing here: these are per-action constants
+        // declared server-side, never client-derived.
+        hook.pushEventTo(hook.el, action.event, {
+          ...(action.params || {}),
+          id: params.data[action.param]
+        })
       })
       wrap.appendChild(btn)
     }
@@ -217,10 +227,17 @@ const AgGrid = {
 
     const paginate = this.el.dataset.paginate !== "false"
 
+    // `data-row-class-field` names a row field holding a CSS class for the
+    // whole row — how a table flags an exceptional row (a GL shadow-diff
+    // mismatch, the wallet currency currently in view). Without it those
+    // highlights would quietly vanish in the move off hand-written <tr>.
+    const rowClassField = this.el.dataset.rowClassField
+
     this.gridApi = createGrid(this.el, {
       theme: "legacy",
       columnDefs: columns.map((c) => cellDefForColumn(c, this)),
       rowData: rows,
+      getRowClass: rowClassField ? (p) => p.data && p.data[rowClassField] : undefined,
       animateRows: true,
       pagination: paginate,
       paginationPageSize: 50,

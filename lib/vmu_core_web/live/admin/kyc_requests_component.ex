@@ -78,7 +78,7 @@ defmodule VmuCoreWeb.Live.Admin.KycRequestsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="KYC Requests" subtitle="Admin-initiated submission, review, and approval">
         <:actions>
           <button :if={@can_edit} type="button" phx-click="req_new" phx-target={@myself} class="btn btn-primary">

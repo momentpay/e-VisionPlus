@@ -258,7 +258,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       org_sizes:  BankParameter.org_size_options()
     )
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="Organisations" subtitle="Bank and financial institution records — BANK level in the VisionPlus parameter hierarchy">
         <:actions>
           <button :if={@mode == :list && @can_edit} phx-click="org_new" phx-target={@myself} class="btn btn-primary">

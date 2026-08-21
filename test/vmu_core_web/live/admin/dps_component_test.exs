@@ -213,8 +213,8 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponentTest do
 
       html =
         view
-        |> element("tr[phx-value-id='#{dispute.dispute_id}']")
-        |> render_click()
+        |> with_target("#dps-component")
+        |> render_click("open_case", %{"id" => to_string(dispute.dispute_id)})
 
       assert html =~ "Deadline Monitor"
       assert html =~ "badge-red"
@@ -226,7 +226,7 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponentTest do
       operator = operator_fixture("SUPERVISOR")
 
       {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/dps")
-      view |> element("tr[phx-value-id='#{dispute.dispute_id}']") |> render_click()
+      view |> with_target("#dps-component") |> render_click("open_case", %{"id" => to_string(dispute.dispute_id)})
 
       html = view |> element("button", "Assign to me") |> render_click()
       assert html =~ operator.username
@@ -256,7 +256,7 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponentTest do
       conn = authed_conn(operator)
 
       {:ok, view, _html} = live(conn, "/visionplus/admin/dps")
-      view |> element("tr[phx-value-id='#{dispute.dispute_id}']") |> render_click()
+      view |> with_target("#dps-component") |> render_click("open_case", %{"id" => to_string(dispute.dispute_id)})
 
       path = Path.join(System.tmp_dir!(), "dps_test_evidence_#{System.unique_integer([:positive])}.txt")
       File.write!(path, "cardholder statement evidence")
@@ -334,7 +334,7 @@ defmodule VmuCoreWeb.Live.Admin.DpsComponentTest do
 
       assert has_element?(view, "button", "+ File Dispute")
 
-      html = view |> element("tr[phx-value-id='#{dispute.dispute_id}']") |> render_click()
+      html = view |> with_target("#dps-component") |> render_click("open_case", %{"id" => to_string(dispute.dispute_id)})
 
       refute html =~ "Assign to me"
       refute html =~ ~s(phx-submit="transition")

@@ -148,7 +148,7 @@ defmodule VmuCoreWeb.Live.Admin.SystemComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="System Parameters" subtitle="Global processor-level defaults (root of the parameter hierarchy)">
         <:actions>
           <button :if={@mode == :view && @sys != nil && @can_edit}

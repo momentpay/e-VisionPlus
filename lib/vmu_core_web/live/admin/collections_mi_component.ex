@@ -81,7 +81,7 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Collections MI" subtitle="Roll rates, cure rates, promise-kept %, recovery % (FR-COL-025)" />
 
       <form phx-change="filter" phx-target={@myself} style="display:flex; gap:0.5rem; align-items:end; margin-bottom:1rem">

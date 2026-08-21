@@ -71,7 +71,7 @@ defmodule VmuCoreWeb.Live.Admin.KycMethodsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
+    <div id={@id}>
       <.page_header title="KYC Methods" subtitle="Per-product KYC form templates and step sequencing">
         <:actions>
           <button :if={@can_edit} type="button" phx-click="new_method" phx-target={@myself} class="btn btn-primary">

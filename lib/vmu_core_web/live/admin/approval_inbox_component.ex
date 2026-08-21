@@ -261,7 +261,7 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="component-panel">
+    <div id={@id} class="component-panel">
       <.page_header title="Approval Inbox"
                     subtitle="Pending 4-eyes items across modules — maker ≠ checker and authority limits enforced">
         <:actions>
@@ -397,48 +397,28 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
         rows={Enum.map(@col_settlements, &settlement_row(&1, @can_approve))}
       />
 
-      <%!-- HCS facility limit changes (Way4 parity plan Phase 1 item 2).
-          Plain HTML, deliberately — approve_facility_limit is exercised
-          directly by hcs_component_test.exs (a cross-component test: HCS
-          requests a limit change, then approves it here as a different
-          operator) via `element(...) |> render_click()`, which AG Grid's
-          client-rendered actions cells cannot satisfy. See
-          docs/shared/Admin_Menu_Standard.md §5. --%>
+      <%!-- HCS facility limit changes (Way4 parity plan Phase 1 item 2). --%>
       <h3 style="margin:1.5rem 0 0.5rem">HCS Facility Limit Changes (<%= length(@hcs_facility_limits) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Company</th><th>Current → Requested</th>
-              <th>Reason</th><th>Requested By</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @hcs_facility_limits == [] do %>
-              <tr><td colspan="6" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for c <- @hcs_facility_limits do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><%= c.company_id %></td>
-                <td><%= c.current_limit %> → <%= c.requested_limit %></td>
-                <td><%= c.reason %></td>
-                <td><code><%= c.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_facility_limit"
-                            phx-value-id={c.id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_facility_limit"
-                            phx-value-id={c.id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-hcs-facility-limits-grid"
+        paginate={false}
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested_at", header: "Requested", width: 150},
+          %{field: "company_id", header: "Company", width: 120},
+          %{field: "change", header: "Current → Requested", width: 200},
+          %{field: "reason", header: "Reason", flex: 1},
+          %{field: "requested_by", header: "Requested By", type: "mono", width: 160},
+          %{field: "actions", header: "Actions", type: "actions", width: 180,
+            actions: [
+              %{label: "Approve", event: "approve_facility_limit", param: "row_id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_facility_limit", param: "row_id", danger: true,
+                whenField: "can_approve", whenValue: true}
+            ]}
+        ]}
+        rows={Enum.map(@hcs_facility_limits, &facility_limit_row(&1, @can_approve))}
+      />
 
       <p class="text-muted" style="margin-top:0.75rem; font-size:0.85em">
         CMS temp limits, fee waivers, and financial adjustments use inline
@@ -485,6 +465,18 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
   # `whenField`/`whenValue` can hide Approve/Reject per row (same pattern as
   # CmsEodComponent's `can_retry`).
   # ---------------------------------------------------------------------------
+
+  defp facility_limit_row(c, can_approve) do
+    %{
+      row_id: to_string(c.id),
+      requested_at: Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M"),
+      company_id: c.company_id,
+      change: "#{c.current_limit} → #{c.requested_limit}",
+      reason: c.reason,
+      requested_by: c.requested_by,
+      can_approve: can_approve
+    }
+  end
 
   defp adjustment_row(adj, can_approve) do
     %{

@@ -36,9 +36,12 @@ defmodule VmuCoreWeb.Components.AgGrid do
   like "View in Debit Cards" that navigates away from this LiveView
   entirely, not a `phx-click` event; `"actions"` renders one `.btn-ghost.btn-xs` per entry in
   `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:,
-  confirm:}]`, each pushing `event` to the owning LiveComponent with
+  confirm:, params:}]`, each pushing `event` to the owning LiveComponent with
   `%{"id" => row[param]}` — the payload key is always literally `"id"`,
-  only the value comes from `param`. `whenField`/`whenValue` hide an
+  only the value comes from `param`. `params: %{"a" => "card_block"}`
+  merges extra *static* keys into that payload, for a handler keyed on
+  more than the record id — e.g. `card_action_open`, where one event
+  serves Activate/Block/Unblock/Replace and `"a"` says which. `whenField`/`whenValue` hide an
   action unless `row[whenField] === whenValue` (conditional actions).
   `confirm: "Delete block {block_id}?"` shows a native confirm dialog
   before dispatching, with `{field}` filled from the row — the
@@ -83,6 +86,11 @@ defmodule VmuCoreWeb.Components.AgGrid do
   attr :rows, :list, required: true
   attr :empty_message, :string, default: "No rows to show."
   attr :paginate, :boolean, default: true, doc: "false for a screen that already paginates server-side"
+
+  attr :row_class_field, :string,
+    default: nil,
+    doc: ~S|row field holding a CSS class for the whole row, e.g. "row-alert" on a mismatch|
+
   attr :rest, :global
 
   def ag_grid(assigns) do
@@ -101,6 +109,7 @@ defmodule VmuCoreWeb.Components.AgGrid do
       data-rows={@rows_json}
       data-empty-message={@empty_message}
       data-paginate={to_string(@paginate)}
+      data-row-class-field={@row_class_field}
       {@rest}
     />
     """

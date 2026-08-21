@@ -145,7 +145,15 @@ config :vmu_core, Oban,
        {"0 1 1 * *", VmuCore.LMS.Oban.PointsExpiryJob},
        # Prepaid stored-value expiry sweep (Way4 parity plan Phase 1 item
        # 5, P5) — daily, 04:30 (after CardExpirySweepJob at 04:00)
-       {"30 4 * * *", VmuCore.CMS.Oban.PrepaidExpiryJob}
+       {"30 4 * * *", VmuCore.CMS.Oban.PrepaidExpiryJob},
+       # OTB reconciliation write-back — every 10 min, the one sub-daily
+       # entry in this list on purpose: AccountStateCoordinator already
+       # reconstructs true open_to_buy from durable holds at boot (crash
+       # durability, the real fix); this just keeps cms_accounts.open_to_buy
+       # itself reasonably fresh for direct DB readers (operator console,
+       # COL.WriteOffProcessor's GL write-off amount) that bypass the live
+       # coordinator entirely.
+       {"*/10 * * * *", VmuCore.CMS.Oban.OtbReconciliationSweepJob}
      ]}
   ],
   queues: [

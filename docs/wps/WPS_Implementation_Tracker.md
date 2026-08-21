@@ -122,20 +122,77 @@ migrated portfolio, the HCS history relabel
 
 ---
 
-## Phase W2 — Ingestion (next)
+## Phase W2 — Ingestion ✅ 2026-08-06
 
-Config-driven layout mapping on the `COL.AgencyDesk` pattern, which already
-solves this exact problem for collections agencies and whose moduledoc says
-*"layouts genuinely vary by region/agency; a fixed schema per agency was the
-wrong long-term shape"*.
+### Built
 
-`wps.employer_config`, scope `:bank`, keyed by employer code:
-`import_mapping`, `date_format`, `amount_format`, `file_format`.
+| | |
+|---|---|
+| `wps.employer_config` | Per-employer layout: format, mapping, positions, date and amount encoding |
+| `wps_files` | The ingested file: hash, counts, totals, layout snapshot, parse errors |
+| `wps_salary_credits` | One row per line, with a guarded status lifecycle |
+| `WPS.FileParser` | Config-driven CSV and fixed-width parsing |
+| `WPS.AmountFormat` | `decimal` and `implied_2dp` encodings |
+| `WPS.Ingestion` | Parse, validate, persist — **no disbursement** |
+| 38 tests | 26 parser, 12 ingestion |
 
-This is what turns the missing SIF specification from a blocker into
-configuration — and it is what the requirements doc's own answer to Open
-Question 2 asks for: *"we have to be open as per market as we are building the
-product."*
+### The missing SIF spec is no longer a blocker
+
+Nothing in the parser knows any scheme. Column names, positions, date format
+and amount encoding all come from `wps.employer_config`, exactly as
+`COL.AgencyDesk` does for collections-agency files. **Onboarding a new market
+is a configuration entry, not a code change.**
+
+### Decisions worth recording
+
+**Amount encoding is configured, never inferred.** `"1234"` is a valid amount
+under both encodings — `1234.00` as a decimal, `12.34` as implied minor units.
+A hundredfold difference, with nothing in the string to say which is right.
+Inference here would be a coin flip on every worker's wage, so `amount_format`
+is explicit and a decimal point under `implied_2dp` is an error rather than a
+silent reinterpretation.
+
+**An unconfigured employer is refused, not defaulted.** Guessing a layout is how
+amounts land in the wrong column.
+
+**`net = gross - deductions` is validated when all three are present.** A file
+failing this is almost always a column-mapping error, which makes it the
+cheapest available check that the layout config itself is right — and far better
+to catch before the money moves than after.
+
+**The layout is snapshotted onto the file, not referenced.** Config changes; an
+operator investigating a file months later needs to know how it *was* parsed,
+or the parse is not reproducible.
+
+**Errors accumulate; parsing never aborts.** A file that reads 383 of 400 lines
+is ingested with the 17 failures listed. Refusing the whole file would discard
+383 correct payment instructions over someone else's typo and leave the operator
+with no list of what to fix.
+
+**Ingestion does not disburse.** That is W3, behind a pre-flight report. Keeping
+them apart is what makes it safe to ingest a file simply to look at it.
+
+### Found while building
+
+**The CSV splitter was not quote-aware.** A naive split on the delimiter tore
+`"12,500.75"` into two fields — silently, leaving a plausible number in each.
+Payroll exports quote thousands separators routinely, so this would have
+corrupted the one column that must never be wrong. Caught by test; the splitter
+now respects quotes and doubled-quote escapes.
+
+**A configurable policy cannot also be a database constraint.** The file-hash
+index started as `unique`, which contradicted `duplicate_file_policy: "warn"`.
+Relaxed to a plain index, with the policy enforced in code.
+
+The guarantee that actually stops a double payment is unchanged and remains a
+hard constraint: **unique `(employer_id, payment_reference)`**. That one is an
+invariant, not a policy, which is exactly why it belongs in the database.
+
+**`parse_errors` returned different shapes** depending on whether the caller
+held the in-memory struct (atom keys) or a reloaded one (string keys, via
+jsonb). Now stringified at write time.
+
+---
 
 ## Phase W3 — Pre-flight report, batch disbursement, exception queue
 

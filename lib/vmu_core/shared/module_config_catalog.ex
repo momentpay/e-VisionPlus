@@ -34,7 +34,8 @@ defmodule VmuCore.Shared.ModuleConfigCatalog do
       VmuCore.CMS.ConfigCatalog.entries() ++
       VmuCore.COL.ConfigCatalog.entries() ++
       VmuCore.FAS.ConfigCatalog.entries() ++
-      VmuCore.HCS.ConfigCatalog.entries()
+      VmuCore.HCS.ConfigCatalog.entries() ++
+      VmuCore.WPS.ConfigCatalog.entries()
   end
 
   @spec for_module(String.t()) :: [spec()]

@@ -1211,19 +1211,6 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   defp card_status_cls("DESTROYED"), do: "badge-gray"
   defp card_status_cls(_),           do: "badge-blue"
 
-  # Channel-control dot: green = force-allow, red = force-block, gray = inherit
-  defp channel_dot(label, true),  do: raw_dot(label, "#16a34a")
-  defp channel_dot(label, false), do: raw_dot(label, "#dc2626")
-  defp channel_dot(label, _nil),  do: raw_dot(label, "#9ca3af")
-
-  defp raw_dot(label, color) do
-    Phoenix.HTML.raw(
-      "<span style=\"display:inline-block;width:16px;height:16px;line-height:16px;" <>
-      "border-radius:3px;background:#{color};color:#fff;text-align:center;" <>
-      "font-size:9px;margin-right:2px;\">#{label}</span>"
-    )
-  end
-
   defp card_event_dot("card_block"),   do: "timeline-dot-red"
   defp card_event_dot("card_replace"), do: "timeline-dot-red"
   defp card_event_dot("card_unblock"), do: "timeline-dot-green"
@@ -1399,75 +1386,26 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           </select>
         </div>
 
-        <div class="table-wrap">
-          <table class="data-table">
-            <colgroup>
-              <col style="width:110px"/>
-              <col style="width:180px"/>
-              <col style="width:90px"/>
-              <col style="width:80px"/>
-              <col style="width:80px"/>
-              <col style="width:100px"/>
-              <col style="width:120px"/>
-              <col style="width:110px"/>
-              <col style="width:90px"/>
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Account ID</th>
-                <th>Cardholder</th>
-                <th>Bank/Logo</th>
-                <th>Status</th>
-                <th>Block</th>
-                <th>DPD</th>
-                <th>Credit Limit</th>
-                <th>Open to Buy</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= if @accounts == [] do %>
-                <tr><td colspan="9" class="empty-row">No accounts found.</td></tr>
-              <% end %>
-              <%= for acc <- @accounts do %>
-                <% cust = @customers_map[acc.customer_id] %>
-                <% {dpd_label, dpd_cls} = dpd_info(acc.delinquency_bucket || 0) %>
-                <tr>
-                  <td class="mono" style="font-size:11px;color:var(--text-secondary)">
-                    <%= short_id(to_string(acc.account_id)) %>…<br/>
-                    <span style="font-size:10px;">****<%= acc.last_four %></span>
-                  </td>
-                  <td>
-                    <%= if cust do %>
-                      <div class="fw-600"><%= cust.first_name %> <%= cust.last_name %></div>
-                      <div style="font-size:11px;color:var(--text-secondary)"><%= cust.email %></div>
-                    <% else %>
-                      <span class="text-muted">—</span>
-                    <% end %>
-                  </td>
-                  <td style="font-size:12px;"><%= acc.bank_id %><br/><span class="text-muted"><%= acc.logo_id %></span></td>
-                  <td><span class={"badge #{status_cls(acc.account_status)}"}><%= acc.account_status %></span></td>
-                  <td>
-                    <%= if acc.block_code do %>
-                      <span class="badge badge-red"><%= acc.block_code %></span>
-                    <% else %>
-                      <span class="text-muted">—</span>
-                    <% end %>
-                  </td>
-                  <td><span class={"badge #{dpd_cls}"}><%= dpd_label %></span></td>
-                  <td class="mono"><%= money(acc.credit_limit) %></td>
-                  <td class="mono"><%= money(acc.open_to_buy) %></td>
-                  <td>
-                    <button class="btn btn-sm btn-secondary"
-                      phx-click="acc_view" phx-value-id={acc.account_id} phx-target={@myself}>
-                      View
-                    </button>
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="account-list-grid"
+          empty_message="No accounts found."
+          columns={[
+            %{field: "account_id", header: "Account ID", type: "mono", width: 130},
+            %{field: "last_four", header: "Card", type: "mono", width: 90},
+            %{field: "cardholder", header: "Cardholder", flex: 1},
+            %{field: "email", header: "Email", flex: 1},
+            %{field: "bank_id", header: "Bank", type: "mono", width: 90},
+            %{field: "logo_id", header: "Logo", type: "mono", width: 90},
+            %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120},
+            %{field: "block_code", header: "Block", type: "badge", classField: "block_class", width: 100},
+            %{field: "dpd", header: "DPD", type: "badge", classField: "dpd_class", width: 110},
+            %{field: "credit_limit", header: "Credit Limit", type: "money", width: 130},
+            %{field: "open_to_buy", header: "Open to Buy", type: "money", width: 130},
+            %{field: "actions", header: "", type: "actions", width: 100,
+              actions: [%{label: "View", event: "acc_view", param: "row_id"}]}
+          ]}
+          rows={Enum.map(@accounts, &account_list_row(&1, @customers_map))}
+        />
       </div>
       <% end %>
     </div>
@@ -1549,6 +1487,78 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   defp arrangement_badge_cls("DEBIT"), do: "badge-green"
   defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
   defp arrangement_badge_cls(_), do: "badge-gray"
+
+  # The channel controls are tri-state, not boolean: true = force-allow,
+  # false = force-block, nil = inherit from the product. The old coloured
+  # chips carried that in green/red/grey; a grid cell is plain text, so the
+  # state rides as a suffix instead. Filtering to "enabled only" would have
+  # silently merged force-block and inherit into the same blank — a real
+  # difference an operator acts on.
+  defp card_row(c) do
+    channels =
+      [{"E", c.ecom_enabled}, {"A", c.atm_enabled}, {"C", c.contactless_enabled}, {"I", c.intl_enabled}]
+      |> Enum.map_join(" ", fn
+        {label, true} -> "#{label}✓"
+        {label, false} -> "#{label}✗"
+        {label, _nil} -> "#{label}·"
+      end)
+
+    %{
+      row_id: c.card_id,
+      generation: c.generation,
+      card_type: c.card_type,
+      pan: "**** #{c.last_four || "----"}",
+      emboss_name: c.emboss_name || "—",
+      expiry: c.expiry || "—",
+      status: c.status,
+      status_class: card_status_cls(c.status),
+      block_reason: c.block_reason || "—",
+      channels: channels,
+      issued: date_s(c.issued_at),
+      # Multi-condition visibility (status in a set, or two fields at once)
+      # does not fit whenField/whenValue's single equality, so the decision
+      # is made here in Elixir and the cell just reads a boolean.
+      can_activate: c.status == "INACTIVE",
+      can_block: c.status == "ACTIVE",
+      can_unblock: c.status == "BLOCKED",
+      can_reissue: c.status in ["ACTIVE", "BLOCKED", "EXPIRED"],
+      can_reveal: c.card_type == "VIRTUAL" and c.status == "ACTIVE"
+    }
+  end
+
+  defp wizard_customer_row(c) do
+    %{
+      row_id: c.customer_id,
+      name: "#{c.first_name} #{c.last_name}",
+      email: c.email || "—",
+      bank_id: c.bank_id,
+      kyc_status: c.kyc_status,
+      kyc_class: if(c.kyc_status == "VERIFIED", do: "badge-green", else: "badge-yellow")
+    }
+  end
+
+  defp account_list_row(acc, customers_map) do
+    cust = customers_map[acc.customer_id]
+    {dpd_label, dpd_cls} = dpd_info(acc.delinquency_bucket || 0)
+
+    %{
+      row_id: acc.account_id,
+      account_id: "#{short_id(to_string(acc.account_id))}…",
+      last_four: "****#{acc.last_four}",
+      cardholder: if(cust, do: "#{cust.first_name} #{cust.last_name}", else: "—"),
+      email: (cust && cust.email) || "—",
+      bank_id: acc.bank_id,
+      logo_id: acc.logo_id,
+      status: acc.account_status,
+      status_class: status_cls(acc.account_status),
+      block_code: acc.block_code || "—",
+      block_class: if(acc.block_code, do: "badge-red", else: "badge-gray"),
+      dpd: dpd_label,
+      dpd_class: dpd_cls,
+      credit_limit: acc.credit_limit,
+      open_to_buy: acc.open_to_buy
+    }
+  end
 
   defp supp_search_row(a) do
     %{
@@ -2676,66 +2686,41 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       <%= if @cards == [] do %>
         <div class="empty-row" style="padding:20px;text-align:center;">No card issued yet.</div>
       <% else %>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Gen</th><th>Type</th><th>PAN</th><th>Emboss Name</th><th>Expiry</th>
-                <th>Status</th><th>Channels</th><th>Issued</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for c <- @cards do %>
-                <tr>
-                  <td class="mono"><%= c.generation %></td>
-                  <td><%= c.card_type %></td>
-                  <td class="mono">**** <%= c.last_four || "----" %></td>
-                  <td><%= c.emboss_name || "—" %></td>
-                  <td class="mono"><%= c.expiry || "—" %></td>
-                  <td><span class={"badge #{card_status_cls(c.status)}"}><%= c.status %></span>
-                    <%= if c.block_reason do %>
-                      <div style="font-size:10px;color:var(--text-muted);"><%= c.block_reason %></div>
-                    <% end %>
-                  </td>
-                  <td style="font-size:10px;">
-                    <span title="E-Commerce"><%= channel_dot("E", c.ecom_enabled) %></span>
-                    <span title="ATM"><%= channel_dot("A", c.atm_enabled) %></span>
-                    <span title="Contactless"><%= channel_dot("C", c.contactless_enabled) %></span>
-                    <span title="International"><%= channel_dot("I", c.intl_enabled) %></span>
-                  </td>
-                  <td><%= date_s(c.issued_at) %></td>
-                  <td>
-                    <div class="actions" style="display:flex;flex-wrap:wrap;gap:4px;">
-                      <%= if c.status == "INACTIVE" do %>
-                        <button class="btn btn-xs" phx-click="card_action_open"
-                          phx-value-a="card_activate" phx-value-id={c.card_id} phx-target={@myself}>Activate</button>
-                      <% end %>
-                      <%= if c.status == "ACTIVE" do %>
-                        <button class="btn btn-xs btn-danger" phx-click="card_action_open"
-                          phx-value-a="card_block" phx-value-id={c.card_id} phx-target={@myself}>Block</button>
-                        <button class="btn btn-xs" phx-click="card_action_open"
-                          phx-value-a="card_channels" phx-value-id={c.card_id} phx-target={@myself}>Channels</button>
-                      <% end %>
-                      <%= if c.status == "BLOCKED" do %>
-                        <button class="btn btn-xs btn-success" phx-click="card_action_open"
-                          phx-value-a="card_unblock" phx-value-id={c.card_id} phx-target={@myself}>Unblock</button>
-                      <% end %>
-                      <%= if c.status in ["ACTIVE", "BLOCKED", "EXPIRED"] do %>
-                        <button class="btn btn-xs" phx-click="card_action_open"
-                          phx-value-a="card_replace" phx-value-id={c.card_id} phx-target={@myself}>Replace</button>
-                        <button class="btn btn-xs" phx-click="card_action_open"
-                          phx-value-a="card_renew" phx-value-id={c.card_id} phx-target={@myself}>Renew</button>
-                      <% end %>
-                      <%= if c.card_type == "VIRTUAL" and c.status == "ACTIVE" do %>
-                        <button class="btn btn-xs btn-success" phx-click="card_reveal"
-                          phx-value-id={c.card_id} phx-target={@myself}>Reveal</button>
-                      <% end %>
-                    </div>
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+        <div>
+          <.ag_grid
+            id="account-cards-grid"
+            paginate={false}
+            empty_message="No card issued yet."
+            columns={[
+              %{field: "generation", header: "Gen", type: "mono", width: 80},
+              %{field: "card_type", header: "Type", width: 130},
+              %{field: "pan", header: "PAN", type: "mono", width: 110},
+              %{field: "emboss_name", header: "Emboss Name", flex: 1},
+              %{field: "expiry", header: "Expiry", type: "mono", width: 90},
+              %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 110},
+              %{field: "block_reason", header: "Block Reason", flex: 1},
+              %{field: "channels", header: "Channels (✓allow ✗block ·inherit)", type: "mono", width: 150},
+              %{field: "issued", header: "Issued", width: 120},
+              %{field: "actions", header: "", type: "actions", width: 300,
+                actions: [
+                  %{label: "Activate", event: "card_action_open", param: "row_id",
+                    params: %{"a" => "card_activate"}, whenField: "can_activate", whenValue: true},
+                  %{label: "Block", event: "card_action_open", param: "row_id", danger: true,
+                    params: %{"a" => "card_block"}, whenField: "can_block", whenValue: true},
+                  %{label: "Channels", event: "card_action_open", param: "row_id",
+                    params: %{"a" => "card_channels"}, whenField: "can_block", whenValue: true},
+                  %{label: "Unblock", event: "card_action_open", param: "row_id",
+                    params: %{"a" => "card_unblock"}, whenField: "can_unblock", whenValue: true},
+                  %{label: "Replace", event: "card_action_open", param: "row_id",
+                    params: %{"a" => "card_replace"}, whenField: "can_reissue", whenValue: true},
+                  %{label: "Renew", event: "card_action_open", param: "row_id",
+                    params: %{"a" => "card_renew"}, whenField: "can_reissue", whenValue: true},
+                  %{label: "Reveal", event: "card_reveal", param: "row_id",
+                    whenField: "can_reveal", whenValue: true}
+                ]}
+            ]}
+            rows={Enum.map(@cards, &card_row/1)}
+          />
         </div>
       <% end %>
 
@@ -3019,29 +3004,20 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         </div>
 
         <%= if @customer_results != [] do %>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr><th>Name</th><th>Email</th><th>Bank</th><th>KYC</th><th></th></tr>
-              </thead>
-              <tbody>
-                <%= for c <- @customer_results do %>
-                  <tr>
-                    <td><%= c.first_name %> <%= c.last_name %></td>
-                    <td style="font-size:12px;"><%= c.email %></td>
-                    <td><%= c.bank_id %></td>
-                    <td><span class={"badge #{if c.kyc_status == "VERIFIED", do: "badge-green", else: "badge-yellow"}"}><%= c.kyc_status %></span></td>
-                    <td>
-                      <button class="btn btn-sm btn-primary"
-                        phx-click="select_customer" phx-value-id={c.customer_id} phx-target={@myself}>
-                        Select
-                      </button>
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
+          <.ag_grid
+            id="wizard-customer-search-grid"
+            paginate={false}
+            empty_message="No customers found. Try a different search."
+            columns={[
+              %{field: "name", header: "Name", flex: 1},
+              %{field: "email", header: "Email", flex: 1},
+              %{field: "bank_id", header: "Bank", type: "mono", width: 100},
+              %{field: "kyc_status", header: "KYC", type: "badge", classField: "kyc_class", width: 120},
+              %{field: "actions", header: "", type: "actions", width: 110,
+                actions: [%{label: "Select", event: "select_customer", param: "row_id"}]}
+            ]}
+            rows={Enum.map(@customer_results, &wizard_customer_row/1)}
+          />
         <% end %>
 
         <%= if @customer_search != "" && @customer_results == [] do %>

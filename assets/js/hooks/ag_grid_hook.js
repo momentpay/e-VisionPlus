@@ -136,7 +136,17 @@ function actionsCellRenderer(hook) {
         // action elsewhere in this app carries — an action here that skips
         // it when the original had one is a regression, not a simplification.
         if (action.confirm && !window.confirm(fillTemplate(action.confirm, params.data))) return
-        hook.pushEventTo(hook.el, action.event, { id: params.data[action.param] })
+
+        // `params` carries extra *static* values into the payload alongside
+        // the row's own id — for a handler keyed on more than the record,
+        // e.g. card_action_open's %{"a" => "card_block", "id" => card_id},
+        // where one event serves several buttons and `a` says which. Row
+        // data still wins nothing here: these are per-action constants
+        // declared server-side, never client-derived.
+        hook.pushEventTo(hook.el, action.event, {
+          ...(action.params || {}),
+          id: params.data[action.param]
+        })
       })
       wrap.appendChild(btn)
     }

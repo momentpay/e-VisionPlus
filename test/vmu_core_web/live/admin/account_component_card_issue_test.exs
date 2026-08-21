@@ -8,10 +8,12 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponentCardIssueTest do
 
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
   alias VmuCore.Repo
+  alias VmuCore.CTA.Card
   alias VmuCore.ASM.{Authz, Operator}
   alias VmuCore.CMS.Account
   alias VmuCore.Shared.{BankParameter, BlockParameter, Customer, LogoParameter, SysParameter}
@@ -78,7 +80,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponentCardIssueTest do
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/account")
 
-    view |> element("[phx-click=acc_view][phx-value-id='#{account.account_id}']") |> render_click()
+    view |> with_target("#account-component") |> render_click("acc_view", %{"id" => account.account_id})
     view |> element("[phx-click=\"detail_tab\"][phx-value-t=\"3\"]") |> render_click()
 
     assert render(view) =~ "Issue New Card"
@@ -94,7 +96,11 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponentCardIssueTest do
     assert html =~ "Virtual card gen 1 issued"
     assert html =~ "Reveal"
 
-    reveal_html = view |> element("button[phx-click=card_reveal]") |> render_click()
+    # The Reveal button lives in an AG Grid actions cell (client-rendered,
+    # invisible to LiveViewTest), so drive the event at the component and
+    # look the card up the way the operator's click would have.
+    card = Repo.one!(from c in Card, where: c.account_id == ^account.account_id)
+    reveal_html = view |> with_target("#account-component") |> render_click("card_reveal", %{"id" => card.card_id})
     assert reveal_html =~ "One-Time Reveal"
     assert reveal_html =~ "PAN:"
     assert reveal_html =~ "CVV:"
@@ -113,7 +119,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponentCardIssueTest do
 
     {:ok, view, _html} = live(authed_conn(operator), "/visionplus/admin/account")
 
-    view |> element("[phx-click=acc_view][phx-value-id='#{account.account_id}']") |> render_click()
+    view |> with_target("#account-component") |> render_click("acc_view", %{"id" => account.account_id})
     view |> element("[phx-click=\"detail_tab\"][phx-value-t=\"3\"]") |> render_click()
     view |> element("button[phx-click=card_issue_open]") |> render_click()
 

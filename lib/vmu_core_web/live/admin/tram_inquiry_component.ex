@@ -15,6 +15,7 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
   import VmuCoreWeb.Components.AgGrid
+  import VmuCoreWeb.Components.Drawer
 
   alias VmuCore.TRAMS.{TransactionSearch, TransactionView, StateMachine}
 
@@ -135,76 +136,74 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
         </div>
       </form>
 
-      <%# Detail drawer %>
-      <%= if @detail do %>
-        <div class="detail-panel" style="border:1px solid #ccd; border-radius:6px; padding:1rem; margin-bottom:1.25rem; background:#fafbfc">
-          <div style="display:flex; justify-content:space-between; align-items:center">
-            <h3 style="margin:0">
-              Transaction <code style="font-size:0.8em"><%= @detail.transaction.transaction_id %></code>
-            </h3>
-            <button class="btn-sm" phx-click="close_detail" phx-target={@myself}>✕ Close</button>
+      <%!-- Detail opens in the shared right-side drawer rather than above the
+           results table, so the operator keeps their place in the search they
+           just ran. See docs/shared/Admin_Detail_UX_Philosophy.md §2. --%>
+      <.detail_drawer
+        id="tram-detail-drawer"
+        open={@detail != nil}
+        title={@detail && "Transaction #{short_id(@detail.transaction.transaction_id)}…"}
+        subtitle={@detail && @detail.transaction.transaction_id}
+        on_close="close_detail"
+        target={@myself}
+      >
+        <div :if={@detail}>
+          <.kv_detail rows={[
+            {"State", "#{@detail.transaction.state} (cardholder sees: \"#{@detail.cardholder_status}\")"},
+            {"Type", @detail.transaction.transaction_type},
+            {"Amount", amount_line(@detail.transaction)},
+            {"Merchant", @detail.transaction.merchant_name || @detail.transaction.merchant_id || "—"}
+          ]} />
+
+          <%!-- Identifiers and the event timeline are one transaction's own
+               fixed-shape sub-records — a handful of rows, bounded by this
+               record rather than by platform activity — so they are plain
+               tables, not <.ag_grid>. Philosophy doc §1. --%>
+          <div class="form-pane-section-title" style="margin-top:16px;">Identifiers</div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Source</th><th>STAN</th><th>RRN</th><th>Auth Code</th></tr></thead>
+              <tbody>
+                <tr :for={i <- @detail.identifiers}>
+                  <td><%= i.source %></td>
+                  <td class="mono"><%= i.stan || "—" %></td>
+                  <td class="mono"><%= i.rrn || "—" %></td>
+                  <td class="mono"><%= i.auth_code || "—" %></td>
+                </tr>
+                <tr :if={@detail.identifiers == []}>
+                  <td colspan="4" class="cell-note">No identifiers.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <div class="form-row" style="margin-top:0.75rem">
-            <div><strong>State:</strong> <%= @detail.transaction.state %>
-                 <span class="text-muted">(cardholder sees: "<%= @detail.cardholder_status %>")</span></div>
-            <div><strong>Type:</strong> <%= @detail.transaction.transaction_type %></div>
-            <div><strong>Amount:</strong> <%= @detail.transaction.amount %>
-                 <%= if @detail.transaction.settled_amount do %>
-                   → settled <%= @detail.transaction.settled_amount %>
-                 <% end %>
-                 <%= @detail.transaction.currency %></div>
-            <div><strong>Merchant:</strong> <%= @detail.transaction.merchant_name || @detail.transaction.merchant_id || "—" %></div>
+          <div class="form-pane-section-title" style="margin-top:16px;">Event Timeline</div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>#</th><th>Event</th><th>Actor</th><th>When</th></tr></thead>
+              <tbody>
+                <tr :for={e <- @detail.events}>
+                  <td class="mono"><%= e.seq %></td>
+                  <td class="mono"><%= e.event_type %></td>
+                  <td><%= e.actor %></td>
+                  <td><%= Calendar.strftime(e.occurred_at, "%Y-%m-%d %H:%M:%S") %></td>
+                </tr>
+                <tr :if={@detail.events == []}>
+                  <td colspan="4" class="cell-note">No events.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <%# Identifiers %>
-          <h4 style="margin:1rem 0 0.25rem">Identifiers</h4>
-          <.ag_grid
-            id="tram-detail-identifiers-grid"
-            paginate={false}
-            empty_message="No identifiers."
-            columns={[
-              %{field: "source", header: "Source", width: 140},
-              %{field: "stan", header: "STAN", type: "mono", width: 120},
-              %{field: "rrn", header: "RRN", type: "mono", width: 140},
-              %{field: "auth_code", header: "Auth Code", type: "mono", width: 120}
-            ]}
-            rows={Enum.map(@detail.identifiers, &identifier_row/1)}
-          />
-
-          <%# Event timeline %>
-          <h4 style="margin:1rem 0 0.25rem">Event Timeline</h4>
-          <.ag_grid
-            id="tram-detail-events-grid"
-            paginate={false}
-            empty_message="No events."
-            columns={[
-              %{field: "seq", header: "#", width: 70},
-              %{field: "event_type", header: "Event", type: "mono", width: 180},
-              %{field: "actor", header: "Actor", width: 140},
-              %{field: "when", header: "When", flex: 1}
-            ]}
-            rows={Enum.map(@detail.events, &event_row/1)}
-          />
-
-          <%# Related records %>
-          <div class="form-row" style="margin-top:0.75rem">
-            <div><strong>Clearing:</strong>
-              <%= if @detail.clearing do %>
-                <%= @detail.clearing.network %> <%= @detail.clearing.amount %>
-                (<%= @detail.clearing.match_status %>)
-              <% else %>—<% end %>
-            </div>
-            <div><strong>Adjustments:</strong> <%= length(@detail.adjustments) %></div>
-            <div><strong>Statement lines:</strong> <%= length(@detail.statement_lines) %></div>
-            <div><strong>Dispute:</strong>
-              <%= if @detail.dispute do %>
-                <%= @detail.dispute.reason_code %> — <%= @detail.dispute.status %>
-              <% else %>—<% end %>
-            </div>
-          </div>
+          <div class="form-pane-section-title" style="margin-top:16px;">Related Records</div>
+          <.kv_detail rows={[
+            {"Clearing", clearing_line(@detail.clearing)},
+            {"Adjustments", length(@detail.adjustments)},
+            {"Statement lines", length(@detail.statement_lines)},
+            {"Dispute", dispute_line(@detail.dispute)}
+          ]} />
         </div>
-      <% end %>
+      </.detail_drawer>
 
       <%# Results %>
       <p class="text-muted" style="margin-bottom:0.5rem"><%= @total %> transaction(s)</p>
@@ -268,23 +267,20 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
     end
   end
 
-  defp identifier_row(i) do
-    %{
-      source: i.source,
-      stan: i.stan || "—",
-      rrn: i.rrn || "—",
-      auth_code: i.auth_code || "—"
-    }
-  end
+  defp short_id(id), do: id |> to_string() |> String.slice(0, 8)
 
-  defp event_row(e) do
-    %{
-      seq: e.seq,
-      event_type: e.event_type,
-      actor: e.actor,
-      when: Calendar.strftime(e.occurred_at, "%Y-%m-%d %H:%M:%S")
-    }
-  end
+  defp amount_line(%{amount: amount, settled_amount: nil, currency: ccy}), do: "#{amount} #{ccy}"
+
+  defp amount_line(%{amount: amount, settled_amount: settled, currency: ccy}),
+    do: "#{amount} → settled #{settled} #{ccy}"
+
+  defp clearing_line(nil), do: "—"
+
+  defp clearing_line(c), do: "#{c.network} #{c.amount} (#{c.match_status})"
+
+  defp dispute_line(nil), do: "—"
+
+  defp dispute_line(d), do: "#{d.reason_code} — #{d.status}"
 
   defp tram_result_row(t) do
     flags = [if(t.statement_date, do: "📄"), if(t.clearing_id, do: "🔗")] |> Enum.reject(&is_nil/1) |> Enum.join(" ")

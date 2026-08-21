@@ -29,10 +29,14 @@ defmodule VmuCoreWeb.Components.Drawer do
   `visibility: hidden` so it is out of the tab order and un-clickable
   without `display: none` killing the transition.
 
-  The consequence worth knowing: **the body renders even while closed**, so
-  it must tolerate its assigns being `nil`. Guard the caller's body (or
-  the assign feeding it) rather than assuming the drawer only evaluates
-  when open — see `close_safe/2` below for the helper that does this.
+  The consequence worth knowing: **the body and `title` render even while
+  closed**, so both must tolerate the selected record being `nil` — which
+  it is on most renders. Guard the body with `:if` and the title with
+  `&&`:
+
+      <.detail_drawer open={@detail != nil} title={@detail && @detail.id} ...>
+        <div :if={@detail}>…</div>
+      </.detail_drawer>
 
   ## Closing
 
@@ -105,20 +109,4 @@ defmodule VmuCoreWeb.Components.Drawer do
     </div>
     """
   end
-
-  @doc """
-  Renders `fun.(record)` only when `record` is present, and nothing when it
-  is not.
-
-  Because the drawer stays mounted while closed (see the moduledoc), a body
-  that dereferences `@viewing.name` would raise on every render where
-  nothing is selected — which is most of them. This keeps that guard in one
-  place instead of repeating `<%= if @viewing do %>` in every caller.
-
-      <.detail_drawer ...>
-        <%= close_safe(@viewing, fn cust -> render_detail(cust, assigns) end) %>
-      </.detail_drawer>
-  """
-  def close_safe(nil, _fun), do: nil
-  def close_safe(record, fun) when is_function(fun, 1), do: fun.(record)
 end

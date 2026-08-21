@@ -36,9 +36,12 @@ defmodule VmuCoreWeb.Components.AgGrid do
   like "View in Debit Cards" that navigates away from this LiveView
   entirely, not a `phx-click` event; `"actions"` renders one `.btn-ghost.btn-xs` per entry in
   `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:,
-  confirm:}]`, each pushing `event` to the owning LiveComponent with
+  confirm:, params:}]`, each pushing `event` to the owning LiveComponent with
   `%{"id" => row[param]}` — the payload key is always literally `"id"`,
-  only the value comes from `param`. `whenField`/`whenValue` hide an
+  only the value comes from `param`. `params: %{"a" => "card_block"}`
+  merges extra *static* keys into that payload, for a handler keyed on
+  more than the record id — e.g. `card_action_open`, where one event
+  serves Activate/Block/Unblock/Replace and `"a"` says which. `whenField`/`whenValue` hide an
   action unless `row[whenField] === whenValue` (conditional actions).
   `confirm: "Delete block {block_id}?"` shows a native confirm dialog
   before dispatching, with `{field}` filled from the row — the

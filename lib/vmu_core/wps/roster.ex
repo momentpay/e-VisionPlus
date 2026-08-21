@@ -44,11 +44,27 @@ defmodule VmuCore.WPS.Roster do
     Repo.get_by(Employer, sys_id: sys_id, bank_id: bank_id, employer_code: employer_code)
   end
 
-  @doc "Employers for an institution, newest first."
-  @spec list_employers(String.t(), String.t(), keyword()) :: [Employer.t()]
-  def list_employers(sys_id, bank_id, opts \\ []) do
+  @doc """
+  Employers, newest first.
+
+  Institution filtering is **optional**, because this platform has no
+  operator-to-institution binding: `ASM.Operator` carries a `bank_scope` that is
+  usually nil and no `sys_id` at all, and the other product screens list across
+  institutions and read `sys_id` off the record. Scoping this list to a guessed
+  institution would simply hide employers from the operator looking for them.
+
+  Options: `:sys_id`, `:bank_id`, `:status`.
+  """
+  @spec list_employers(keyword()) :: [Employer.t()]
+  def list_employers(opts \\ []) do
     Employer
-    |> where([e], e.sys_id == ^sys_id and e.bank_id == ^bank_id)
+    |> then(fn q ->
+      case {Keyword.get(opts, :sys_id), Keyword.get(opts, :bank_id)} do
+        {nil, _} -> q
+        {sys_id, nil} -> where(q, [e], e.sys_id == ^sys_id)
+        {sys_id, bank_id} -> where(q, [e], e.sys_id == ^sys_id and e.bank_id == ^bank_id)
+      end
+    end)
     |> then(fn q ->
       case Keyword.get(opts, :status) do
         nil -> q

@@ -19,7 +19,8 @@ defmodule VmuCore.ASM.RolePermission do
   # accounts is a privilege-granting act, so it stays with ADMIN.
   @admin_only ~w[operators service_accounts]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts gl portfolio_dashboard]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts gl portfolio_dashboard
+              wps_employers wps_files wps_exceptions wps_refunds wps_reports]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -78,6 +79,13 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "portfolio_dashboard", ~w[view]},
       {"SUPERVISOR", "gl",           ~w[view edit]},
       {"SUPERVISOR", "hcs",          ~w[view edit]},
+      # WPS — a supervisor is the checker on a refund, so they hold `edit` on
+      # refunds while OPS raises them.
+      {"SUPERVISOR", "wps_employers",  ~w[view edit]},
+      {"SUPERVISOR", "wps_files",      ~w[view edit]},
+      {"SUPERVISOR", "wps_exceptions", ~w[view edit]},
+      {"SUPERVISOR", "wps_refunds",    ~w[view edit]},
+      {"SUPERVISOR", "wps_reports",    ~w[view]},
       # "approve" added 2026-07-28 (Card Products UX Parity Phase 1c) — the
       # SUPERVISOR checker role for Debit's new 4-eyes Adjustments action,
       # same convention as "account"'s own approve permission.
@@ -115,6 +123,15 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "portfolio_dashboard", ~w[view]},
       {"OPS", "gl",           ~w[view]},
       {"OPS", "hcs",          ~w[view edit]},
+      # WPS — OPS runs the salary cycle and raises refund requests, but cannot
+      # approve one: the maker-checker control is the whole point, and giving
+      # the same role both halves would defeat it in the permission matrix
+      # even though `Refunds` also enforces it per-person.
+      {"OPS", "wps_employers",  ~w[view edit]},
+      {"OPS", "wps_files",      ~w[view edit]},
+      {"OPS", "wps_exceptions", ~w[view edit]},
+      {"OPS", "wps_refunds",    ~w[view]},
+      {"OPS", "wps_reports",    ~w[view]},
       {"OPS", "debit",        ~w[view edit]},
       {"OPS", "prepaid",      ~w[view edit]},
       {"OPS", "wallet",       ~w[view edit]},
@@ -169,6 +186,13 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "collections_mi", ~w[view]},
       {"COMPLIANCE", "portfolio_dashboard", ~w[view]},
       {"COMPLIANCE", "hcs",          ~w[view]},
+      # WPS — compliance owns the regulator relationship and reads everything,
+      # but moves no money.
+      {"COMPLIANCE", "wps_employers",  ~w[view]},
+      {"COMPLIANCE", "wps_files",      ~w[view]},
+      {"COMPLIANCE", "wps_exceptions", ~w[view]},
+      {"COMPLIANCE", "wps_refunds",    ~w[view]},
+      {"COMPLIANCE", "wps_reports",    ~w[view]},
       {"COMPLIANCE", "debit",        ~w[view]},
       {"COMPLIANCE", "prepaid",      ~w[view]},
       {"COMPLIANCE", "wallet",       ~w[view]},

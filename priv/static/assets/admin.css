@@ -130,6 +130,7 @@
 [data-accent="fuchsia"] { --a-rgb: 217 70 239;  --a-from: #d946ef; --a-to: #c026d3; --a-fg: #a21caf; --a-fg-dark: #f0abfc; }
 [data-accent="blue"]    { --a-rgb: 59 130 246;  --a-from: #3b82f6; --a-to: #2563eb; --a-fg: #1d4ed8; --a-fg-dark: #93c5fd; }
 [data-accent="cyan"]    { --a-rgb: 6 182 212;   --a-from: #06b6d4; --a-to: #0891b2; --a-fg: #0e7490; --a-fg-dark: #67e8f9; }
+[data-accent="lime"]    { --a-rgb: 132 204 22;  --a-from: #84cc16; --a-to: #65a30d; --a-fg: #4d7c0f; --a-fg-dark: #bef264; }
 [data-accent="purple"]  { --a-rgb: 168 85 247;  --a-from: #a855f7; --a-to: #9333ea; --a-fg: #7e22ce; --a-fg-dark: #d8b4fe; }
 [data-accent="slate"]   { --a-rgb: 100 116 139; --a-from: #64748b; --a-to: #475569; --a-fg: #334155; --a-fg-dark: #cbd5e1; }
 

@@ -50,7 +50,8 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     WalletComponent,
     KycMethodsComponent,
     KycRequestsComponent,
-    ServiceAccountsComponent
+    ServiceAccountsComponent,
+    WpsComponent
   }
 
   # Materialised at compile time so `handle_params/3` can guard on them —
@@ -321,6 +322,16 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
               <% "hcs" -> %>
                 <.live_component module={HcsComponent} id="hcs-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
+
+              # All five WPS screens are one component — they are five views of
+              # one workflow keyed on the same employer selection. `screen`
+              # picks the view; the nav still lists them separately so an
+              # operator finds "Disbursement Exceptions" by name.
+              <% screen when screen in ~w[wps_employers wps_files wps_exceptions wps_refunds wps_reports] -> %>
+                <.live_component module={WpsComponent} id="wps-component"
+                                 screen={screen}
+                                 current_operator={@current_operator}
+                                 deep_link_id={@deep_link_id} />
               <% "debit" -> %>
                 <.live_component module={DebitComponent} id="debit-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />

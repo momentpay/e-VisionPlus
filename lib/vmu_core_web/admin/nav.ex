@@ -70,6 +70,10 @@ defmodule VmuCoreWeb.Admin.Nav do
       icon: "credit-card", accent: "sky", order: 30,
       description: "Account master, card products and card lifecycle"},
 
+    %{id: "wps", label: "Wage Protection (WPS)", short_label: "WPS",
+      icon: "banknotes", accent: "lime", order: 35,
+      description: "Employer payroll disbursement, exceptions and regulator reporting"},
+
     %{id: "authorization", label: "Authorization & Switching", short_label: "Auth",
       icon: "bolt", accent: "emerald", order: 40,
       description: "Real-time authorization, stand-in, card security"},
@@ -185,6 +189,30 @@ defmodule VmuCoreWeb.Admin.Nav do
 
     %{id: "pin_management", label: "PIN Management", icon: "key",
       nav_module: "cards_accounts", group: "Card Services", group_order: 40, order: 10, status: :planned},
+
+    # ── Wage Protection (WPS) ───────────────────────────────────────────────
+    # A WPS worker's account is an ordinary prepaid account (product
+    # `WPS_PREPAID`), so these screens could have sat under Card Products
+    # beside Prepaid. They are their own module because the *operators* differ:
+    # payroll and compliance staff run a salary cycle, not card ops, and the
+    # work is a file-and-exception workflow rather than card servicing.
+    %{id: "wps_employers", label: "Employers & Roster", icon: "building-office",
+      nav_module: "wps", group: "Employers", group_order: 10, order: 10, status: :live},
+
+    %{id: "wps_files", label: "Salary Files", icon: "document-text",
+      nav_module: "wps", group: "Disbursement", group_order: 20, order: 10, status: :live},
+    %{id: "wps_exceptions", label: "Disbursement Exceptions", icon: "exclamation-triangle",
+      nav_module: "wps", group: "Disbursement", group_order: 20, order: 20, status: :live},
+
+    %{id: "wps_refunds", label: "Employer Refunds", icon: "arrow-uturn-left",
+      nav_module: "wps", group: "Compliance", group_order: 30, order: 10, status: :live},
+    %{id: "wps_reports", label: "Regulatory Reports", icon: "document-check",
+      nav_module: "wps", group: "Compliance", group_order: 30, order: 20, status: :live},
+    # Filing is a business relationship — direct with the regulator, or through
+    # an exchange house holding it — and remains an open question in the
+    # requirements. The report is generated today; sending it is not built.
+    %{id: "wps_submissions", label: "Regulator Submissions", icon: "arrows-right-left",
+      nav_module: "wps", group: "Compliance", group_order: 30, order: 30, status: :planned},
     %{id: "card_blocks", label: "Card Blocks & Status", icon: "lock-closed",
       nav_module: "cards_accounts", group: "Card Services", group_order: 40, order: 20, status: :planned},
     %{id: "tokenization", label: "Tokenization (NTS)", icon: "cpu-chip",

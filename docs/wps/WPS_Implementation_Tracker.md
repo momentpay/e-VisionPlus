@@ -330,7 +330,71 @@ transmitting is the honest half to build.
 
 ---
 
-## Phase W5 — Admin UI, menu entry, ASM permissions
+## Phase W5 — Admin UI ✅ 2026-08-06
+
+### Built
+
+| | |
+|---|---|
+| Nav module `wps` | "Wage Protection (WPS)", lime accent, 5 live items + 1 planned |
+| ASM permissions | `wps_employers`, `wps_files`, `wps_exceptions`, `wps_refunds`, `wps_reports` |
+| `WpsComponent` | One component serving all five screens, on `<.ag_grid>` |
+| 15 tests | Real LiveView against real Postgres |
+
+### Its own nav module, not a sixth Card Product
+
+A WPS worker's account *is* an ordinary prepaid account, so these screens could
+have sat beside Prepaid under Card Products. They are their own module because
+the **operators** differ: payroll and compliance staff running a salary cycle,
+not card ops, and the work is a file-and-exception workflow rather than card
+servicing.
+
+`wps_submissions` is registered `:planned` rather than hidden — filing with the
+regulator is a business arrangement and is not built, and the nav doubles as the
+roadmap.
+
+### One component, five nav items
+
+The screens share one selection — which employer — and nearly all their state
+derives from it. Five LiveComponents would each have to re-make that selection.
+The nav still lists five items so an operator looking for the exception queue
+finds it by name rather than hunting for a tab.
+
+### Permissions reflect the maker-checker split
+
+`OPS` holds `wps_refunds:view` but not `:edit`: they raise refund requests and
+cannot approve them. `SUPERVISOR` holds `:edit` and is the checker. The control
+is enforced per-person in `Refunds` regardless — the matrix simply stops a role
+being handed both halves.
+
+### Found while building
+
+**The component invented an operator-to-institution binding that does not
+exist.** `ASM.Operator` has a usually-nil `bank_scope` and no `sys_id` at all,
+so scoping the employer list to "the operator's institution" silently fell back
+to a hardcoded `MMPD`/`MMBD` and hid every other employer. `Roster.list_employers/1`
+now filters optionally and the screen lists all, which is what the other product
+screens do; onboarding collects the institution on the form, because nothing
+else can supply it and defaulting it would file an employer under the wrong bank.
+
+**Grid actions are not reachable without JavaScript.** `<.ag_grid>` renders a
+`phx-update="ignore"` div and the hook draws the rows, so every action button
+lives only in the browser. That is fine for bulk row actions, but it left the
+two most consequential controls — run a pre-flight, approve a refund — with no
+server-rendered path at all. Both now have real controls: a **Run pre-flight**
+button on the opened file, and a **pending-approvals panel** above the refunds
+grid. Better design independently of testing: an approval waiting on you
+deserves more prominence than a row action.
+
+**The files screen opened onto an empty pane.** It now lands on the most recent
+batch, which is almost always the one the operator came for.
+
+---
+
+## Phase W6 — not planned
+
+Regulator **submission** (filing the generated report) is the only named gap,
+and it is blocked on a business arrangement rather than on effort.
 
 ---
 

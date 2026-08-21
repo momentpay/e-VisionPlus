@@ -44,7 +44,23 @@ defmodule VmuCore.CMS.PrepaidLedger do
 
   attrs = %{prepaid_account_id:, amount:, channel:, posted_by:,
             external_reference: (required for external channels),
-            expiry_date: (optional — nil means this load never expires)}
+            expiry_date: (optional — nil means this load never expires),
+            idempotency_key: (optional — see below)}
+
+  ## Idempotency
+
+  Pass `:idempotency_key` and a replay returns `{:error, :duplicate}` instead of
+  loading again. Without one a fresh key is generated per call, which means the
+  call is **not** idempotent — two invocations create two loads.
+
+  That default is safe for an interactive top-up, where the operator is the
+  retry mechanism, and unsafe for anything batch. `WPS.Disbursement` derives its
+  key from the employer's payment reference for exactly this reason: a re-run of
+  a salary batch must not pay every worker twice.
+
+  Added 2026-08-06 (WPS W3). `spend/3` already took a key; `load/1` did not,
+  which was the wrong way round — a duplicate spend is recoverable, a duplicate
+  load creates money.
   """
   def load(attrs) do
     account = Repo.get(PrepaidAccount, attrs.prepaid_account_id)
@@ -52,7 +68,9 @@ defmodule VmuCore.CMS.PrepaidLedger do
     if is_nil(account) or not PrepaidAccount.active?(account) do
       {:error, :prepaid_account_not_active}
     else
-      idempotency_key = "prepaid_load:#{attrs.prepaid_account_id}:#{System.unique_integer([:positive])}"
+      idempotency_key =
+        Map.get(attrs, :idempotency_key) ||
+          "prepaid_load:#{attrs.prepaid_account_id}:#{System.unique_integer([:positive])}"
 
       Repo.transaction(fn ->
         with {:ok, gl_entry} <-

@@ -17,7 +17,13 @@ defmodule VmuCore.CMS.PrepaidLedgerEntry do
 
   @valid_entry_types ~w[LOAD SPEND FEE EXPIRE REFUND ADJUSTMENT]
   @valid_statuses    ~w[ACTIVE EXPIRED]
-  @valid_channels    ~w[INTERNAL_TRANSFER ADMIN_MANUAL EXTERNAL_BANK_TRANSFER CASH_DEPOSIT]
+  # WPS_SALARY added 2026-08-06: a wage disbursement under a Wage Protection
+  # scheme is a genuinely distinct funding channel, not an admin top-up. Keeping
+  # it separate is what lets an operator or a regulator ask "how much of this
+  # account's balance is protected wages" — the question the whole scheme
+  # exists to answer.
+  @valid_channels    ~w[INTERNAL_TRANSFER ADMIN_MANUAL EXTERNAL_BANK_TRANSFER CASH_DEPOSIT
+                        WPS_SALARY]
 
   schema "cms_prepaid_ledger_entries" do
     field :prepaid_account_id, :binary_id
@@ -56,7 +62,11 @@ defmodule VmuCore.CMS.PrepaidLedgerEntry do
 
   defp validate_external_reference(changeset) do
     case get_field(changeset, :channel) do
-      c when c in ["EXTERNAL_BANK_TRANSFER", "CASH_DEPOSIT"] ->
+      # WPS_SALARY carries the employer's payment reference, which is the
+      # identifier the employer, the bank and the regulator all use for the same
+      # payment — so it is required for the same reason the external channels
+      # require one.
+      c when c in ["EXTERNAL_BANK_TRANSFER", "CASH_DEPOSIT", "WPS_SALARY"] ->
         validate_required(changeset, [:external_reference])
       _ ->
         changeset

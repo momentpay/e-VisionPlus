@@ -18,7 +18,7 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
   reported figures defensible.
   """
   use Phoenix.LiveComponent
-
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.GL.{ChartOfAccounts, Period, Periods}
   alias VmuCore.Posting.Rules
@@ -287,24 +287,19 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             Until this is empty the trial balance cannot be trusted at account level.
           </div>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>Code</th><th>Name</th><th>Class</th><th>Normal</th><th>Owner</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={a <- @accounts} class={!a.active && "row-muted"}>
-                <td><code><%= a.code %></code></td>
-                <td>
-                  <%= a.name %>
-                  <div :if={a.legacy_conflict} class="cell-note conflict"><%= a.legacy_conflict %></div>
-                </td>
-                <td><%= a.account_class %></td>
-                <td><%= a.normal_balance %></td>
-                <td><code><%= a.owner_module %></code></td>
-                <td><%= if a.active, do: "active", else: "retired" %></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-accounts-grid"
+            columns={[
+              %{field: "code", header: "Code", type: "mono", width: 110},
+              %{field: "name", header: "Name", flex: 2},
+              %{field: "conflict", header: "Conflict", flex: 1},
+              %{field: "account_class", header: "Class", width: 130},
+              %{field: "normal_balance", header: "Normal", width: 110},
+              %{field: "owner_module", header: "Owner", type: "mono", width: 160},
+              %{field: "status", header: "Status", type: "badge", width: 110}
+            ]}
+            rows={Enum.map(@accounts, &account_row/1)}
+          />
 
         <% "trial_balance" -> %>
           <.institution_picker institutions={@institutions} institution={@institution} target={@myself} />
@@ -315,24 +310,32 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             <%= if Decimal.equal?(td, tc), do: "balanced", else: "OUT OF BALANCE" %>
           </p>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>Code</th><th>Account</th><th>Class</th><th class="num">Debits</th><th class="num">Credits</th><th class="num">Balance</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={r <- @trial_rows}>
-                <td><code><%= r.code %></code></td>
-                <td><%= r.name %></td>
-                <td><%= r.account_class %></td>
-                <td class="num"><%= r.debits %></td>
-                <td class="num"><%= r.credits %></td>
-                <td class="num"><%= net_balance(r) %></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-trial-balance-grid"
+            columns={[
+              %{field: "code", header: "Code", type: "mono", width: 110},
+              %{field: "name", header: "Account", flex: 2},
+              %{field: "account_class", header: "Class", width: 130},
+              %{field: "debits", header: "Debits", type: "money", width: 130},
+              %{field: "credits", header: "Credits", type: "money", width: 130},
+              %{field: "balance", header: "Balance", type: "money", width: 130}
+            ]}
+            rows={Enum.map(@trial_rows, &trial_balance_row/1)}
+          />
           <p :if={@trial_rows == []} class="cell-note">
             No postings yet. Run <code>mix run priv/repo/seed_gl_demo.exs</code> for demo data.
           </p>
+
+          <div :if={@trial_rows != []} style="margin-top:1.25rem">
+            <h4 style="margin:0 0 0.5rem">Net balance by account class</h4>
+            <.ag_chart
+              id="gl-trial-balance-class-chart"
+              type="donut"
+              data={balance_by_class(@trial_rows)}
+              category="class"
+              series={[%{field: "balance", name: "Net balance"}]}
+            />
+          </div>
 
         <% "ledger" -> %>
           <.institution_picker institutions={@institutions} institution={@institution} target={@myself} />
@@ -341,23 +344,20 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             A second <em>generation</em> appears when activity arrives after an entry closed.
           </p>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>GL date</th><th>Debit</th><th>Credit</th><th>Ccy</th><th class="num">Amount</th><th class="num">Entries</th><th>Gen</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={l <- @ledger_entries}>
-                <td><%= l.gl_date %></td>
-                <td><code><%= l.dr_account %></code></td>
-                <td><code><%= l.cr_account %></code></td>
-                <td><%= l.currency %></td>
-                <td class="num"><%= l.amount %></td>
-                <td class="num"><%= l.entry_count %></td>
-                <td><%= l.generation %></td>
-                <td><span class={["badge", String.downcase(l.status)]}><%= l.status %></span></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-ledger-entries-grid"
+            columns={[
+              %{field: "gl_date", header: "GL date", type: "date", width: 130},
+              %{field: "dr_account", header: "Debit", type: "mono", width: 110},
+              %{field: "cr_account", header: "Credit", type: "mono", width: 110},
+              %{field: "currency", header: "Ccy", width: 80},
+              %{field: "amount", header: "Amount", type: "money", width: 130},
+              %{field: "entry_count", header: "Entries", type: "number", width: 100},
+              %{field: "generation", header: "Gen", type: "number", width: 80},
+              %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 110}
+            ]}
+            rows={Enum.map(@ledger_entries, &ledger_entry_row/1)}
+          />
           <p :if={@ledger_entries == []} class="cell-note">No consolidated GL entries yet.</p>
 
         <% "journal" -> %>
@@ -367,24 +367,22 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             GL Entries above is the bank's. Showing the most recent 200.
           </p>
 
-          <table class="data-table">
-            <thead>
-              <tr><th>Posting date</th><th>GL date</th><th>Account</th><th>Product</th><th>Event</th><th>Dr</th><th>Cr</th><th class="num">Amount</th><th>Narrative</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={j <- @journal_entries}>
-                <td><%= j.posting_date %></td>
-                <td><%= j.gl_date %></td>
-                <td><code><%= j.account_ref %></code></td>
-                <td><%= j.product %></td>
-                <td><%= j.event_type %></td>
-                <td><code><%= j.dr %></code></td>
-                <td><code><%= j.cr %></code></td>
-                <td class="num"><%= j.amount %> <%= j.currency %></td>
-                <td class="cell-note"><%= j.narrative %></td>
-              </tr>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="gl-journal-entries-grid"
+            columns={[
+              %{field: "posting_date", header: "Posting date", type: "date", width: 130},
+              %{field: "gl_date", header: "GL date", type: "date", width: 130},
+              %{field: "account_ref", header: "Account", type: "mono", width: 150},
+              %{field: "product", header: "Product", width: 120},
+              %{field: "event_type", header: "Event", width: 150},
+              %{field: "dr", header: "Dr", type: "mono", width: 100},
+              %{field: "cr", header: "Cr", type: "mono", width: 100},
+              %{field: "amount", header: "Amount", type: "money", width: 120},
+              %{field: "currency", header: "Ccy", width: 80},
+              %{field: "narrative", header: "Narrative", flex: 2}
+            ]}
+            rows={Enum.map(@journal_entries, &journal_entry_row/1)}
+          />
           <p :if={@journal_entries == []} class="cell-note">No journal entries yet.</p>
 
         <% "shadow" -> %>
@@ -432,7 +430,7 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
             </thead>
             <tbody>
               <tr :for={r <- @shadow_rows} class={r.status == :mismatch && "row-alert"}>
-                <td><span class={["badge", to_string(r.status)]}><%= r.status %></span></td>
+                <td><span class={["badge", shadow_status_cls(r.status)]}><%= r.status %></span></td>
                 <td><code><%= r.idempotency_key %></code></td>
                 <td><%= if r.legacy, do: "#{r.legacy.gl_account_dr}/#{r.legacy.gl_account_cr}", else: "—" %></td>
                 <td><%= if r.shadow, do: "#{r.shadow.dr_gl_account}/#{r.shadow.cr_gl_account}", else: "—" %></td>
@@ -482,7 +480,7 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
               <tr :for={p <- @periods}>
                 <td><%= p.period_start %></td>
                 <td><%= p.period_end %></td>
-                <td><span class={["badge", String.downcase(p.status)]}><%= p.status %></span></td>
+                <td><span class={["badge", period_status_cls(p.status)]}><%= p.status %></span></td>
                 <td class="cell-note"><%= p.closed_by %></td>
                 <td>
                   <button :if={p.status == "OPEN"} phx-click="close_period"
@@ -547,6 +545,16 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
 
   # Net in the account's own normal direction, so a healthy asset reads
   # positive rather than requiring the reader to remember the sign convention.
+  defp balance_by_class(rows) do
+    rows
+    |> Enum.group_by(& &1.account_class)
+    |> Enum.map(fn {class, class_rows} ->
+      total = class_rows |> Enum.map(&net_balance/1) |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
+      %{class: class, balance: Decimal.abs(total)}
+    end)
+    |> Enum.reject(&Decimal.equal?(&1.balance, 0))
+  end
+
   defp net_balance(%{normal_balance: "debit", debits: d, credits: c}), do: Decimal.sub(d, c)
   defp net_balance(%{debits: d, credits: c}), do: Decimal.sub(c, d)
 
@@ -558,4 +566,82 @@ defmodule VmuCoreWeb.Live.Admin.GlComponent do
   defp tab_label("periods"), do: "Periods"
   defp tab_label("exceptions"), do: "Exceptions"
   defp tab_label("shadow"), do: "Shadow Diff"
+
+  defp account_row(a) do
+    %{
+      code: a.code,
+      name: a.name,
+      conflict: a.legacy_conflict || "",
+      account_class: a.account_class,
+      normal_balance: a.normal_balance,
+      owner_module: a.owner_module,
+      status: if(a.active, do: "active", else: "retired")
+    }
+  end
+
+  defp trial_balance_row(r) do
+    %{
+      code: r.code,
+      name: r.name,
+      account_class: r.account_class,
+      debits: r.debits,
+      credits: r.credits,
+      balance: net_balance(r)
+    }
+  end
+
+  defp ledger_entry_row(l) do
+    %{
+      gl_date: l.gl_date,
+      dr_account: l.dr_account,
+      cr_account: l.cr_account,
+      currency: l.currency,
+      amount: l.amount,
+      entry_count: l.entry_count,
+      generation: l.generation,
+      status: l.status,
+      status_class: ledger_status_cls(l.status)
+    }
+  end
+
+  # The original markup built this badge's class from a two-element list,
+  # ["badge", String.downcase(l.status)] — a bare lowercased status word
+  # with no admin.css rule behind it at all (no such bare-word class
+  # exists there). It was invisible from the day it shipped; this is the
+  # same class of bug documented at priv/static/assets/admin.css's
+  # badge-success/warning/error/info aliases, just not caught there
+  # because this one never used that badge-prefixed interpolation shape.
+  defp ledger_status_cls("POSTED"), do: "badge-green"
+  defp ledger_status_cls("PENDING"), do: "badge-yellow"
+  defp ledger_status_cls(s) when s in ["REVERSED", "FAILED"], do: "badge-red"
+  defp ledger_status_cls(_), do: "badge-gray"
+
+  # Same pre-existing, invisible-badge bug as ledger_status_cls/1 above —
+  # `["badge", to_string(r.status)]` / `["badge", String.downcase(p.status)]`
+  # produced bare words ("match", "closed", ...) with no CSS rule behind
+  # them at all.
+  defp shadow_status_cls(:match), do: "badge-green"
+  defp shadow_status_cls(:mismatch), do: "badge-red"
+  defp shadow_status_cls(status) when status in [:missing_shadow, :orphan_shadow], do: "badge-yellow"
+  defp shadow_status_cls(_), do: "badge-gray"
+
+  defp period_status_cls("OPEN"), do: "badge-green"
+  defp period_status_cls("CLOSED"), do: "badge-yellow"
+  defp period_status_cls("LOCKED"), do: "badge-gray"
+  defp period_status_cls(_), do: "badge-gray"
+
+  defp journal_entry_row(j) do
+    %{
+      posting_date: j.posting_date,
+      gl_date: j.gl_date,
+      account_ref: j.account_ref,
+      product: j.product,
+      event_type: j.event_type,
+      dr: j.dr,
+      cr: j.cr,
+      amount: j.amount,
+      currency: j.currency,
+      narrative: j.narrative
+    }
+  end
 end

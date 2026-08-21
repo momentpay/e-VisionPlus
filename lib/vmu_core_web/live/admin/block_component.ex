@@ -19,6 +19,7 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
 
   import Ecto.Query, warn: false
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{BlockParameter, LogoParameter, BankParameter, SysParameter, ParameterWriter}
@@ -381,6 +382,19 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
 
   defp overriding?(overrides, field), do: Map.get(overrides, to_string(field)) == true
 
+  defp block_row(block, can_edit) do
+    fields = BlockParameter.overriding_fields(block)
+
+    %{
+      block_id: block.block_id,
+      logo_id: block.logo_id,
+      bank_id: block.bank_id,
+      description: block.description || "—",
+      overriding_fields: if(fields == [], do: "None (inherits all from LOGO)", else: Enum.join(fields, ", ")),
+      can_edit: can_edit
+    }
+  end
+
   # ── Render ──────────────────────────────────────────────────────────────────
 
   @impl true
@@ -461,51 +475,23 @@ defmodule VmuCoreWeb.Live.Admin.BlockComponent do
       </.empty_state>
     <% else %>
       <div class="card">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>BLOCK ID</th>
-              <th>LOGO</th>
-              <th>ORG</th>
-              <th>Description</th>
-              <th>Overriding Fields</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for block <- @filtered do %>
-              <% fields = BlockParameter.overriding_fields(block) %>
-              <tr>
-                <td><span class="mono"><%= block.block_id %></span></td>
-                <td><span class="mono"><%= block.logo_id %></span></td>
-                <td><span class="mono"><%= block.bank_id %></span></td>
-                <td>
-                  <div style="font-weight:500;"><%= block.description || "—" %></div>
-                </td>
-                <td>
-                  <%= if fields == [] do %>
-                    <span class="text-muted text-xs">None (inherits all from LOGO)</span>
-                  <% else %>
-                    <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                      <%= for f <- fields do %>
-                        <span class="badge badge-blue" style="font-size:10px;"><%= f %></span>
-                      <% end %>
-                    </div>
-                  <% end %>
-                </td>
-                <td>
-                  <div class="actions">
-                    <button :if={@can_edit} phx-click="block_edit" phx-target={@myself}
-                      phx-value-id={block.block_id} class="btn btn-sm btn-secondary">Edit</button>
-                    <button :if={@can_edit} phx-click="block_delete" phx-target={@myself}
-                      phx-value-id={block.block_id} class="btn btn-sm btn-danger"
-                      data-confirm={"Delete block #{block.block_id}?"}>Delete</button>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+        <.ag_grid
+          id="block-list-grid"
+          columns={[
+            %{field: "block_id", header: "BLOCK ID", type: "mono", width: 110},
+            %{field: "logo_id", header: "LOGO", type: "mono", width: 90},
+            %{field: "bank_id", header: "ORG", type: "mono", width: 90},
+            %{field: "description", header: "Description", flex: 1},
+            %{field: "overriding_fields", header: "Overriding Fields", flex: 1.5},
+            %{field: "actions", header: "", type: "actions", width: 150,
+              actions: [
+                %{label: "Edit", event: "block_edit", param: "block_id", whenField: "can_edit", whenValue: true},
+                %{label: "Delete", event: "block_delete", param: "block_id", whenField: "can_edit", whenValue: true,
+                  danger: true, confirm: "Delete block {block_id}?"}
+              ]}
+          ]}
+          rows={Enum.map(@filtered, &block_row(&1, @can_edit))}
+        />
       </div>
     <% end %>
     """

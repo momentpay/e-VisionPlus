@@ -205,6 +205,10 @@ defmodule VmuCoreWeb.Live.Admin.OperatorComponent do
         </form>
       <% end %>
 
+      <%!-- Left as plain HTML, not <.ag_grid> — the Role column embeds a live
+           <select> bound to phx-change per row; no ag_grid cell type hosts a
+           bound form control (only display + phx-click actions). See
+           docs/shared/Admin_Menu_Standard.md §5.1. --%>
       <%# Operator table %>
       <div class="table-wrapper">
         <table class="data-table">

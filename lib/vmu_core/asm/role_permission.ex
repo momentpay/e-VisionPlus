@@ -14,8 +14,12 @@ defmodule VmuCore.ASM.RolePermission do
   @primary_key {:id, :binary_id, autogenerate: true}
 
   @actions ~w[view create edit approve]
+
+  # Identity administration: creating operators or provisioning API service
+  # accounts is a privilege-granting act, so it stays with ADMIN.
+  @admin_only ~w[operators service_accounts]
   @modules ~w[system organization logo block customer account
-              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts]
+              exceptions auth_history tram_inquiry operators approvals audit_log dps cms_eod cms_resegmentation col collections_mi hcs debit prepaid wallet kyc_methods kyc_requests service_accounts gl portfolio_dashboard]
 
   schema "asm_role_permissions" do
     field :role,   :string
@@ -39,6 +43,17 @@ defmodule VmuCore.ASM.RolePermission do
   def actions, do: @actions
 
   @doc """
+  Modules intentionally reachable only by ADMIN.
+
+  Declared explicitly rather than inferred from having no rows in
+  `default_matrix/0`. "Deliberately ADMIN-only" and "someone forgot to grant
+  it" previously looked identical — which is how the General Ledger screen
+  shipped invisible. Anything here is a decision; anything merely absent is a
+  bug, and `test/admin/menu_registry_test.exs` now tells them apart.
+  """
+  def admin_only, do: @admin_only
+
+  @doc """
   Shipped default matrix as `{role, module, actions}` — expanded to rows by
   the seed script. Business review expected in ASM-P2 sign-off.
   """
@@ -60,6 +75,8 @@ defmodule VmuCore.ASM.RolePermission do
       {"SUPERVISOR", "cms_resegmentation", ~w[view edit]},
       {"SUPERVISOR", "col",          ~w[view edit]},
       {"SUPERVISOR", "collections_mi", ~w[view]},
+      {"SUPERVISOR", "portfolio_dashboard", ~w[view]},
+      {"SUPERVISOR", "gl",           ~w[view edit]},
       {"SUPERVISOR", "hcs",          ~w[view edit]},
       # "approve" added 2026-07-28 (Card Products UX Parity Phase 1c) — the
       # SUPERVISOR checker role for Debit's new 4-eyes Adjustments action,
@@ -95,6 +112,8 @@ defmodule VmuCore.ASM.RolePermission do
       {"OPS", "cms_resegmentation", ~w[view edit]},
       {"OPS", "col",          ~w[view edit]},
       {"OPS", "collections_mi", ~w[view]},
+      {"OPS", "portfolio_dashboard", ~w[view]},
+      {"OPS", "gl",           ~w[view]},
       {"OPS", "hcs",          ~w[view edit]},
       {"OPS", "debit",        ~w[view edit]},
       {"OPS", "prepaid",      ~w[view edit]},
@@ -123,6 +142,7 @@ defmodule VmuCore.ASM.RolePermission do
       {"RISK", "dps",          ~w[view create edit approve]},
       {"RISK", "col",          ~w[view edit]},
       {"RISK", "collections_mi", ~w[view]},
+      {"RISK", "portfolio_dashboard", ~w[view]},
       {"RISK", "hcs",          ~w[view edit]},
       {"RISK", "debit",        ~w[view edit]},
       {"RISK", "prepaid",      ~w[view edit]},
@@ -140,12 +160,14 @@ defmodule VmuCore.ASM.RolePermission do
       {"COMPLIANCE", "exceptions",   ~w[view]},
       {"COMPLIANCE", "auth_history", ~w[view]},
       {"COMPLIANCE", "tram_inquiry", ~w[view]},
+      {"COMPLIANCE", "gl",     ~w[view]},
       {"COMPLIANCE", "audit_log",    ~w[view]},
       {"COMPLIANCE", "dps",          ~w[view]},
       {"COMPLIANCE", "cms_eod",      ~w[view]},
       {"COMPLIANCE", "cms_resegmentation", ~w[view]},
       {"COMPLIANCE", "col",          ~w[view]},
       {"COMPLIANCE", "collections_mi", ~w[view]},
+      {"COMPLIANCE", "portfolio_dashboard", ~w[view]},
       {"COMPLIANCE", "hcs",          ~w[view]},
       {"COMPLIANCE", "debit",        ~w[view]},
       {"COMPLIANCE", "prepaid",      ~w[view]},
@@ -156,10 +178,10 @@ defmodule VmuCore.ASM.RolePermission do
       # SUPERVISOR also reviews the audit trail
       {"SUPERVISOR", "audit_log",    ~w[view]}
 
-      # ADMIN — code short-circuit in Authz; "operators" and
-      # "service_accounts" (KYC-P5, 2026-07-29 — API credential
-      # provisioning) are both ADMIN-only precisely because no role rows
-      # grant them.
+      # ADMIN gets everything via a short-circuit in `Authz.permitted_modules/1`.
+      # "operators" and "service_accounts" (KYC-P5, 2026-07-29 — API credential
+      # provisioning) are ADMIN-only; that is now declared in @admin_only rather
+      # than implied by having no rows here.
     ]
   end
 end

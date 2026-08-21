@@ -14,6 +14,7 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.TRAMS.{TransactionSearch, TransactionView, StateMachine}
 
@@ -158,35 +159,33 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
 
           <%# Identifiers %>
           <h4 style="margin:1rem 0 0.25rem">Identifiers</h4>
-          <table class="data-table">
-            <thead><tr><th>Source</th><th>STAN</th><th>RRN</th><th>Auth Code</th></tr></thead>
-            <tbody>
-              <%= for i <- @detail.identifiers do %>
-                <tr>
-                  <td><%= i.source %></td>
-                  <td><code><%= i.stan || "—" %></code></td>
-                  <td><code><%= i.rrn || "—" %></code></td>
-                  <td><code><%= i.auth_code || "—" %></code></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="tram-detail-identifiers-grid"
+            paginate={false}
+            empty_message="No identifiers."
+            columns={[
+              %{field: "source", header: "Source", width: 140},
+              %{field: "stan", header: "STAN", type: "mono", width: 120},
+              %{field: "rrn", header: "RRN", type: "mono", width: 140},
+              %{field: "auth_code", header: "Auth Code", type: "mono", width: 120}
+            ]}
+            rows={Enum.map(@detail.identifiers, &identifier_row/1)}
+          />
 
           <%# Event timeline %>
           <h4 style="margin:1rem 0 0.25rem">Event Timeline</h4>
-          <table class="data-table">
-            <thead><tr><th>#</th><th>Event</th><th>Actor</th><th>When</th></tr></thead>
-            <tbody>
-              <%= for e <- @detail.events do %>
-                <tr>
-                  <td><%= e.seq %></td>
-                  <td><code><%= e.event_type %></code></td>
-                  <td><%= e.actor %></td>
-                  <td><%= Calendar.strftime(e.occurred_at, "%Y-%m-%d %H:%M:%S") %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+          <.ag_grid
+            id="tram-detail-events-grid"
+            paginate={false}
+            empty_message="No events."
+            columns={[
+              %{field: "seq", header: "#", width: 70},
+              %{field: "event_type", header: "Event", type: "mono", width: 180},
+              %{field: "actor", header: "Actor", width: 140},
+              %{field: "when", header: "When", flex: 1}
+            ]}
+            rows={Enum.map(@detail.events, &event_row/1)}
+          />
 
           <%# Related records %>
           <div class="form-row" style="margin-top:0.75rem">
@@ -209,38 +208,22 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
 
       <%# Results %>
       <p class="text-muted" style="margin-bottom:0.5rem"><%= @total %> transaction(s)</p>
-      <div class="table-wrapper" style="overflow-x:auto">
-        <table class="data-table" style="min-width:820px">
-          <thead>
-            <tr>
-              <th>Created</th><th>Type</th><th>State</th><th>Amount</th>
-              <th>Merchant</th><th>Flags</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @results == [] do %>
-              <tr><td colspan="7" style="text-align:center;color:#888">No transactions.</td></tr>
-            <% end %>
-            <%= for t <- @results do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(t.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><%= t.transaction_type %></td>
-                <td><span class={"badge badge-#{state_class(t.state)}"}><%= t.state %></span></td>
-                <td style="text-align:right"><%= t.settled_amount || t.amount %> <%= t.currency %></td>
-                <td><%= t.merchant_name || t.merchant_id || "—" %></td>
-                <td>
-                  <%= if t.statement_date, do: "📄" %>
-                  <%= if t.clearing_id, do: "🔗" %>
-                </td>
-                <td>
-                  <button class="btn-sm" phx-click="show_detail"
-                          phx-value-id={t.transaction_id} phx-target={@myself}>Detail</button>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="tram-inquiry-results-grid"
+        paginate={false}
+        empty_message="No transactions."
+        columns={[
+          %{field: "created", header: "Created", width: 130},
+          %{field: "type", header: "Type", width: 130},
+          %{field: "state", header: "State", type: "badge", classField: "state_class", width: 120},
+          %{field: "amount", header: "Amount", flex: 1},
+          %{field: "merchant", header: "Merchant", flex: 1},
+          %{field: "flags", header: "Flags", width: 90},
+          %{field: "actions", header: "", type: "actions",
+            actions: [%{label: "Detail", event: "show_detail", param: "transaction_id"}], width: 100}
+        ]}
+        rows={Enum.map(@results, &tram_result_row/1)}
+      />
 
       <div class="pagination" style="margin-top:0.75rem">
         <button class="btn-sm" phx-click="prev_page" phx-target={@myself}
@@ -283,6 +266,39 @@ defmodule VmuCoreWeb.Live.Admin.TramInquiryComponent do
       {:ok, d} -> d
       _ -> nil
     end
+  end
+
+  defp identifier_row(i) do
+    %{
+      source: i.source,
+      stan: i.stan || "—",
+      rrn: i.rrn || "—",
+      auth_code: i.auth_code || "—"
+    }
+  end
+
+  defp event_row(e) do
+    %{
+      seq: e.seq,
+      event_type: e.event_type,
+      actor: e.actor,
+      when: Calendar.strftime(e.occurred_at, "%Y-%m-%d %H:%M:%S")
+    }
+  end
+
+  defp tram_result_row(t) do
+    flags = [if(t.statement_date, do: "📄"), if(t.clearing_id, do: "🔗")] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
+
+    %{
+      created: Calendar.strftime(t.inserted_at, "%Y-%m-%d %H:%M"),
+      type: t.transaction_type,
+      state: t.state,
+      state_class: "badge-#{state_class(t.state)}",
+      amount: "#{t.settled_amount || t.amount} #{t.currency}",
+      merchant: t.merchant_name || t.merchant_id || "—",
+      flags: if(flags == "", do: "—", else: flags),
+      transaction_id: t.transaction_id
+    }
   end
 
   defp state_class(s) when s in ~w[POSTED STATEMENTED PAID CLOSED], do: "success"

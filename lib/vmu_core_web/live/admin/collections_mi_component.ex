@@ -14,6 +14,7 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.COL.CollectionsMi
 
@@ -58,6 +59,25 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
   defp fmt_pct(nil), do: "—"
   defp fmt_pct(d), do: "#{d}%"
 
+  defp roll_cure_row(r) do
+    %{
+      bucket: r.bucket,
+      cohort_size: r.cohort_size,
+      rolled: r.rolled,
+      roll_rate: fmt_pct(r.roll_rate),
+      cured: r.cured,
+      cure_rate: fmt_pct(r.cure_rate)
+    }
+  end
+
+  defp roll_cure_chart_row(r) do
+    %{
+      bucket: "#{r.bucket}",
+      roll_rate: r.roll_rate || 0,
+      cure_rate: r.cure_rate || 0
+    }
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -95,25 +115,35 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponent do
         </.form_card>
       </div>
 
+      <.form_card :if={@roll_cure != []} title="Roll rate / cure rate trend">
+        <.ag_chart
+          id="collections-mi-roll-cure-chart"
+          type="bar"
+          data={Enum.map(@roll_cure, &roll_cure_chart_row/1)}
+          category="bucket"
+          series={[
+            %{field: "roll_rate", name: "Roll rate %"},
+            %{field: "cure_rate", name: "Cure rate %"}
+          ]}
+        />
+      </.form_card>
+
       <.form_card title="Roll rate / cure rate by DPD bucket"
                   subtitle="Cohort = accounts that transitioned INTO the bucket during the period. Roll = later reached a higher bucket. Cure = later reached 0.">
-        <div class="table-wrapper">
-          <table class="data-table">
-            <thead>
-              <tr><th>Bucket</th><th>Cohort</th><th>Rolled</th><th>Roll rate</th><th>Cured</th><th>Cure rate</th></tr>
-            </thead>
-            <tbody>
-              <tr :for={r <- @roll_cure}>
-                <td><%= r.bucket %></td>
-                <td><%= r.cohort_size %></td>
-                <td><%= r.rolled %></td>
-                <td><%= fmt_pct(r.roll_rate) %></td>
-                <td><%= r.cured %></td>
-                <td><%= fmt_pct(r.cure_rate) %></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="collections-mi-roll-cure-grid"
+          paginate={false}
+          empty_message="No bucket transitions in this date range."
+          columns={[
+            %{field: "bucket", header: "Bucket", width: 140},
+            %{field: "cohort_size", header: "Cohort", type: "number", width: 110},
+            %{field: "rolled", header: "Rolled", type: "number", width: 110},
+            %{field: "roll_rate", header: "Roll rate", width: 110},
+            %{field: "cured", header: "Cured", type: "number", width: 110},
+            %{field: "cure_rate", header: "Cure rate", width: 110}
+          ]}
+          rows={Enum.map(@roll_cure, &roll_cure_row/1)}
+        />
         <p class="text-muted" style="margin-top:0.5rem; font-size:0.85em">
           A cohort of 0 for an older date range is expected, not a bug — bucket-transition history (col_dpd_bucket_history) only started recording 2026-07-24.
         </p>

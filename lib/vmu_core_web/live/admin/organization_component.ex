@@ -10,6 +10,7 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
 
   import Ecto.Query, warn: false
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo}
   alias VmuCore.Shared.{BankParameter, SysParameter, ParameterWriter}
@@ -330,66 +331,48 @@ defmodule VmuCoreWeb.Live.Admin.OrganizationComponent do
       </.empty_state>
     <% else %>
       <div class="card">
-        <table class="data-table">
-          <colgroup>
-            <col style="width:90px"/>
-            <col style="width:90px"/>
-            <col/>
-            <col style="width:110px"/>
-            <col style="width:110px"/>
-            <col style="width:200px"/>
-            <col style="width:130px"/>
-            <col style="width:150px"/>
-          </colgroup>
-          <thead>
-            <tr>
-              <th>BANK ID</th>
-              <th>SYS ID</th>
-              <th>Organisation Name</th>
-              <th>Country</th>
-              <th>Currency</th>
-              <th>Regulatory Regime</th>
-              <th>Type</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for org <- @orgs do %>
-              <tr>
-                <td><span class="mono"><%= org.bank_id %></span></td>
-                <td><span class="mono"><%= org.sys_id %></span></td>
-                <td>
-                  <div style="font-weight:500;"><%= org.org_name || org.description %></div>
-                  <div class="text-sm text-muted"><%= if org.org_name, do: org.description %></div>
-                </td>
-                <td><span class="badge badge-gray"><%= org.country_code %></span></td>
-                <td><span class="font-mono"><%= org.base_currency %></span></td>
-                <td><span class="badge badge-blue"><%= org.regulatory_regime %></span></td>
-                <td>
-                  <span class="badge badge-gray"><%= org.org_type || "BANK" %></span>
-                  <span :if={org.org_size} class="badge badge-blue" style="margin-left:4px;"><%= org.org_size %></span>
-                </td>
-                <td>
-                  <div class="actions">
-                    <button :if={@can_edit} phx-click="org_edit" phx-target={@myself}
-                      phx-value-id={org.bank_id} class="btn btn-sm btn-secondary">
-                      Edit
-                    </button>
-                    <button :if={@can_edit} phx-click="org_delete" phx-target={@myself}
-                      phx-value-id={org.bank_id} class="btn btn-sm btn-danger"
-                      data-confirm={"Delete organisation #{org.bank_id}? This cannot be undone."}>
-                      Delete
-                    </button>
-                    <span :if={!@can_edit} class="text-muted" style="font-size:0.85em">view only</span>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+        <.ag_grid
+          id="organization-list-grid"
+          empty_message="No organisations to show."
+          columns={[
+            %{field: "bank_id", header: "BANK ID", type: "mono", width: 90},
+            %{field: "sys_id", header: "SYS ID", type: "mono", width: 90},
+            %{field: "org_name", header: "Organisation Name", flex: 1.4},
+            %{field: "description", header: "Description", flex: 1},
+            %{field: "country_code", header: "Country", type: "badge", width: 100},
+            %{field: "base_currency", header: "Currency", type: "mono", width: 100},
+            %{field: "regulatory_regime", header: "Regulatory Regime", type: "badge", classField: "regime_class", width: 170},
+            %{field: "org_type", header: "Type", type: "badge", width: 110},
+            %{field: "org_size", header: "Size", type: "badge", classField: "size_class", width: 110},
+            %{field: "actions", header: "", type: "actions", width: 150,
+              actions: [
+                %{label: "Edit", event: "org_edit", param: "bank_id", whenField: "can_edit", whenValue: true},
+                %{label: "Delete", event: "org_delete", param: "bank_id", whenField: "can_edit", whenValue: true, danger: true,
+                  confirm: "Delete organisation {bank_id}? This cannot be undone."}
+              ]}
+          ]}
+          rows={Enum.map(@orgs, &organization_row(&1, @can_edit))}
+        />
       </div>
     <% end %>
     """
+  end
+
+  defp organization_row(org, can_edit) do
+    %{
+      bank_id: org.bank_id,
+      sys_id: org.sys_id,
+      org_name: org.org_name || org.description,
+      description: (if org.org_name, do: org.description) || "—",
+      country_code: org.country_code,
+      base_currency: org.base_currency,
+      regulatory_regime: org.regulatory_regime,
+      regime_class: "badge-blue",
+      org_type: org.org_type || "BANK",
+      org_size: org.org_size,
+      size_class: "badge-blue",
+      can_edit: can_edit
+    }
   end
 
   # ── Form view (2-pane: left section nav + right fields) ─────────────────────

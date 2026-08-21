@@ -4,6 +4,33 @@ config :vmu_core,
   ecto_repos: [VmuCore.Repo]
 
 # ---------------------------------------------------------------------------
+# Admin UI asset pipeline (AG Grid Phase 4, 2026-08-21)
+#
+# Bundles assets/js/app.js (Phoenix/LiveView JS + hooks + AG Grid/AG Charts)
+# into priv/static/assets/js/app.js. `mix assets.build` runs this once;
+# `mix assets.watch` (dev only, see dev.exs) reruns it on change. Node
+# resolution needs assets/node_modules on NODE_PATH so esbuild can bundle
+# the npm-installed AG Grid/AG Charts packages from assets/package.json.
+# ---------------------------------------------------------------------------
+config :esbuild,
+  version: "0.24.2",
+  vmu_core: [
+    args:
+      ~w(js/app.js --bundle --target=es2020 --outdir=../priv/static/assets/js --loader:.woff=file --loader:.woff2=file),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{"NODE_PATH" => Path.expand("../assets/node_modules", __DIR__)}
+  ],
+  # Separate profile for AG Grid's own stylesheet — esbuild bundles a .css
+  # entry (resolving its @import chain, including node_modules) just as
+  # cleanly as a .js one. admin.css itself stays hand-authored and outside
+  # this pipeline, as it always has been.
+  vmu_core_css: [
+    args: ~w(css/ag_grid.css --bundle --outdir=../priv/static/assets/css),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{"NODE_PATH" => Path.expand("../assets/node_modules", __DIR__)}
+  ]
+
+# ---------------------------------------------------------------------------
 # Admin web UI — LiveDashboard (port configured per env in dev.exs / prod.exs)
 # ---------------------------------------------------------------------------
 config :vmu_core, VmuCoreWeb.Endpoint,

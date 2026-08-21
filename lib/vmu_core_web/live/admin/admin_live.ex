@@ -1,20 +1,30 @@
 defmodule VmuCoreWeb.Live.Admin.AdminLive do
   @moduledoc """
-  Root LiveView for the VisionPlus hierarchy-based admin UI.
+  Root LiveView for the VisionPlus admin console.
 
-  Route:  /visionplus/admin          → system parameters
-          /visionplus/admin/:module  → system | organization | logo
+  Route:  /visionplus/admin           → the operator's first permitted screen
+          /visionplus/admin/:module   → one leaf screen, or a nav module's
+                                        placeholder page when it has no live
+                                        screens yet
 
-  The shell renders the sidebar and topbar; the active module is delegated
-  to a child LiveComponent so each module has its own isolated state.
+  The shell renders the module dock, the contextual sidebar and the
+  breadcrumb; the active screen is delegated to a child LiveComponent so each
+  keeps its own isolated state.
+
+  Navigation data lives in `VmuCoreWeb.Admin.Nav` — this module renders it and
+  does not decide it. Adding a screen means one row there plus one render
+  branch here; see `docs/shared/Admin_Menu_Standard.md`.
   """
   use Phoenix.LiveView, layout: false
 
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Icons
 
   alias VmuCore.ASM.Authz
+  alias VmuCoreWeb.Admin.Nav
 
   alias VmuCoreWeb.Live.Admin.{
+    PortfolioDashboardComponent,
     SystemComponent,
     OrganizationComponent,
     LogoComponent,
@@ -30,6 +40,7 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     ModuleConfigComponent,
     DpsComponent,
     CmsEodComponent,
+    GlComponent,
     CmsResegmentationComponent,
     ColComponent,
     CollectionsMiComponent,
@@ -42,63 +53,76 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
     ServiceAccountsComponent
   }
 
-  @modules %{
-    "system"       => %{label: "System Parameters",      icon: "⚙️",  section: :sys},
-    "organization" => %{label: "Organizations",           icon: "🏦",  section: :org},
-    "logo"         => %{label: "Products / Logos",        icon: "💳",  section: :logo},
-    "block"        => %{label: "Sub-Product Blocks",      icon: "🧩",  section: :block},
-    "module_config" => %{label: "Module Configuration",   icon: "🧰",  section: :sys},
-    "customer"     => %{label: "Customers (CIF)",         icon: "👤",  section: :customer},
-    "account"      => %{label: "Accounts (CMS)",          icon: "💳",  section: :account},
-    "exceptions"   => %{label: "Exception Queue",         icon: "🚨",  section: :fas},
-    "auth_history" => %{label: "Auth History",            icon: "🔍",  section: :fas},
-    "tram_inquiry" => %{label: "TRAM Inquiry",            icon: "🧾",  section: :fas},
-    "dps"          => %{label: "Disputes (DPS)",          icon: "⚖️",  section: :fas},
-    "cms_eod"      => %{label: "EOD Job Status",          icon: "🌙",  section: :account},
-    "cms_resegmentation" => %{label: "Cycle Resegmentation", icon: "🔄", section: :account},
-    "col"          => %{label: "Collections & Recovery",  icon: "📮",  section: :account},
-    "collections_mi" => %{label: "Collections MI",        icon: "📊",  section: :account},
-    "hcs"          => %{label: "Corporate Cards (HCS)",   icon: "🏢",  section: :account},
-    "debit"        => %{label: "Debit Cards",              icon: "🏦",  section: :account},
-    "prepaid"      => %{label: "Prepaid Cards",             icon: "💳",  section: :account},
-    "wallet"       => %{label: "Digital Wallet",            icon: "👛",  section: :account},
-    "kyc_methods"  => %{label: "KYC Methods",               icon: "🪪",  section: :account},
-    "kyc_requests" => %{label: "KYC Requests",              icon: "📋",  section: :account},
-    "operators"    => %{label: "Operators",               icon: "🔐",  section: :security},
-    "service_accounts" => %{label: "Service Accounts",    icon: "🔑",  section: :security},
-    "approvals"    => %{label: "Approval Inbox",          icon: "✅",  section: :security},
-    "audit_log"    => %{label: "Audit Trail",             icon: "📜",  section: :security}
-  }
+  # Materialised at compile time so `handle_params/3` can guard on them —
+  # function calls are not allowed in guards, module attributes are.
+  @live_ids Nav.live_ids()
+  @nav_ids Nav.nav_module_ids()
+
+  @doc "The live-screen registry. Used by the menu consistency guard test."
+  defdelegate menu_registry, to: Nav, as: :registry
+
+  @doc "Ordered top-level nav modules."
+  defdelegate nav_modules, to: Nav
 
   @impl true
   def mount(_params, _session, socket) do
     # :current_operator is assigned by the OperatorAuth on_mount hook (ASM-P1)
     operator = socket.assigns.current_operator
 
-    {:ok, assign(socket,
-      page_title: "VisionPlus Admin",
-      active_module: "system",
-      deep_link_id: nil,
-      modules: @modules,
-      # "module_config" has no RolePermission rows of its own (Module Configuration
-      # Framework v1 gate) — whoever can view "system" can view module config too.
-      visible_modules: expand_module_config_visibility(Authz.permitted_modules(operator)),
-      can_approve_exceptions: Authz.can?(operator, "exceptions", "approve")
-    )}
+    visible = expand_module_config_visibility(Authz.permitted_modules(operator))
+
+    {:ok,
+     assign(socket,
+       page_title: "VisionPlus Admin",
+       active_module: landing_module(visible),
+       deep_link_id: nil,
+       visible_modules: visible,
+       can_approve_exceptions: Authz.can?(operator, "exceptions", "approve")
+     )}
   end
 
   @impl true
-  def handle_params(%{"module" => mod} = params, _uri, socket) when is_map_key(@modules, mod) do
+  def handle_params(%{"module" => mod} = params, _uri, socket) when mod in @live_ids do
     # Koṣa domain-model alignment (2026-07-28) — the Arrangements panels
     # link here with ?view=<id> so "View in X" opens that record's detail
     # page directly instead of landing on the bare module list.
     {:noreply, assign(socket, active_module: mod, deep_link_id: Map.get(params, "view"))}
   end
+
+  # A nav module the operator has no live screen in (e.g. "loyalty") links to
+  # its own id and lands on the placeholder page rather than a dead route.
+  def handle_params(%{"module" => mod}, _uri, socket) when mod in @nav_ids do
+    {:noreply, assign(socket, active_module: mod, deep_link_id: nil)}
+  end
+
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, active_module: "system", deep_link_id: nil)}
+    {:noreply,
+     assign(socket,
+       active_module: landing_module(socket.assigns.visible_modules),
+       deep_link_id: nil
+     )}
+  end
+
+  # Where a bare /visionplus/admin goes. "system" for anyone who can see it —
+  # which is the historical behaviour and what most operators get — otherwise
+  # the first screen this operator actually has, so a narrow role does not
+  # land on "access denied" every time they open the console.
+  defp landing_module(visible) do
+    if "system" in visible do
+      "system"
+    else
+      Enum.find(Nav.live_items(), &(&1.id in visible))
+      |> case do
+        %{id: id} -> id
+        nil -> "system"
+      end
+    end
   end
 
   defp expand_module_config_visibility(visible) do
+    # "module_config" has no RolePermission rows of its own (Module
+    # Configuration Framework v1 gate) — whoever can view "system" can view
+    # module config too.
     if MapSet.member?(visible, "system"), do: MapSet.put(visible, "module_config"), else: visible
   end
 
@@ -109,6 +133,13 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
 
   @impl true
   def render(assigns) do
+    assigns =
+      assigns
+      |> assign(:active_nav, Nav.nav_module_for(assigns.active_module))
+      |> assign(:landing?, Nav.nav_module_landing?(assigns.active_module))
+
+    assigns = assign(assigns, :nav_module, Nav.nav_module(assigns.active_nav))
+
     ~H"""
     <!DOCTYPE html>
     <html lang="en">
@@ -116,127 +147,140 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
       <meta charset="utf-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
       <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()}/>
+      <meta :if={ag_grid_license_key()} name="ag-grid-license" content={ag_grid_license_key()}/>
       <title>VisionPlus Admin</title>
       <link rel="stylesheet" href="/assets/admin.css"/>
-      <script src="/assets/phoenix.min.js"></script>
-      <script src="/assets/phoenix_live_view.js"></script>
+      <link rel="stylesheet" href="/assets/css/ag_grid.css"/>
       <script>
-        const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-        const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
-          params: {_csrf_token: csrfToken}
-        })
-        liveSocket.connect()
+        // Applied before first paint so the page never flashes the wrong
+        // theme on load. The toggle in the header writes the same key.
+        // Deliberately inline and dependency-free — it must not wait on
+        // the app.js bundle below.
+        (function () {
+          try {
+            var t = localStorage.getItem("vp-theme");
+            if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", t);
+          } catch (e) {
+            document.documentElement.setAttribute("data-theme", "light");
+          }
+        })();
+
+        function vpToggleTheme() {
+          var el = document.documentElement;
+          var next = el.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          el.setAttribute("data-theme", next);
+          try { localStorage.setItem("vp-theme", next); } catch (e) {}
+        }
       </script>
+      <%!-- Bundled by esbuild (assets/js/app.js) -- phoenix, phoenix_live_view,
+          the hooks registry (AgGrid, AgChart) and AG Grid/AG Charts
+          Enterprise themselves. Run `mix assets.build` after editing
+          anything under assets/js. --%>
+      <script defer type="text/javascript" src="/assets/js/app.js"></script>
     </head>
     <body>
-    <div class="admin-layout">
+    <.sprite />
 
-      <%# ── Sidebar ──────────────────────────────────────────── %>
-      <nav class="admin-sidebar">
-        <div class="sidebar-logo">
-          <div class="product-name">VisionPlus</div>
-          <div class="product-tag">Admin Console</div>
-        </div>
+    <%!-- ── Module dock (level 1) ─────────────────────────────────
+        Every nav module is shown, including ones with no live screen yet, so
+        the dock reads as the platform's shape rather than only its finished
+        parts. A module with nothing built lands on its placeholder page. --%>
+    <header class="app-header">
+      <a class="brand" href="/visionplus/admin">
+        <span class="brand-mark">VisionPlus</span>
+        <span class="brand-tag">Issuing</span>
+      </a>
 
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Parameter Hierarchy</div>
-
-          <.sidebar_nav_item :if={"system" in @visible_modules}       mod="system"       label="System Parameters"   icon="⚙️"  active={@active_module} />
-          <.sidebar_nav_item :if={"organization" in @visible_modules} mod="organization" label="Organizations"        icon="🏦"  active={@active_module} />
-          <.sidebar_nav_item :if={"logo" in @visible_modules}         mod="logo"         label="Products / Logos"     icon="💳"  active={@active_module} />
-          <.sidebar_nav_item :if={"block" in @visible_modules}        mod="block"        label="Sub-Product Blocks"   icon="🧩"  active={@active_module} />
-          <.sidebar_nav_item :if={"module_config" in @visible_modules} mod="module_config" label="Module Configuration" icon="🧰"  active={@active_module} />
-        </div>
-
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Operations</div>
-
-          <.sidebar_nav_item :if={"customer" in @visible_modules} mod="customer" label="Customers (CIF)" icon="👤" active={@active_module} />
-          <.sidebar_nav_item :if={"account" in @visible_modules}  mod="account"  label="Accounts (CMS)"  icon="💳" active={@active_module} />
-          <.sidebar_nav_item :if={"cms_eod" in @visible_modules}  mod="cms_eod"  label="EOD Job Status"  icon="🌙" active={@active_module} />
-          <.sidebar_nav_item :if={"cms_resegmentation" in @visible_modules}  mod="cms_resegmentation"  label="Cycle Resegmentation"  icon="🔄" active={@active_module} />
-          <.sidebar_nav_item :if={"col" in @visible_modules}      mod="col"      label="Collections & Recovery" icon="📮" active={@active_module} />
-          <.sidebar_nav_item :if={"collections_mi" in @visible_modules} mod="collections_mi" label="Collections MI" icon="📊" active={@active_module} />
-          <.sidebar_nav_item :if={"hcs" in @visible_modules} mod="hcs" label="Corporate Cards (HCS)" icon="🏢" active={@active_module} />
-          <.sidebar_nav_item :if={"debit" in @visible_modules} mod="debit" label="Debit Cards" icon="🏦" active={@active_module} />
-          <.sidebar_nav_item :if={"prepaid" in @visible_modules} mod="prepaid" label="Prepaid Cards" icon="💳" active={@active_module} />
-          <.sidebar_nav_item :if={"wallet" in @visible_modules} mod="wallet" label="Digital Wallet" icon="👛" active={@active_module} />
-          <.sidebar_nav_item :if={"kyc_methods" in @visible_modules} mod="kyc_methods" label="KYC Methods" icon="🪪" active={@active_module} />
-          <.sidebar_nav_item :if={"kyc_requests" in @visible_modules} mod="kyc_requests" label="KYC Requests" icon="📋" active={@active_module} />
-        </div>
-
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">FAS Observability</div>
-
-          <.sidebar_nav_item :if={"exceptions" in @visible_modules}   mod="exceptions"   label="Exception Queue" icon="🚨" active={@active_module} />
-          <.sidebar_nav_item :if={"auth_history" in @visible_modules} mod="auth_history" label="Auth History"    icon="🔍" active={@active_module} />
-          <.sidebar_nav_item :if={"tram_inquiry" in @visible_modules} mod="tram_inquiry" label="TRAM Inquiry"    icon="🧾" active={@active_module} />
-          <.sidebar_nav_item :if={"dps" in @visible_modules}          mod="dps"          label="Disputes (DPS)"  icon="⚖️" active={@active_module} />
-        </div>
-
-        <% security_visible = Enum.any?(~w[operators approvals audit_log], &(&1 in @visible_modules)) %>
-        <div :if={security_visible} class="sidebar-divider"/>
-
-        <div :if={security_visible} class="sidebar-section">
-          <div class="sidebar-section-label">Security &amp; Control</div>
-
-          <.sidebar_nav_item :if={"approvals" in @visible_modules} mod="approvals" label="Approval Inbox" icon="✅" active={@active_module} />
-          <.sidebar_nav_item :if={"audit_log" in @visible_modules} mod="audit_log" label="Audit Trail" icon="📜" active={@active_module} />
-          <.sidebar_nav_item :if={"operators" in @visible_modules} mod="operators" label="Operators" icon="🔐" active={@active_module} />
-          <.sidebar_nav_item :if={"service_accounts" in @visible_modules} mod="service_accounts" label="Service Accounts" icon="🔑" active={@active_module} />
-        </div>
-
-        <div class="sidebar-divider"/>
-
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Legacy</div>
-          <a class="sidebar-item" href="/visionplus">
-            <span class="icon">🖥️</span> Terminal UI
-          </a>
-          <a class="sidebar-item" href="/dashboard">
-            <span class="icon">📊</span> Dashboard
-          </a>
-        </div>
-
-        <div class="sidebar-footer">
-          VisionPlus vmu_core
-        </div>
+      <nav class="module-dock" aria-label="Business modules">
+        <.dock_item :for={nav <- Nav.nav_modules()}
+          nav={nav}
+          target={Nav.dock_target(nav.id, @visible_modules)}
+          active={nav.id == @active_nav} />
       </nav>
 
-      <%# ── Topbar ───────────────────────────────────────────── %>
-      <header class="admin-topbar">
-        <div class="topbar-breadcrumb">
-          <span>VisionPlus</span>
-          <span class="sep">/</span>
-          <span class="current"><%= Map.get(@modules, @active_module, %{label: @active_module})[:label] %></span>
-        </div>
-        <div class="topbar-actions">
-          <span class="text-sm text-muted">SYS: PROC</span>
-          <span class="text-sm" style="margin-left:1rem">
-            👤 <%= @current_operator.display_name %>
-            <span class="text-muted">(<%= @current_operator.role %>)</span>
-          </span>
-          <a href="/visionplus/admin/logout" class="text-sm" style="margin-left:0.75rem">Sign out</a>
-        </div>
-      </header>
+      <div class="header-actions">
+        <button type="button" class="icon-btn" onclick="vpToggleTheme()"
+                title="Toggle light / dark theme" aria-label="Toggle light / dark theme">
+          <.icon name="moon" />
+        </button>
 
-      <%# ── Main content ──────────────────────────────────────── %>
+        <span class="operator-chip">
+          <span class="operator-avatar"><%= initials(@current_operator.display_name) %></span>
+          <span class="operator-meta">
+            <span class="operator-name"><%= @current_operator.display_name %></span>
+            <span class="operator-role"><%= @current_operator.role %></span>
+          </span>
+        </span>
+
+        <a href="/visionplus/admin/logout" class="icon-btn" title="Sign out" aria-label="Sign out">
+          <.icon name="logout" />
+        </a>
+      </div>
+    </header>
+
+    <div class="app-body">
+
+      <%!-- ── Contextual sidebar (levels 2 and 3) ────────────────
+          Shows only the active module's groups. Generated from
+          VmuCoreWeb.Admin.Nav — never hand-listed here. --%>
+      <aside class="sidebar" data-accent={@nav_module.accent}
+             aria-label={"#{@nav_module.label} navigation"}>
+        <div class="sidebar-module">
+          <span class="sidebar-module-tile"><.icon name={@nav_module.icon} /></span>
+          <span class="sidebar-module-meta">
+            <span class="sidebar-module-eyebrow">Module</span>
+            <span class="sidebar-module-name"><%= @nav_module.label %></span>
+          </span>
+        </div>
+
+        <nav class="sidebar-nav">
+          <details :for={{group, items} <- Nav.sidebar_groups(@active_nav, @visible_modules)}
+                   class="nav-group" open>
+            <summary>
+              <span><%= group %></span>
+              <.icon name="chevron-down" />
+            </summary>
+            <ul class="nav-items">
+              <li :for={item <- items}>
+                <.nav_item item={item} active={item.id == @active_module} />
+              </li>
+            </ul>
+          </details>
+        </nav>
+
+        <div class="sidebar-footer">
+          <a href="/visionplus"><.icon name="cpu-chip" /> Terminal UI</a>
+          <a href="/dashboard"><.icon name="signal" /> LiveDashboard</a>
+        </div>
+      </aside>
+
+      <%!-- ── Main content ──────────────────────────────────────── --%>
       <main class="admin-main">
+        <div class="content-breadcrumb">
+          <span><%= @nav_module.label %></span>
+          <%= unless @landing? do %>
+            <span class="sep">/</span>
+            <span class="current"><%= screen_label(@active_module) %></span>
+          <% end %>
+        </div>
+
         <%= cond do %>
+          <% @landing? -> %>
+            <.coming_soon_panel nav={@nav_module} />
           <% @active_module not in @visible_modules -> %>
-            <%# Server-side gate (ASM-P2) — deep links can't bypass the sidebar %>
+            <%!-- Server-side gate (ASM-P2) — deep links can't bypass the sidebar --%>
             <div class="component-panel">
-              <h2>🔒 Access denied</h2>
+              <h2>Access denied</h2>
               <p class="text-muted">
                 Your role (<%= @current_operator.role %>) does not have access to this module.
               </p>
             </div>
           <% true -> %>
             <%= case @active_module do %>
+              <% "portfolio_dashboard" -> %>
+                <.live_component module={PortfolioDashboardComponent} id="portfolio-dashboard-component"
+                                 current_operator={@current_operator} />
               <% "system" -> %>
                 <.live_component module={SystemComponent} id="sys-component"
                                  current_operator={@current_operator} />
@@ -258,6 +302,10 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
               <% "account" -> %>
                 <.live_component module={AccountComponent} id="account-component"
                                  current_operator={@current_operator} deep_link_id={@deep_link_id} />
+              <% "gl" -> %>
+                <.live_component module={GlComponent} id="gl-component"
+                  current_operator={@current_operator} />
+
               <% "cms_eod" -> %>
                 <.live_component module={CmsEodComponent} id="cms-eod-component"
                                  current_operator={@current_operator} />
@@ -314,7 +362,6 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
             <% end %>
         <% end %>
       </main>
-
     </div>
     </body>
     </html>
@@ -323,16 +370,106 @@ defmodule VmuCoreWeb.Live.Admin.AdminLive do
 
   # ── Private components ──────────────────────────────────────────────────────
 
-  defp sidebar_nav_item(assigns) do
+  attr :nav, :map, required: true
+  attr :target, :string, required: true
+  attr :active, :boolean, required: true
+
+  defp dock_item(assigns) do
     ~H"""
     <a
-      class={"sidebar-item#{if @mod == @active, do: " active", else: ""}"}
-      href={"/visionplus/admin/#{@mod}"}
+      class={"dock-item#{if @active, do: " active", else: ""}"}
+      data-accent={@nav.accent}
+      href={"/visionplus/admin/#{@target}"}
+      title={@nav.description}
+      aria-current={@active && "page"}
     >
-      <span class="icon"><%= @icon %></span>
-      <%= @label %>
+      <span class="dock-tile"><.icon name={@nav.icon} /></span>
+      <span class="dock-label"><%= @nav.short_label %></span>
+      <span class="dock-bar" aria-hidden="true"></span>
     </a>
     """
   end
 
+  attr :item, :map, required: true
+  attr :active, :boolean, required: true
+
+  # Planned but not built: rendered inert rather than as a link to nowhere.
+  defp nav_item(%{item: %{status: :planned}} = assigns) do
+    ~H"""
+    <span class="nav-item soon" aria-disabled="true" title={"#{@item.label} — not yet available"}>
+      <.icon name={@item.icon} />
+      <%= @item.label %>
+      <span class="badge-soon">Soon</span>
+    </span>
+    """
+  end
+
+  defp nav_item(assigns) do
+    ~H"""
+    <a
+      class={"nav-item#{if @active, do: " active", else: ""}"}
+      href={"/visionplus/admin/#{@item.id}"}
+      aria-current={@active && "page"}
+    >
+      <.icon name={@item.icon} />
+      <%= @item.label %>
+    </a>
+    """
+  end
+
+  attr :nav, :map, required: true
+
+  defp coming_soon_panel(assigns) do
+    assigns = assign(assigns, :items, Nav.planned_for(assigns.nav.id))
+
+    ~H"""
+    <div data-accent={@nav.accent}>
+      <.empty_state
+        icon=""
+        title={"#{@nav.label} — coming soon"}
+        message={"#{@nav.description}. No screens are built in this module yet; these are planned, in priority order:"} />
+
+      <ul class="coming-soon-list">
+        <li :for={item <- @items}>
+          <.icon name={item.icon} />
+          <span><%= item.label %></span>
+          <span class="coming-soon-group"><%= item.group %></span>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  # ── Helpers ─────────────────────────────────────────────────────────────────
+
+  defp screen_label(id) do
+    case Nav.registry()[id] do
+      %{label: label} -> label
+      nil -> id
+    end
+  end
+
+  # Up to two initials for the header avatar. Falls back to "?" rather than
+  # crashing on an operator whose display name is blank.
+  defp initials(name) when is_binary(name) do
+    name
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(2)
+    |> Enum.map(&String.first/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join()
+    |> String.upcase()
+    |> case do
+      "" -> "?"
+      s -> s
+    end
+  end
+
+  defp initials(_), do: "?"
+
+  # AG Grid Enterprise license key (row grouping, Excel export, server-side
+  # row model, sidebar tool panel). Unset in dev — the grid still works,
+  # AG Grid just shows its own watermark, which is expected until a real
+  # key is provisioned. Never hardcode one here.
+  defp ag_grid_license_key, do: System.get_env("AG_GRID_LICENSE_KEY")
 end

@@ -96,6 +96,14 @@ defmodule VmuCoreWeb.Live.Admin.CmsEodComponent do
       <.form_card title="Needs Attention">
         <.empty_state :if={@attention == []} icon="✅" title="Nothing needs attention" message="No retryable, discarded, or stuck jobs in the eod queue." />
 
+        <%!-- Plain HTML, deliberately — Retry is exercised directly by
+            cms_eod_component_test.exs via `element("button", "Retry")
+            |> render_click()`, and the "stuck" hint text is asserted on
+            directly too. AG Grid's actions cells are built entirely
+            client-side (phx-update="ignore") and are invisible to
+            Phoenix.LiveViewTest, which never executes JS — so this table
+            has to stay real server-rendered HTML. See
+            docs/shared/Admin_Menu_Standard.md §5. --%>
         <table :if={@attention != []} class="data-table">
           <thead>
             <tr><th>ID</th><th>Worker</th><th>State</th><th>Attempt</th><th>Account/Cycle</th><th>Error</th><th>Since</th><th></th></tr>

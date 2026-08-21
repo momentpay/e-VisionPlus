@@ -9,6 +9,7 @@ defmodule VmuCoreWeb.Live.Admin.AuditLogComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.ASM.AuditLog
 
@@ -109,33 +110,20 @@ defmodule VmuCoreWeb.Live.Admin.AuditLogComponent do
 
       <p class="text-muted" style="margin-bottom:0.5rem"><%= @total %> entr<%= if @total == 1, do: "y", else: "ies" %></p>
 
-      <div class="table-wrapper" style="overflow-x:auto">
-        <table class="data-table" style="min-width:820px">
-          <thead>
-            <tr>
-              <th>When</th><th>Operator</th><th>Role</th><th>Action</th>
-              <th>Subject</th><th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @entries == [] do %>
-              <tr><td colspan="6" style="text-align:center;color:#888">No audit entries.</td></tr>
-            <% end %>
-            <%= for e <- @entries do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(e.performed_at, "%Y-%m-%d %H:%M:%S") %></td>
-                <td><code><%= e.operator_id %></code></td>
-                <td><%= e.operator_role %></td>
-                <td><span class={"badge badge-#{action_class(e.action)}"}><%= e.action %></span></td>
-                <td><code style="font-size:0.75em"><%= String.slice(e.subject || "", 0, 24) %></code></td>
-                <td style="font-size:0.8em; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
-                  <%= e.details %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="audit-log-grid"
+        paginate={false}
+        empty_message="No audit entries."
+        columns={[
+          %{field: "performed_at", header: "When", width: 170},
+          %{field: "operator_id", header: "Operator", type: "mono", width: 140},
+          %{field: "operator_role", header: "Role", width: 110},
+          %{field: "action", header: "Action", type: "badge", classField: "action_class", width: 210},
+          %{field: "subject", header: "Subject", type: "mono", width: 170},
+          %{field: "details", header: "Details", flex: 2}
+        ]}
+        rows={Enum.map(@entries, &audit_row/1)}
+      />
 
       <div class="pagination" style="margin-top:0.75rem">
         <button class="btn-sm" phx-click="prev_page" phx-target={@myself}
@@ -183,5 +171,17 @@ defmodule VmuCoreWeb.Live.Admin.AuditLogComponent do
       String.contains?(a, "waiver") or String.contains?(a, "adjust") -> "error"
       true -> "info"
     end
+  end
+
+  defp audit_row(e) do
+    %{
+      performed_at: Calendar.strftime(e.performed_at, "%Y-%m-%d %H:%M:%S"),
+      operator_id: e.operator_id,
+      operator_role: e.operator_role,
+      action: e.action,
+      action_class: "badge-" <> action_class(e.action),
+      subject: String.slice(e.subject || "", 0, 24),
+      details: e.details
+    }
   end
 end

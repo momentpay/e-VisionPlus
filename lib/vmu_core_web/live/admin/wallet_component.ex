@@ -28,6 +28,7 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, CMS.WalletAccount, CMS.WalletProduct, CMS.WalletProductOpening,
                  CMS.WalletFundingCommand, CMS.WalletTransferCommand, CMS.WalletTransfer,
@@ -1258,29 +1259,18 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
     <% end %>
 
     <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Reason</th><th>By</th></tr></thead>
-        <tbody>
-          <%= if @transfers == [] do %>
-            <tr><td colspan="5" class="empty-row" style="text-align:center;">No transfers yet.</td></tr>
-          <% end %>
-          <%= for t <- @transfers do %>
-            <tr>
-              <td><%= Calendar.strftime(t.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td>
-                <%= if t.from_wallet_account_id == @account.wallet_account_id do %>
-                  <span class="badge badge-red">SENT</span>
-                <% else %>
-                  <span class="badge badge-green">RECEIVED</span>
-                <% end %>
-              </td>
-              <td class="mono"><%= money(t.amount) %> <%= t.currency %></td>
-              <td><%= t.reason || "—" %></td>
-              <td><code><%= t.initiated_by %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
+      <.ag_grid
+        id="wallet-transfers-grid"
+        empty_message="No transfers yet."
+        columns={[
+          %{field: "at", header: "Date", width: 160},
+          %{field: "direction", header: "Direction", type: "badge", classField: "direction_class", width: 120},
+          %{field: "amount", header: "Amount", flex: 1},
+          %{field: "reason", header: "Reason", flex: 1},
+          %{field: "initiated_by", header: "By", type: "mono", width: 130}
+        ]}
+        rows={Enum.map(@transfers, &transfer_row(&1, @account))}
+      />
     </div>
     """
   end
@@ -1340,24 +1330,17 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
 
     ~H"""
     <div class="form-pane-section-title">Account History (<%= length(@entries) %>)</div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Event</th><th>Detail</th><th>Operator</th></tr></thead>
-        <tbody>
-          <%= if @entries == [] do %>
-            <tr><td colspan="4" class="empty-row" style="text-align:center;">No history yet.</td></tr>
-          <% end %>
-          <%= for e <- @entries do %>
-            <tr>
-              <td><%= Calendar.strftime(e.at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{if e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"}"}><%= e.kind %></span></td>
-              <td><%= e.detail %></td>
-              <td style="font-size:12px;"><code><%= e.operator %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="wallet-account-history-grid"
+      empty_message="No history yet."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "kind", header: "Event", type: "badge", classField: "kind_class", width: 150},
+        %{field: "detail", header: "Detail", flex: 2},
+        %{field: "operator", header: "Operator", type: "mono", width: 140}
+      ]}
+      rows={Enum.map(@entries, &history_entry_row/1)}
+    />
     """
   end
 
@@ -1488,5 +1471,26 @@ defmodule VmuCoreWeb.Live.Admin.WalletComponent do
       </div>
     </div>
     """
+  end
+
+  defp transfer_row(t, account) do
+    %{
+      at: Calendar.strftime(t.inserted_at, "%Y-%m-%d %H:%M"),
+      direction: if(t.from_wallet_account_id == account.wallet_account_id, do: "SENT", else: "RECEIVED"),
+      direction_class: if(t.from_wallet_account_id == account.wallet_account_id, do: "badge-red", else: "badge-green"),
+      amount: "#{money(t.amount)} #{t.currency}",
+      reason: t.reason || "—",
+      initiated_by: t.initiated_by
+    }
+  end
+
+  defp history_entry_row(e) do
+    %{
+      at: Calendar.strftime(e.at, "%Y-%m-%d %H:%M"),
+      kind: e.kind,
+      kind_class: if(e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"),
+      detail: e.detail,
+      operator: e.operator
+    }
   end
 end

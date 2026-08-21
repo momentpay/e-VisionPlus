@@ -16,6 +16,11 @@ defmodule VmuCore.Application do
       # 2a. ETS-backed Module Configuration Engine — generic per-module operational
       #     config (CTA/ASM/DPS/...), separate from ParameterEngine's hot-path columns.
       VmuCore.Shared.ModuleConfigEngine,
+
+      # GL Phase B1 — caches account_ref -> {sys_id, bank_id}. Shadow posting
+      # runs on every ledger write, and resolving the institution uncached
+      # would add up to four queries per posting.
+      VmuCore.GL.InstitutionResolver,
       # 2b. Hot card ETS cache — loads LOST/STOLEN/FRAUD-blocked pan_tokens; refreshes every 5 min.
       #     Must start after Repo (2a) but before any FAS authorization traffic.
       VmuCore.FAS.HotCardCache,

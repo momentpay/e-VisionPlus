@@ -21,3 +21,12 @@ vmu_core-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# npm packages (AG Grid/AG Charts) — regenerate with `mix assets.setup`.
+# The build these produce (priv/static/assets/js, .../css) IS committed —
+# there is no CI/deploy pipeline in this project to run `mix assets.build`,
+# so a clone must run as-is, the same convention the hand-vendored
+# phoenix.min.js it replaced always followed. Re-run `mix assets.build`
+# after editing anything under assets/js or assets/css and commit the
+# result alongside your change.
+/assets/node_modules/

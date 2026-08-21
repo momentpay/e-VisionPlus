@@ -8,7 +8,8 @@ defmodule VmuCore.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
     ]
   end
 
@@ -23,6 +24,14 @@ defmodule VmuCore.MixProject do
     ]
   end
 
+  defp aliases do
+    [
+      "assets.setup": ["esbuild.install --if-missing", "cmd --cd assets npm install"],
+      "assets.build": ["esbuild vmu_core", "esbuild vmu_core_css"],
+      "assets.deploy": ["esbuild vmu_core --minify", "esbuild vmu_core_css --minify", "phx.digest"]
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
@@ -30,6 +39,14 @@ defmodule VmuCore.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
+
+      # --- Admin UI asset pipeline (AG Grid Phase 4, 2026-08-21) ---
+      # esbuild itself needs no npm — the Elixir package downloads its own
+      # static binary (mix esbuild.install). npm is only for JS-only
+      # packages (AG Grid, AG Charts) that esbuild bundles from
+      # assets/node_modules. Already resolved transitively via a path dep;
+      # declared explicitly so this app controls its own version.
+      {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
 
       # --- Admin Web UI (LiveDashboard on port 4001) ---
       # Versions pinned to match muNSwitch path dep to avoid resolution conflicts.
@@ -80,8 +97,8 @@ defmodule VmuCore.MixProject do
       # --- Settlement Core (tmsuat_apps-main) ---
       # runtime: false — code reuse only; their OTP apps (Oban, Repo, MQTT) must not start
       # because platform_core hardcodes name: Oban which conflicts with vmu_core's Oban instance.
-      {:settlement_core, path: "../tmsuat_apps-main/apps/settlement_core", override: true, runtime: false},
-      {:platform_core, path: "../tmsuat_apps-main/apps/platform_core", override: true, runtime: false},
+      {:settlement_core, path: "../backoffice/apps/settlement_core", override: true, runtime: false},
+      {:platform_core, path: "../backoffice/apps/platform_core", override: true, runtime: false},
 
       # --- Cards & GL (wallet-app) ---
       {:wallet_cards, path: "../wallet-app/apps/wallet_cards", override: true},

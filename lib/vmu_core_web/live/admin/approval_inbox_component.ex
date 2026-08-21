@@ -33,6 +33,7 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
 
   use Phoenix.LiveComponent
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.ASM.Authz
   alias VmuCore.TRAMS.{AdjustmentCommand, MaintenanceCommand}
@@ -279,206 +280,130 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
 
       <%# TRAMS adjustments %>
       <h3 style="margin:1rem 0 0.5rem">TRAM Adjustments (<%= length(@adjustments) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Transaction</th><th>Old → New</th><th>Delta</th>
-              <th>Direction</th><th>Reason</th><th>Maker</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @adjustments == [] do %>
-              <tr><td colspan="8" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for adj <- @adjustments do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(adj.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><code style="font-size:0.75em"><%= String.slice(to_string(adj.transaction_id), 0, 8) %>…</code></td>
-                <td><%= adj.old_amount %> → <%= adj.new_amount %></td>
-                <td style="text-align:right"><%= adj.delta %></td>
-                <td><span class={"badge badge-#{if adj.direction == "CREDIT", do: "success", else: "warning"}"}><%= adj.direction %></span></td>
-                <td><%= adj.reason_code %></td>
-                <td><code><%= adj.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_adjustment"
-                            phx-value-id={adj.adjustment_id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_adjustment"
-                            phx-value-id={adj.adjustment_id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-inbox-adjustments-grid"
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested", header: "Requested", width: 150},
+          %{field: "transaction", header: "Transaction", type: "mono", width: 130},
+          %{field: "old_new", header: "Old → New", width: 160},
+          %{field: "delta", header: "Delta", type: "money", width: 120},
+          %{field: "direction", header: "Direction", type: "badge", classField: "direction_class", width: 110},
+          %{field: "reason", header: "Reason", flex: 1},
+          %{field: "maker", header: "Maker", type: "mono", width: 130},
+          %{field: "actions", header: "", type: "actions", width: 140,
+            actions: [
+              %{label: "Approve", event: "approve_adjustment", param: "id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_adjustment", param: "id",
+                whenField: "can_approve", whenValue: true, danger: true}
+            ]}
+        ]}
+        rows={Enum.map(@adjustments, &adjustment_row(&1, @can_approve))}
+      />
 
       <%# TRAMS maintenance %>
       <h3 style="margin:1.5rem 0 0.5rem">TRAM Maintenance (<%= length(@maintenance) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Transaction</th><th>Action</th><th>Reason</th>
-              <th>Changes</th><th>Maker</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @maintenance == [] do %>
-              <tr><td colspan="7" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for m <- @maintenance do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(m.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><code style="font-size:0.75em"><%= String.slice(to_string(m.transaction_id), 0, 8) %>…</code></td>
-                <td><%= m.action_type %></td>
-                <td><%= m.reason_code %></td>
-                <td style="font-size:0.8em"><%= inspect(m.after_values) %></td>
-                <td><code><%= m.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_maintenance"
-                            phx-value-id={m.id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_maintenance"
-                            phx-value-id={m.id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-inbox-maintenance-grid"
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested", header: "Requested", width: 150},
+          %{field: "transaction", header: "Transaction", type: "mono", width: 130},
+          %{field: "action", header: "Action", width: 140},
+          %{field: "reason", header: "Reason", width: 140},
+          %{field: "changes", header: "Changes", flex: 1},
+          %{field: "maker", header: "Maker", type: "mono", width: 130},
+          %{field: "actions", header: "", type: "actions", width: 140,
+            actions: [
+              %{label: "Approve", event: "approve_maintenance", param: "id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_maintenance", param: "id",
+                whenField: "can_approve", whenValue: true, danger: true}
+            ]}
+        ]}
+        rows={Enum.map(@maintenance, &maintenance_row(&1, @can_approve))}
+      />
 
       <%# COL write-offs %>
       <h3 style="margin:1.5rem 0 0.5rem">COL Write-offs (<%= length(@col_writeoffs) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Account</th><th>DPD</th><th>Amount</th>
-              <th>IFRS9</th><th>Reason</th><th>Requested By</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @col_writeoffs == [] do %>
-              <tr><td colspan="8" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for w <- @col_writeoffs do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(w.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><code style="font-size:0.75em"><%= String.slice(to_string(w.account_id), 0, 8) %>…</code></td>
-                <td><%= w.dpd_bucket %></td>
-                <td style="text-align:right"><%= w.write_off_amount %></td>
-                <td><%= w.ifrs9_stage %></td>
-                <td><%= w.reason %></td>
-                <td><code><%= w.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_writeoff"
-                            phx-value-id={w.id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_writeoff"
-                            phx-value-id={w.id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-inbox-writeoffs-grid"
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested", header: "Requested", width: 150},
+          %{field: "account", header: "Account", type: "mono", width: 130},
+          %{field: "dpd", header: "DPD", width: 100},
+          %{field: "amount", header: "Amount", type: "money", width: 130},
+          %{field: "ifrs9", header: "IFRS9", width: 100},
+          %{field: "reason", header: "Reason", flex: 1},
+          %{field: "requested_by", header: "Requested By", type: "mono", width: 130},
+          %{field: "actions", header: "", type: "actions", width: 140,
+            actions: [
+              %{label: "Approve", event: "approve_writeoff", param: "id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_writeoff", param: "id",
+                whenField: "can_approve", whenValue: true, danger: true}
+            ]}
+        ]}
+        rows={Enum.map(@col_writeoffs, &writeoff_row(&1, @can_approve))}
+      />
 
       <%# COL workout plans %>
       <h3 style="margin:1.5rem 0 0.5rem">COL Workout Plans (<%= length(@col_workouts) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Account</th><th>Type</th><th>Terms</th>
-              <th>Period</th><th>Reason</th><th>Requested By</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @col_workouts == [] do %>
-              <tr><td colspan="8" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for w <- @col_workouts do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(w.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><code style="font-size:0.75em"><%= String.slice(to_string(w.account_id), 0, 8) %>…</code></td>
-                <td><%= w.plan_type %></td>
-                <td>
-                  <%= cond do %>
-                    <% w.plan_type == "APR_REDUCTION" -> %>new APR <%= w.new_apr %>%
-                    <% w.plan_type == "PAYMENT_HOLIDAY" -> %><%= w.holiday_months %> month(s)
-                    <% w.plan_type == "RESTRUCTURE" -> %><%= w.emi_tenor_months %> month EMI
-                    <% true -> %>—
-                  <% end %>
-                </td>
-                <td><%= w.start_date %> → <%= w.end_date %></td>
-                <td><%= w.reason %></td>
-                <td><code><%= w.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_workout"
-                            phx-value-id={w.id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_workout"
-                            phx-value-id={w.id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-inbox-workouts-grid"
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested", header: "Requested", width: 150},
+          %{field: "account", header: "Account", type: "mono", width: 130},
+          %{field: "plan_type", header: "Type", width: 150},
+          %{field: "terms", header: "Terms", width: 150},
+          %{field: "period", header: "Period", width: 190},
+          %{field: "reason", header: "Reason", flex: 1},
+          %{field: "requested_by", header: "Requested By", type: "mono", width: 130},
+          %{field: "actions", header: "", type: "actions", width: 140,
+            actions: [
+              %{label: "Approve", event: "approve_workout", param: "id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_workout", param: "id",
+                whenField: "can_approve", whenValue: true, danger: true}
+            ]}
+        ]}
+        rows={Enum.map(@col_workouts, &workout_row(&1, @can_approve))}
+      />
 
       <%# COL settlement offers %>
       <h3 style="margin:1.5rem 0 0.5rem">COL Settlement Offers (<%= length(@col_settlements) %>)</h3>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Requested</th><th>Account</th><th>Outstanding</th><th>Offer</th>
-              <th>Discount</th><th>Expires</th><th>Requested By</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @col_settlements == [] do %>
-              <tr><td colspan="8" style="text-align:center;color:#888">Nothing pending.</td></tr>
-            <% end %>
-            <%= for s <- @col_settlements do %>
-              <tr>
-                <td style="white-space:nowrap"><%= Calendar.strftime(s.inserted_at, "%Y-%m-%d %H:%M") %></td>
-                <td><code style="font-size:0.75em"><%= String.slice(to_string(s.account_id), 0, 8) %>…</code></td>
-                <td style="text-align:right"><%= s.outstanding_amount %></td>
-                <td style="text-align:right"><%= s.offer_amount %></td>
-                <td><%= s.discount_percent %>%</td>
-                <td><%= s.expiry_date %></td>
-                <td><code><%= s.requested_by %></code></td>
-                <td>
-                  <%= if @can_approve do %>
-                    <button class="btn-sm btn-success" phx-click="approve_settlement"
-                            phx-value-id={s.id} phx-target={@myself}>Approve</button>
-                    <button class="btn-sm btn-warning" phx-click="reject_settlement"
-                            phx-value-id={s.id} phx-target={@myself}>Reject</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="approval-inbox-settlements-grid"
+        empty_message="Nothing pending."
+        columns={[
+          %{field: "requested", header: "Requested", width: 150},
+          %{field: "account", header: "Account", type: "mono", width: 130},
+          %{field: "outstanding", header: "Outstanding", type: "money", width: 130},
+          %{field: "offer", header: "Offer", type: "money", width: 120},
+          %{field: "discount", header: "Discount", width: 100},
+          %{field: "expires", header: "Expires", width: 120},
+          %{field: "requested_by", header: "Requested By", type: "mono", width: 130},
+          %{field: "actions", header: "", type: "actions", width: 140,
+            actions: [
+              %{label: "Approve", event: "approve_settlement", param: "id",
+                whenField: "can_approve", whenValue: true},
+              %{label: "Reject", event: "reject_settlement", param: "id",
+                whenField: "can_approve", whenValue: true, danger: true}
+            ]}
+        ]}
+        rows={Enum.map(@col_settlements, &settlement_row(&1, @can_approve))}
+      />
 
-      <%# HCS facility limit changes (Way4 parity plan Phase 1 item 2) %>
+      <%!-- HCS facility limit changes (Way4 parity plan Phase 1 item 2).
+          Plain HTML, deliberately — approve_facility_limit is exercised
+          directly by hcs_component_test.exs (a cross-component test: HCS
+          requests a limit change, then approves it here as a different
+          operator) via `element(...) |> render_click()`, which AG Grid's
+          client-rendered actions cells cannot satisfy. See
+          docs/shared/Admin_Menu_Standard.md §5. --%>
       <h3 style="margin:1.5rem 0 0.5rem">HCS Facility Limit Changes (<%= length(@hcs_facility_limits) %>)</h3>
       <div class="table-wrapper">
         <table class="data-table">
@@ -553,4 +478,87 @@ defmodule VmuCoreWeb.Live.Admin.ApprovalInboxComponent do
   end
 
   defp put_notice(socket, msg, kind), do: assign(socket, notice: msg, notice_kind: kind)
+
+  # ---------------------------------------------------------------------------
+  # Grid row builders — one flat map per pending item; `can_approve` is the
+  # component-level assign folded into each row so the actions column's
+  # `whenField`/`whenValue` can hide Approve/Reject per row (same pattern as
+  # CmsEodComponent's `can_retry`).
+  # ---------------------------------------------------------------------------
+
+  defp adjustment_row(adj, can_approve) do
+    %{
+      id: adj.adjustment_id,
+      requested: Calendar.strftime(adj.inserted_at, "%Y-%m-%d %H:%M"),
+      transaction: String.slice(to_string(adj.transaction_id), 0, 8) <> "…",
+      old_new: "#{adj.old_amount} → #{adj.new_amount}",
+      delta: adj.delta,
+      direction: adj.direction,
+      direction_class: if(adj.direction == "CREDIT", do: "badge-success", else: "badge-warning"),
+      reason: adj.reason_code,
+      maker: adj.requested_by,
+      can_approve: can_approve
+    }
+  end
+
+  defp maintenance_row(m, can_approve) do
+    %{
+      id: m.id,
+      requested: Calendar.strftime(m.inserted_at, "%Y-%m-%d %H:%M"),
+      transaction: String.slice(to_string(m.transaction_id), 0, 8) <> "…",
+      action: m.action_type,
+      reason: m.reason_code,
+      changes: inspect(m.after_values),
+      maker: m.requested_by,
+      can_approve: can_approve
+    }
+  end
+
+  defp writeoff_row(w, can_approve) do
+    %{
+      id: w.id,
+      requested: Calendar.strftime(w.inserted_at, "%Y-%m-%d %H:%M"),
+      account: String.slice(to_string(w.account_id), 0, 8) <> "…",
+      dpd: w.dpd_bucket,
+      amount: w.write_off_amount,
+      ifrs9: w.ifrs9_stage,
+      reason: w.reason,
+      requested_by: w.requested_by,
+      can_approve: can_approve
+    }
+  end
+
+  defp workout_row(w, can_approve) do
+    %{
+      id: w.id,
+      requested: Calendar.strftime(w.inserted_at, "%Y-%m-%d %H:%M"),
+      account: String.slice(to_string(w.account_id), 0, 8) <> "…",
+      plan_type: w.plan_type,
+      terms: workout_terms(w),
+      period: "#{w.start_date} → #{w.end_date}",
+      reason: w.reason,
+      requested_by: w.requested_by,
+      can_approve: can_approve
+    }
+  end
+
+  defp workout_terms(%{plan_type: "APR_REDUCTION", new_apr: apr}), do: "new APR #{apr}%"
+  defp workout_terms(%{plan_type: "PAYMENT_HOLIDAY", holiday_months: m}), do: "#{m} month(s)"
+  defp workout_terms(%{plan_type: "RESTRUCTURE", emi_tenor_months: m}), do: "#{m} month EMI"
+  defp workout_terms(_), do: "—"
+
+  defp settlement_row(s, can_approve) do
+    %{
+      id: s.id,
+      requested: Calendar.strftime(s.inserted_at, "%Y-%m-%d %H:%M"),
+      account: String.slice(to_string(s.account_id), 0, 8) <> "…",
+      outstanding: s.outstanding_amount,
+      offer: s.offer_amount,
+      discount: "#{s.discount_percent}%",
+      expires: s.expiry_date,
+      requested_by: s.requested_by,
+      can_approve: can_approve
+    }
+  end
+
 end

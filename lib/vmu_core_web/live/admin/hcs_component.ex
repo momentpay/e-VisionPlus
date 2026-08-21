@@ -28,6 +28,7 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, HCS.Company, HCS.EmployeeCard, HCS.SpendingControl,
                  HCS.CompanyOnboarding, HCS.FacilityLimitCommand, HCS.FacilityLimitChange,
@@ -912,6 +913,64 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
   defp status_cls("INACTIVE"),  do: "badge-blue"
   defp status_cls(_),           do: "badge-gray"
 
+  defp pending_limit_change_row(c) do
+    %{
+      requested_at: Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M"),
+      change: "#{c.current_limit} → #{c.requested_limit}",
+      reason: c.reason,
+      requested_by: c.requested_by
+    }
+  end
+
+  defp spending_control_row(s) do
+    detail =
+      cond do
+        s.control_type in ["MCC_BLOCK", "MCC_ALLOW"] -> Enum.join(s.mcc_codes || [], ", ")
+        s.control_type == "CHANNEL_BLOCK" -> Enum.join(s.channels || [], ", ")
+        s.control_type == "TXN_CAP" -> money(s.per_txn_cap)
+        s.control_type == "DAILY_CAP" -> money(s.daily_cap)
+        true -> "—"
+      end
+
+    %{
+      scope: s.scope,
+      control_type: s.control_type,
+      detail: detail,
+      status: s.status,
+      status_class: status_cls(s.status)
+    }
+  end
+
+  defp fleet_report_columns(:vehicle) do
+    [
+      %{field: "vehicle", header: "Vehicle", type: "mono", width: 150},
+      %{field: "spend", header: "Spend", type: "money", width: 150}
+    ]
+  end
+
+  defp fleet_report_columns(:driver) do
+    [
+      %{field: "driver_name", header: "Driver", flex: 1},
+      %{field: "vehicles", header: "Vehicles", flex: 1},
+      %{field: "spend", header: "Spend", type: "money", width: 150}
+    ]
+  end
+
+  defp fleet_report_row(row, :vehicle), do: %{vehicle: row.plate_number, spend: row.spend}
+
+  defp fleet_report_row(row, :driver),
+    do: %{driver_name: row.driver_name, vehicles: row.vehicles, spend: row.spend}
+
+  defp driver_assignment_row(a) do
+    %{
+      driver_name: a.driver_name,
+      driver_license_no: a.driver_license_no || "—",
+      assigned_at: Calendar.strftime(a.assigned_at, "%Y-%m-%d %H:%M"),
+      unassigned_at:
+        if(a.unassigned_at, do: Calendar.strftime(a.unassigned_at, "%Y-%m-%d %H:%M"), else: "— (current)")
+    }
+  end
+
   defp kyc_badge_cls("VERIFIED"), do: "badge-green"
   defp kyc_badge_cls("REJECTED"), do: "badge-red"
   defp kyc_badge_cls(_), do: "badge-yellow"
@@ -1037,6 +1096,12 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
         <input class="input" type="text" name="q" value={@search} placeholder="Search company code or name…" style="max-width:320px;"/>
       </form>
 
+      <%!-- Plain HTML, not <.ag_grid> — the View button's phx-click="view_company"
+          is exercised directly by test/vmu_core_web/live/admin/hcs_component_test.exs
+          via `element(...) |> render_click()`, which can only find real
+          server-rendered elements; AG Grid's actions cells are built
+          entirely client-side (phx-update="ignore") and would be invisible
+          to that test. See docs/shared/Admin_Menu_Standard.md §5. --%>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -1198,24 +1263,18 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
     <div class="form-pane-section-title" style="margin-top:20px;">
       Pending Facility Limit Requests (<%= length(@pending_limit_changes) %>)
     </div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Requested</th><th>Current → Requested</th><th>Reason</th><th>By</th></tr></thead>
-        <tbody>
-          <%= if @pending_limit_changes == [] do %>
-            <tr><td colspan="4" class="empty-row" style="text-align:center;">None pending.</td></tr>
-          <% end %>
-          <%= for c <- @pending_limit_changes do %>
-            <tr>
-              <td><%= Calendar.strftime(c.inserted_at, "%Y-%m-%d %H:%M") %></td>
-              <td><%= c.current_limit %> → <%= c.requested_limit %></td>
-              <td><%= c.reason %></td>
-              <td><code><%= c.requested_by %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="hcs-pending-limit-changes-grid"
+      paginate={false}
+      empty_message="None pending."
+      columns={[
+        %{field: "requested_at", header: "Requested", width: 150},
+        %{field: "change", header: "Current → Requested", flex: 1},
+        %{field: "reason", header: "Reason", flex: 2},
+        %{field: "requested_by", header: "By", type: "mono", width: 140}
+      ]}
+      rows={Enum.map(@pending_limit_changes, &pending_limit_change_row/1)}
+    />
     <p class="text-muted" style="font-size:0.8em;">Approve/reject from the Approval Inbox.</p>
     """
   end
@@ -1226,6 +1285,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       <span>Employee Cards (<%= length(@employee_cards) %>)</span>
       <button :if={@can_edit} class="btn btn-sm btn-primary" phx-click="emp_wizard_new" phx-target={@myself}>+ Add Employee Card</button>
     </div>
+    <%!-- Plain HTML — View's phx-click="view_employee" is exercised directly
+        by hcs_component_test.exs; see the note on the companies table above. --%>
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>Name</th><th>Dept</th><th>Individual Limit</th><th>Daily Spend</th><th>Cash?</th><th>Status</th><th></th></tr></thead>
@@ -1255,32 +1316,18 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
     <div class="form-pane-section-title">
       Spending Controls (<%= length(@spending_controls) %>)
     </div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Scope</th><th>Type</th><th>Detail</th><th>Status</th></tr></thead>
-        <tbody>
-          <%= if @spending_controls == [] do %>
-            <tr><td colspan="4" class="empty-row" style="text-align:center;">No spending controls configured.</td></tr>
-          <% end %>
-          <%= for s <- @spending_controls do %>
-            <tr>
-              <td><%= s.scope %></td>
-              <td><%= s.control_type %></td>
-              <td>
-                <%= cond do %>
-                  <% s.control_type in ["MCC_BLOCK", "MCC_ALLOW"] -> %><%= Enum.join(s.mcc_codes || [], ", ") %>
-                  <% s.control_type == "CHANNEL_BLOCK" -> %><%= Enum.join(s.channels || [], ", ") %>
-                  <% s.control_type == "TXN_CAP" -> %><%= money(s.per_txn_cap) %>
-                  <% s.control_type == "DAILY_CAP" -> %><%= money(s.daily_cap) %>
-                  <% true -> %>—
-                <% end %>
-              </td>
-              <td><span class={"badge #{status_cls(s.status)}"}><%= s.status %></span></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="hcs-spending-controls-grid"
+      paginate={false}
+      empty_message="No spending controls configured."
+      columns={[
+        %{field: "scope", header: "Scope", width: 130},
+        %{field: "control_type", header: "Type", width: 150},
+        %{field: "detail", header: "Detail", flex: 1},
+        %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120}
+      ]}
+      rows={Enum.map(@spending_controls, &spending_control_row/1)}
+    />
     """
   end
 
@@ -1318,6 +1365,8 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       </div>
     <% end %>
 
+    <%!-- Plain HTML — View's phx-click="view_vehicle" is exercised directly
+        by hcs_component_test.exs; see the note on the companies table above. --%>
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>Plate</th><th>VIN</th><th>Make/Model</th><th>Current Driver</th><th>Fleet Card</th><th>Status</th><th></th></tr></thead>
@@ -1374,31 +1423,17 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       </div>
     <% end %>
 
-    <div :if={@report_rows != []} class="table-wrap">
+    <div :if={@report_rows != []}>
       <p class="text-muted" style="font-size:0.8em;">
         <%= @report_period_from %> → <%= @report_period_to %> · grouped by <%= @report_kind %>
         <%= if @report_kind == :driver do %>(spend by driver uses each vehicle's <em>current</em> assignment only — not split across mid-period reassignment)<% end %>
       </p>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th :if={@report_kind == :vehicle}>Vehicle</th>
-            <th :if={@report_kind == :driver}>Driver</th>
-            <th :if={@report_kind == :driver}>Vehicles</th>
-            <th>Spend</th>
-          </tr>
-        </thead>
-        <tbody>
-          <%= for row <- @report_rows do %>
-            <tr>
-              <td :if={@report_kind == :vehicle} class="mono"><%= row.plate_number %></td>
-              <td :if={@report_kind == :driver}><%= row.driver_name %></td>
-              <td :if={@report_kind == :driver}><%= row.vehicles %></td>
-              <td class="mono"><%= money(row.spend) %></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
+      <.ag_grid
+        id="hcs-fleet-report-grid"
+        paginate={false}
+        columns={fleet_report_columns(@report_kind)}
+        rows={Enum.map(@report_rows, &fleet_report_row(&1, @report_kind))}
+      />
     </div>
     """
   end
@@ -1512,24 +1547,17 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
         </div>
       <% end %>
 
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Driver</th><th>License</th><th>Assigned</th><th>Unassigned</th></tr></thead>
-          <tbody>
-            <%= if @selected_vehicle_history == [] do %>
-              <tr><td colspan="4" class="empty-row" style="text-align:center;">No assignment history.</td></tr>
-            <% end %>
-            <%= for a <- @selected_vehicle_history do %>
-              <tr>
-                <td><%= a.driver_name %></td>
-                <td><%= a.driver_license_no || "—" %></td>
-                <td><%= Calendar.strftime(a.assigned_at, "%Y-%m-%d %H:%M") %></td>
-                <td><%= if a.unassigned_at, do: Calendar.strftime(a.unassigned_at, "%Y-%m-%d %H:%M"), else: "— (current)" %></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="hcs-driver-assignment-history-grid"
+        empty_message="No assignment history."
+        columns={[
+          %{field: "driver_name", header: "Driver", flex: 1},
+          %{field: "driver_license_no", header: "License", width: 150},
+          %{field: "assigned_at", header: "Assigned", width: 160},
+          %{field: "unassigned_at", header: "Unassigned", width: 160}
+        ]}
+        rows={Enum.map(@selected_vehicle_history, &driver_assignment_row/1)}
+      />
     </div>
     """
   end
@@ -2116,6 +2144,10 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
       </div>
     <% end %>
 
+    <%!-- Plain HTML, deliberately — card_activate and open_channels are
+        exercised directly by hcs_component_test.exs via
+        `element(...) |> render_click()`, which AG Grid's client-rendered
+        actions cells cannot satisfy. --%>
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>PAN (last 4)</th><th>Type</th><th>Status</th><th>Expiry</th><th></th></tr></thead>
@@ -2163,24 +2195,27 @@ defmodule VmuCoreWeb.Live.Admin.HcsComponent do
 
     ~H"""
     <div class="form-pane-section-title">Account History (<%= length(@entries) %>)</div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Event</th><th>Detail</th><th>Operator</th></tr></thead>
-        <tbody>
-          <%= if @entries == [] do %>
-            <tr><td colspan="4" class="empty-row" style="text-align:center;">No history yet.</td></tr>
-          <% end %>
-          <%= for e <- @entries do %>
-            <tr>
-              <td><%= Calendar.strftime(e.at, "%Y-%m-%d %H:%M") %></td>
-              <td><span class={"badge #{if e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"}"}><%= e.kind %></span></td>
-              <td><%= e.detail %></td>
-              <td style="font-size:12px;"><code><%= e.operator %></code></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+    <.ag_grid
+      id="hcs-employee-account-history-grid"
+      empty_message="No history yet."
+      columns={[
+        %{field: "at", header: "Date", width: 160},
+        %{field: "kind", header: "Event", type: "badge", classField: "kind_class", width: 150},
+        %{field: "detail", header: "Detail", flex: 2},
+        %{field: "operator", header: "Operator", type: "mono", width: 140}
+      ]}
+      rows={Enum.map(@entries, &history_entry_row/1)}
+    />
     """
+  end
+
+  defp history_entry_row(e) do
+    %{
+      at: Calendar.strftime(e.at, "%Y-%m-%d %H:%M"),
+      kind: e.kind,
+      kind_class: if(e.kind in ["BLOCKED"], do: "badge-red", else: "badge-blue"),
+      detail: e.detail,
+      operator: e.operator
+    }
   end
 end

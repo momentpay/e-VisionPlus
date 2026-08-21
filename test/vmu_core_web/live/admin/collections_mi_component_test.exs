@@ -98,7 +98,12 @@ defmodule VmuCoreWeb.Live.Admin.CollectionsMiComponentTest do
     {:ok, view, html} = live(authed_conn(operator), "/visionplus/admin/collections_mi")
 
     assert html =~ "Collections MI"
-    assert has_element?(view, "td", "30")
+
+    # The roll/cure table is an AG Grid panel now (see
+    # VmuCoreWeb.Components.AgGrid) — its rows are server-rendered as a
+    # JSON data attribute, not <td> markup, so assert on that payload
+    # rather than on HTML AG Grid's own JS builds client-side.
+    assert has_element?(view, "#collections-mi-roll-cure-grid[data-rows*='\"bucket\":30']")
 
     rendered =
       view

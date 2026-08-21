@@ -3,6 +3,7 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
 
   import Ecto.Query, warn: false
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo}
   alias VmuCore.CMS.{
@@ -1504,51 +1505,19 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
         </select>
       </div>
 
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Product</th>
-              <th>Status</th>
-              <th>Summary</th>
-              <th>Opened</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @all_accounts == [] do %>
-              <tr><td colspan="6" class="empty-row">No arrangements found.</td></tr>
-            <% end %>
-            <%= for row <- @all_accounts do %>
-              <% {mod, label} = arrangement_target(row.arrangement.product_type) %>
-              <tr>
-                <td>
-                  <%= if row.customer do %>
-                    <div class="fw-600"><%= row.customer.first_name %> <%= row.customer.last_name %></div>
-                    <div style="font-size:11px;color:var(--text-secondary)"><%= row.customer.email %></div>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-                <td><span class={"badge #{arrangement_badge_cls(row.arrangement.product_type)}"}><%= row.arrangement.product_type %></span></td>
-                <td>
-                  <%= if row.status do %>
-                    <span class={"badge #{status_cls(row.status)}"}><%= row.status %></span>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-                <td style="font-size:12px;"><%= row.summary || "—" %></td>
-                <td style="font-size:12px;"><%= date_s(row.arrangement.opened_at) %></td>
-                <td>
-                  <a class="btn btn-sm btn-secondary" href={"/visionplus/admin/#{mod}?view=#{row.view_ref}"}>View in <%= label %> →</a>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="account-all-products-grid"
+        empty_message="No arrangements found."
+        columns={[
+          %{field: "customer_name", header: "Customer", flex: 1},
+          %{field: "product_type", header: "Product", type: "badge", classField: "product_type_class", width: 130},
+          %{field: "status", header: "Status", type: "badge", width: 120},
+          %{field: "summary", header: "Summary", flex: 1},
+          %{field: "opened", header: "Opened", width: 120},
+          %{field: "view_link", header: "", type: "link", hrefField: "view_href", width: 180}
+        ]}
+        rows={Enum.map(@all_accounts, &all_products_row/1)}
+      />
     </div>
     """
   end
@@ -1561,10 +1530,102 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
   defp arrangement_target("CORPORATE_FLEET"), do: {"hcs", "Corporate Cards (HCS)"}
   defp arrangement_target(_), do: {"account", "Accounts (CMS)"}
 
+  defp all_products_row(row) do
+    {mod, label} = arrangement_target(row.arrangement.product_type)
+
+    %{
+      customer_name: if(row.customer, do: "#{row.customer.first_name} #{row.customer.last_name}", else: "—"),
+      product_type: row.arrangement.product_type,
+      product_type_class: arrangement_badge_cls(row.arrangement.product_type),
+      status: row.status,
+      summary: row.summary || "—",
+      opened: date_s(row.arrangement.opened_at),
+      view_link: "View in #{label}",
+      view_href: "/visionplus/admin/#{mod}?view=#{row.view_ref}"
+    }
+  end
+
   defp arrangement_badge_cls("CREDIT"), do: "badge-blue"
   defp arrangement_badge_cls("DEBIT"), do: "badge-green"
   defp arrangement_badge_cls("PREPAID"), do: "badge-yellow"
   defp arrangement_badge_cls(_), do: "badge-gray"
+
+  defp supp_search_row(a) do
+    %{
+      account_id: "#{short_id(to_string(a.account_id))}…",
+      customer_name: a.customer_name,
+      last_four: "****#{a.last_four}",
+      status: a.account_status,
+      status_class: status_cls(a.account_status)
+    }
+  end
+
+  defp adj_entry_row(e) do
+    %{
+      date: date_s(e.posting_date),
+      direction: e.direction,
+      direction_class: if(e.direction == "DEBIT", do: "badge-red", else: "badge-green"),
+      amount: e.amount,
+      narrative: e.narrative,
+      reference: e.reference
+    }
+  end
+
+  defp supp_card_row(sc) do
+    %{
+      account_id: "#{short_id(to_string(sc.supplementary_account_id))}…",
+      type: "SUPPLEMENTARY",
+      sub_limit: if(sc.sub_limit, do: money(sc.sub_limit), else: "Shared"),
+      activated: date_s(sc.activated_at),
+      status: sc.status || "ACTIVE",
+      status_class: status_cls(sc.status || "ACTIVE")
+    }
+  end
+
+  defp statement_row(s) do
+    %{
+      billing_date: date_s(s.balance_date),
+      stmt_balance: s.statement_balance,
+      retail: s.retail_balance,
+      cash: s.cash_balance,
+      emi: s.emi_balance,
+      bt: s.bt_balance,
+      interest: s.accrued_interest,
+      fees: s.unpaid_fees,
+      min_due: s.minimum_payment
+    }
+  end
+
+  defp plan_segment_row(p) do
+    eff_apr = PlanSegment.effective_apr(p)
+
+    %{
+      plan_id: p.plan_id,
+      plan_type: p.plan_type,
+      plan_type_class: plan_type_badge(p.plan_type),
+      apr: "#{money(eff_apr)}%",
+      promo_apr: if(p.promo_apr, do: "#{money(p.promo_apr)}%", else: "—"),
+      promo_expiry: date_s(p.promo_expiry_date),
+      grace: if(p.grace_eligible, do: "✓", else: "✗"),
+      min_payment_pct: if(p.min_payment_pct, do: "#{money(p.min_payment_pct)}%", else: "—"),
+      priority: p.payment_priority,
+      active: if(p.active, do: "✓", else: "✗")
+    }
+  end
+
+  defp emi_schedule_row(s) do
+    %{
+      instalment_no: "#{s.instalment_no} / #{s.tenor_total}",
+      plan_id: s.plan_id,
+      due_date: date_s(s.due_date),
+      principal_due: s.principal_due,
+      interest_due: s.interest_due,
+      instalment_due: s.instalment_due,
+      outstanding: s.outstanding,
+      status: s.status,
+      status_class: emi_status_badge(s.status)
+    }
+  end
 
   # ── Detail view ──────────────────────────────────────────────────────────────
 
@@ -2203,20 +2264,19 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           phx-target={@myself}/>
       </div>
       <%= if @supp_search_results != [] do %>
-        <div class="table-wrap" style="margin-bottom:12px;">
-          <table class="data-table">
-            <thead><tr><th>Account ID</th><th>Cardholder</th><th>Last 4</th><th>Status</th></tr></thead>
-            <tbody>
-              <%= for a <- @supp_search_results do %>
-                <tr>
-                  <td class="mono" style="font-size:11px;"><%= short_id(to_string(a.account_id)) %>…</td>
-                  <td><%= a.customer_name %></td>
-                  <td class="mono">****<%= a.last_four %></td>
-                  <td><span class={"badge #{status_cls(a.account_status)}"}><%= a.account_status %></span></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+        <div style="margin-bottom:12px;">
+          <.ag_grid
+            id="supp-search-results-grid"
+            paginate={false}
+            empty_message="No matching accounts found."
+            columns={[
+              %{field: "account_id", header: "Account ID", type: "mono", width: 160},
+              %{field: "customer_name", header: "Cardholder", flex: 1},
+              %{field: "last_four", header: "Last 4", type: "mono", width: 110},
+              %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120}
+            ]}
+            rows={Enum.map(@supp_search_results, &supp_search_row/1)}
+          />
         </div>
       <% end %>
       <form phx-submit="supp_card_link" phx-change="action_change" phx-target={@myself}>
@@ -2572,28 +2632,19 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
     <%!-- Recent adjustments --%>
     <%= if @adj_entries != [] do %>
       <div class="form-pane-section-title" style="margin-top:20px;">Recent Adjustments (<%= length(@adj_entries) %>)</div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Narrative</th><th>Ref</th></tr></thead>
-          <tbody>
-            <%= for e <- @adj_entries do %>
-              <tr>
-                <td><%= date_s(e.posting_date) %></td>
-                <td>
-                  <%= if e.direction == "DEBIT" do %>
-                    <span class="badge badge-red">DEBIT</span>
-                  <% else %>
-                    <span class="badge badge-green">CREDIT</span>
-                  <% end %>
-                </td>
-                <td class="mono"><%= money(e.amount) %></td>
-                <td style="font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;"><%= e.narrative %></td>
-                <td style="font-size:11px;color:var(--text-secondary);"><%= e.reference %></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="account-adjustments-grid"
+        paginate={false}
+        empty_message="No adjustments recorded."
+        columns={[
+          %{field: "date", header: "Date", width: 120},
+          %{field: "direction", header: "Direction", type: "badge", classField: "direction_class", width: 110},
+          %{field: "amount", header: "Amount", type: "money", width: 130},
+          %{field: "narrative", header: "Narrative", flex: 1},
+          %{field: "reference", header: "Ref", type: "mono", width: 140}
+        ]}
+        rows={Enum.map(@adj_entries, &adj_entry_row/1)}
+      />
     <% end %>
     """
   end
@@ -2696,24 +2747,19 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
       <%= if @supp_cards == [] do %>
         <div class="empty-row" style="padding:20px;text-align:center;">No supplementary cards issued.</div>
       <% else %>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr><th>Supp Account ID</th><th>Type</th><th>Sub-Limit</th><th>Activated</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              <%= for sc <- @supp_cards do %>
-                <tr>
-                  <td class="mono" style="font-size:11px;"><%= short_id(to_string(sc.supplementary_account_id)) %>…</td>
-                  <td>SUPPLEMENTARY</td>
-                  <td class="mono"><%= if sc.sub_limit, do: money(sc.sub_limit), else: "Shared" %></td>
-                  <td><%= date_s(sc.activated_at) %></td>
-                  <td><span class={"badge #{status_cls(sc.status || "ACTIVE")}"}><%= sc.status || "ACTIVE" %></span></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="account-supp-cards-grid"
+          paginate={false}
+          empty_message="No supplementary cards issued."
+          columns={[
+            %{field: "account_id", header: "Supp Account ID", type: "mono", width: 160},
+            %{field: "type", header: "Type", width: 140},
+            %{field: "sub_limit", header: "Sub-Limit", type: "mono", width: 130},
+            %{field: "activated", header: "Activated", width: 120},
+            %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120}
+          ]}
+          rows={Enum.map(@supp_cards, &supp_card_row/1)}
+        />
       <% end %>
 
       <div class="form-pane-section-title" style="margin-top:20px;">
@@ -2755,48 +2801,22 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           No statement history yet — statements are generated on each billing cycle date.
         </div>
       <% else %>
-        <div class="table-wrap">
-          <table class="data-table">
-            <colgroup>
-              <col style="width:110px"/>
-              <col style="width:120px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Billing Date</th>
-                <th>Stmt Balance</th>
-                <th>Retail</th>
-                <th>Cash</th>
-                <th>EMI</th>
-                <th>BT</th>
-                <th>Interest</th>
-                <th>Fees</th>
-                <th>Min Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for s <- @statements do %>
-                <tr>
-                  <td class="mono"><%= date_s(s.balance_date) %></td>
-                  <td class="mono fw-600"><%= money(s.statement_balance) %></td>
-                  <td class="mono"><%= money(s.retail_balance) %></td>
-                  <td class="mono"><%= money(s.cash_balance) %></td>
-                  <td class="mono"><%= money(s.emi_balance) %></td>
-                  <td class="mono"><%= money(s.bt_balance) %></td>
-                  <td class="mono"><%= money(s.accrued_interest) %></td>
-                  <td class="mono"><%= money(s.unpaid_fees) %></td>
-                  <td class="mono"><%= money(s.minimum_payment) %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="account-statements-grid"
+          empty_message="No statement history yet."
+          columns={[
+            %{field: "billing_date", header: "Billing Date", type: "mono", width: 120},
+            %{field: "stmt_balance", header: "Stmt Balance", type: "money", width: 130},
+            %{field: "retail", header: "Retail", type: "money", width: 110},
+            %{field: "cash", header: "Cash", type: "money", width: 110},
+            %{field: "emi", header: "EMI", type: "money", width: 110},
+            %{field: "bt", header: "BT", type: "money", width: 110},
+            %{field: "interest", header: "Interest", type: "money", width: 110},
+            %{field: "fees", header: "Fees", type: "money", width: 110},
+            %{field: "min_due", header: "Min Due", type: "money", width: 110}
+          ]}
+          rows={Enum.map(@statements, &statement_row/1)}
+        />
       <% end %>
     </div>
     """
@@ -2884,49 +2904,24 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           Manage plans from the Products / Logos admin screen.
         </div>
       <% else %>
-        <div class="table-wrap" style="margin-bottom:24px;">
-          <table class="data-table">
-            <colgroup>
-              <col style="width:90px"/>
-              <col style="width:140px"/>
-              <col style="width:80px"/>
-              <col style="width:80px"/>
-              <col style="width:110px"/>
-              <col style="width:60px"/>
-              <col style="width:110px"/>
-              <col style="width:70px"/>
-              <col style="width:70px"/>
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Plan ID</th>
-                <th>Type</th>
-                <th>APR</th>
-                <th>Promo APR</th>
-                <th>Promo Expiry</th>
-                <th>Grace</th>
-                <th>Min Payment %</th>
-                <th>Priority</th>
-                <th>Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for p <- @plans do %>
-                <% eff_apr = PlanSegment.effective_apr(p) %>
-                <tr>
-                  <td class="mono fw-600"><%= p.plan_id %></td>
-                  <td><span class={"badge #{plan_type_badge(p.plan_type)}"}><%= p.plan_type %></span></td>
-                  <td class="mono"><%= money(eff_apr) %>%</td>
-                  <td class="mono"><%= if p.promo_apr, do: "#{money(p.promo_apr)}%", else: "—" %></td>
-                  <td><%= date_s(p.promo_expiry_date) %></td>
-                  <td><%= if p.grace_eligible, do: "✓", else: "✗" %></td>
-                  <td class="mono"><%= if p.min_payment_pct, do: "#{money(p.min_payment_pct)}%", else: "—" %></td>
-                  <td><%= p.payment_priority %></td>
-                  <td><%= if p.active, do: "✓", else: "✗" %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+        <div style="margin-bottom:24px;">
+          <.ag_grid
+            id="account-plan-segments-grid"
+            paginate={false}
+            empty_message="No plan segments configured for this logo."
+            columns={[
+              %{field: "plan_id", header: "Plan ID", type: "mono", width: 100},
+              %{field: "plan_type", header: "Type", type: "badge", classField: "plan_type_class", width: 140},
+              %{field: "apr", header: "APR", type: "mono", width: 90},
+              %{field: "promo_apr", header: "Promo APR", type: "mono", width: 100},
+              %{field: "promo_expiry", header: "Promo Expiry", width: 120},
+              %{field: "grace", header: "Grace", width: 80},
+              %{field: "min_payment_pct", header: "Min Payment %", type: "mono", width: 130},
+              %{field: "priority", header: "Priority", width: 90},
+              %{field: "active", header: "Active", width: 80}
+            ]}
+            rows={Enum.map(@plans, &plan_segment_row/1)}
+          />
         </div>
       <% end %>
 
@@ -2937,46 +2932,21 @@ defmodule VmuCoreWeb.Live.Admin.AccountComponent do
           No active EMI plans on this account.
         </div>
       <% else %>
-        <div class="table-wrap">
-          <table class="data-table">
-            <colgroup>
-              <col style="width:80px"/>
-              <col style="width:90px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:100px"/>
-              <col style="width:110px"/>
-            </colgroup>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Plan</th>
-                <th>Due Date</th>
-                <th>Principal</th>
-                <th>Interest</th>
-                <th>Instalment</th>
-                <th>Outstanding</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for s <- @emi_schedules do %>
-                <tr>
-                  <td class="mono"><%= s.instalment_no %> / <%= s.tenor_total %></td>
-                  <td class="mono"><%= s.plan_id %></td>
-                  <td class="mono"><%= date_s(s.due_date) %></td>
-                  <td class="mono"><%= money(s.principal_due) %></td>
-                  <td class="mono"><%= money(s.interest_due) %></td>
-                  <td class="mono fw-600"><%= money(s.instalment_due) %></td>
-                  <td class="mono"><%= money(s.outstanding) %></td>
-                  <td><span class={"badge #{emi_status_badge(s.status)}"}><%= s.status %></span></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
+        <.ag_grid
+          id="account-emi-schedule-grid"
+          empty_message="No active EMI plans on this account."
+          columns={[
+            %{field: "instalment_no", header: "#", type: "mono", width: 90},
+            %{field: "plan_id", header: "Plan", type: "mono", width: 100},
+            %{field: "due_date", header: "Due Date", type: "mono", width: 120},
+            %{field: "principal_due", header: "Principal", type: "money", width: 110},
+            %{field: "interest_due", header: "Interest", type: "money", width: 110},
+            %{field: "instalment_due", header: "Instalment", type: "money", width: 120},
+            %{field: "outstanding", header: "Outstanding", type: "money", width: 120},
+            %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120}
+          ]}
+          rows={Enum.map(@emi_schedules, &emi_schedule_row/1)}
+        />
       <% end %>
     </div>
     """

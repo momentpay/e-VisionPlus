@@ -1469,6 +1469,14 @@ textarea::placeholder { color: var(--text-faint); }
 .data-table tbody tr:hover td,
 .admin-table tbody tr:hover td { background: var(--bg-subtle); }
 
+/* A row that needs attention (a GL shadow-diff mismatch, a validation
+   conflict) — used nowhere before this rule existed, so it was
+   silently invisible wherever the markup already referenced it. */
+.data-table tr.row-alert td,
+.admin-table tr.row-alert td { background: var(--danger-bg); }
+.data-table tr.row-alert:hover td,
+.admin-table tr.row-alert:hover td { background: var(--danger-bg); filter: brightness(.97); }
+
 /* Digits that sit in a column should line up. */
 .data-table td.mono,
 .admin-table td.mono,

@@ -17,26 +17,48 @@ defmodule VmuCoreWeb.Components.AgGrid do
           %{field: "customer_name", header: "Customer"},
           %{field: "available_balance", header: "Available Balance", type: "money"},
           %{field: "status", header: "Status", type: "badge"},
-          %{field: "id", header: "", type: "actions",
+          %{field: "actions", header: "", type: "actions",
             actions: [%{label: "View", event: "view_account", param: "id"}]}
         ]}
         rows={Enum.map(@accounts, &account_row/1)}
       />
 
-  `type` (optional, default plain text): `"money"` right-aligns and formats
-  two decimals; `"date"` reformats an ISO-ish string; `"badge"` renders the
-  existing `.badge-*` classes via the same status vocabulary as
-  `VmuCoreWeb.AdminUI.status_badge/1`; `"mono"` renders the value as an
-  inline `.mono` chip (never apply `.mono` to a `<td>` directly — see the
-  design-system test); `"actions"` renders one `.btn-ghost.btn-xs` per
-  entry in `actions`, each pushing `event` to the owning LiveComponent
-  with `%{"id" => row[param]}`.
+  `type` (optional, default plain text): `"number"` right-aligns without
+  forcing decimals (counts); `"money"` right-aligns and formats two
+  decimals (currency); `"date"` reformats an ISO-ish string; `"badge"`
+  renders the existing `.badge-*` classes via the same status vocabulary
+  as `VmuCoreWeb.AdminUI.status_badge/1` by default, or `classField: "..."`
+  to supply a row field holding the real class name for a screen with its
+  own status vocabulary; `"mono"` renders the value as an inline `.mono`
+  chip (never apply `.mono` to a `<td>` directly — see the design-system
+  test); `"actions"` renders one `.btn-ghost.btn-xs` per entry in
+  `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:}]`,
+  each pushing `event` to the owning LiveComponent with
+  `%{"id" => row[param]}` — the payload key is always literally `"id"`,
+  only the value comes from `param`. `whenField`/`whenValue` hide an
+  action unless `row[whenField] === whenValue` (conditional actions).
+  Always name an actions-only column `field: "actions"` — a literal data
+  field name there collides with a real display column pulling from the
+  same field.
 
   Sorting, filtering, pagination and column resize are AG Grid Community
   features and need no server round-trip. When `rows` changes on
   re-render (a search, a filter, a create), the hook's `updated/0`
   re-reads the `data-rows` attribute and calls `setGridOption` — no full
   re-mount.
+
+  ## The one hard limitation
+
+  An `actions` cell is built by JavaScript inside this component's
+  `phx-update="ignore"` container. `Phoenix.LiveViewTest` never executes
+  JS, so `element("button[phx-click=...]") |> render_click()` cannot find
+  it. **Before converting a table, check whether an existing test drives
+  one of its buttons that way** — `grep -oE 'phx-click=[a-z_]+'` over the
+  relevant test file(s), including tests in *other* components that may
+  exercise this one's events cross-component. If a button is driven
+  directly, leave that table as plain HTML. See
+  `docs/shared/Admin_Menu_Standard.md` §5.1 for the real conversions this
+  reverted.
 
   ## `<.ag_chart>`
 

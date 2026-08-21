@@ -27,6 +27,7 @@ defmodule VmuCoreWeb.Live.Admin.KycRequestsComponent do
   use Phoenix.LiveComponent
   import Ecto.Query, except: [update: 2, update: 3]
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.Repo
   alias VmuCore.Kyc.{Request, Requests, ConditionalLogic, Documents, Journey}
@@ -226,14 +227,16 @@ defmodule VmuCoreWeb.Live.Admin.KycRequestsComponent do
       ]} />
 
       <.form_section title="Submitted Data" />
-      <table class="admin-table">
-        <tbody>
-          <tr :for={f <- @req_detail.fields_snapshot}>
-            <td><%= f["label"] %></td>
-            <td><%= @req_detail.data[f["key"]] %></td>
-          </tr>
-        </tbody>
-      </table>
+      <.ag_grid
+        id="kyc-request-submitted-data-grid"
+        paginate={false}
+        empty_message="No fields submitted."
+        columns={[
+          %{field: "label", header: "Field", width: 240},
+          %{field: "value", header: "Value", flex: 1}
+        ]}
+        rows={Enum.map(@req_detail.fields_snapshot, &submitted_field_row(&1, @req_detail.data))}
+      />
 
       <.form_section title="Documents" />
       <%= if @can_edit do %>
@@ -505,6 +508,10 @@ defmodule VmuCoreWeb.Live.Admin.KycRequestsComponent do
 
   defp file_fields(fields_snapshot) do
     Enum.filter(fields_snapshot, &(&1["type"] == "file"))
+  end
+
+  defp submitted_field_row(f, data) do
+    %{label: f["label"], value: data[f["key"]] || ""}
   end
 
   defp customer_name(customer_id) do

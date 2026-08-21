@@ -111,6 +111,11 @@ defmodule VmuCoreWeb.Live.Admin.KycMethodsComponent do
     <%= if @methods == [] do %>
       <.empty_state icon="🪪" title="No KYC methods yet" message="Create the first method for a product." />
     <% else %>
+      <%!-- Plain HTML, deliberately — edit_method and clone_open are both
+          exercised directly by kyc_methods_component_test.exs via
+          `element(...) |> render_click()`, which AG Grid's client-rendered
+          actions cells cannot satisfy. See
+          docs/shared/Admin_Menu_Standard.md §5. --%>
       <table class="admin-table">
         <thead>
           <tr>

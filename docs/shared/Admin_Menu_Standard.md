@@ -163,7 +163,47 @@ Anything that cannot be undone needs `edit` **and** a confirmation in the UI. GL
 
 ---
 
-## 5. Checklist for a new admin screen
+## 5. AG Grid — the `<.ag_grid>` contract
+
+`VmuCoreWeb.Components.AgGrid` (`lib/vmu_core_web/components/ag_grid.ex`) is the one reusable pattern every table conversion follows, established on three pilot screens (Phase 5 of the top-nav/AG-Grid plan) and then rolled out further (Phase 6). Do not re-derive it per screen.
+
+```elixir
+import VmuCoreWeb.Components.AgGrid
+
+<.ag_grid
+  id="debit-accounts-grid"
+  columns={[
+    %{field: "customer_name", header: "Customer"},
+    %{field: "available_balance", header: "Available Balance", type: "money"},
+    %{field: "status", header: "Status", type: "badge"},
+    %{field: "actions", header: "", type: "actions",
+      actions: [%{label: "View", event: "view_account", param: "id"}]}
+  ]}
+  rows={Enum.map(@accounts, &account_row/1)}
+/>
+```
+
+`columns` and `rows` are plain JSON-safe data — no functions — passed as `data-columns`/`data-rows` attributes to a `phx-update="ignore"` div that `assets/js/hooks/ag_grid_hook.js` owns from mount onward. Sorting, filtering, pagination and column resize are AG Grid Community features and need no server round-trip.
+
+Column `type` (optional, default plain text): `"number"` (right-aligned, tabular-nums, no forced decimals — counts), `"money"` (right-aligned, 2 decimals — currency), `"date"` (reformats an ISO-ish string — Elixir's `Date`/`DateTime`/`NaiveDateTime` all encode to one via Jason natively, no server-side formatting needed), `"badge"` (`.badge-*` pill; give it `classField: "some_row_field"` when the screen has its own status vocabulary rather than the generic ACTIVE/PENDING/etc one — see `docs/shared/Admin_Menu_Standard.md`'s badge-success/warning/error/info note below), `"mono"` (inline code-style chip — never apply `.mono` to a `<td>` directly, that renders the whole cell as a chip).
+
+`"actions"` renders one `.btn-ghost.btn-xs` per entry in `actions: [%{label:, event:, param:, whenField:, whenValue:, danger:}]`. Clicking always pushes `%{"id" => row[param]}` — the payload key is literally `"id"`, only the value comes from `param`. `whenField`/`whenValue` hide an action unless `row[whenField] === whenValue` (conditional actions, e.g. "Revoke" only when status is ACTIVE). `danger: true` renders it in red. Always name an actions-only column `field: "actions"` (that literal string), never a real data field, or it collides with a genuine display column pulling from the same field.
+
+### 5.1 The one hard limitation: client-rendered buttons are invisible to `Phoenix.LiveViewTest`
+
+An `actions` cell is built by JavaScript inside a `phx-update="ignore"` container. `Phoenix.LiveViewTest` never executes JS, so `element("button[phx-click=...]") |> render_click()` cannot find it — it isn't in the server-rendered HTML at all.
+
+**Before converting any table, check whether an existing test drives one of its buttons via `element(...) |> render_click()`.** If it does — and this is common for anything that navigates into a detail view (a "View" button) or that a test exercises as its main path (an approve/reject flow) — leave that table as plain HTML. This has already reverted three real conversions during the Phase 6 rollout: HCS's companies/employee-cards/vehicles lists (`view_company`/`view_employee`/`view_vehicle`, plus the employee card's `card_activate`/`open_channels`), the Approval Inbox's HCS-facility-limits table (`approve_facility_limit`, tested cross-component from `hcs_component_test.exs`), and KYC Methods' method list (`edit_method`, `clone_open`) and CMS EOD's "Needs Attention" table (`retry`, plus a directly-asserted "stuck — verify before acting" hint text with no equivalent in the actions contract).
+
+A quick check before converting a table: `grep -oE 'phx-click=[a-z_]+' test/vmu_core_web/live/admin/the_component_test.exs` (and grep the wider test tree too — a button's handler can be exercised from a *different* component's test, as the facility-limits case shows) lists every event that specific test suite drives directly. Any table whose button fires one of those events stays plain HTML. A table with genuinely no test coverage on its buttons, or whose only "actions" are read-only display, converts cleanly.
+
+### 5.2 AG Charts
+
+`<.ag_chart>` in the same module is the equivalent for `assets/js/hooks/ag_chart_hook.js` (bar/line/donut) — built in Phase 4, not yet wired to a real screen; Phase 7 of the rollout plan is where a first dashboard uses it.
+
+---
+
+## 6. Checklist for a new admin screen
 
 - [ ] Row in `VmuCoreWeb.Admin.Nav`'s `@items` with `id`, `label`, `icon`, `nav_module`, `group`, `group_order`, `order`, `status: :live` (or flip an existing `:planned` row to `:live`)
 - [ ] `icon` names a symbol that exists in `VmuCoreWeb.Icons`
@@ -177,7 +217,7 @@ Anything that cannot be undone needs `edit` **and** a confirmation in the UI. GL
 
 ---
 
-## 6. Known remaining debt
+## 7. Known remaining debt
 
 **`expand_module_config_visibility/1`** is still a special case: `module_config` piggybacks on the `system` permission instead of having its own rows. It should get real permission rows and the workaround should be deleted. Left alone here because changing it alters who can reach Module Configuration, which is a permission decision rather than a refactor.
 

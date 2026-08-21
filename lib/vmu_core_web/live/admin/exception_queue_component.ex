@@ -14,6 +14,7 @@ defmodule VmuCoreWeb.Live.Admin.ExceptionQueueComponent do
   use Phoenix.LiveComponent
   import Ecto.Query
   import VmuCoreWeb.AdminUI
+  import VmuCoreWeb.Components.AgGrid
 
   alias VmuCore.{Repo, FAS.ExceptionQueue}
 
@@ -147,52 +148,26 @@ defmodule VmuCoreWeb.Live.Admin.ExceptionQueueComponent do
       </div>
 
       <%# Exceptions table %>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Pan (last 4)</th>
-              <th>MTI</th>
-              <th>STAN</th>
-              <th>RRN</th>
-              <th>Terminal</th>
-              <th>Status</th>
-              <th>Received</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= if @exceptions == [] do %>
-              <tr><td colspan="8" style="text-align:center;color:#888">No exceptions found.</td></tr>
-            <% end %>
-            <%= for exc <- @exceptions do %>
-              <tr>
-                <td><%= pan_last4(exc.pan_token) %></td>
-                <td><%= exc.mti %></td>
-                <td><%= exc.stan || "—" %></td>
-                <td><%= exc.rrn  || "—" %></td>
-                <td><%= exc.terminal_id || "—" %></td>
-                <td><span class={"badge badge-#{badge_class(exc.status)}"}><%= exc.status %></span></td>
-                <td><%= format_dt(exc.inserted_at) %></td>
-                <td>
-                  <%= if exc.status == "pending" and @can_approve do %>
-                    <button class="btn-sm btn-success"
-                            phx-click="resolve"
-                            phx-value-id={exc.id}
-                            phx-target={@myself}>Resolve</button>
-                    <button class="btn-sm btn-warning"
-                            phx-click="escalate"
-                            phx-value-id={exc.id}
-                            phx-target={@myself}>Escalate</button>
-                  <% else %>
-                    <span class="text-muted">—</span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <.ag_grid
+        id="exception-queue-grid"
+        paginate={false}
+        empty_message="No exceptions found."
+        columns={[
+          %{field: "pan_last4", header: "Pan (last 4)", width: 130},
+          %{field: "mti", header: "MTI", width: 90},
+          %{field: "stan", header: "STAN", width: 120},
+          %{field: "rrn", header: "RRN", width: 130},
+          %{field: "terminal_id", header: "Terminal", width: 110},
+          %{field: "status", header: "Status", type: "badge", classField: "status_class", width: 120},
+          %{field: "received", header: "Received", width: 150},
+          %{field: "actions", header: "Actions", type: "actions", width: 170,
+            actions: [
+              %{label: "Resolve", event: "resolve", param: "id", whenField: "can_act", whenValue: true},
+              %{label: "Escalate", event: "escalate", param: "id", whenField: "can_act", whenValue: true}
+            ]}
+        ]}
+        rows={Enum.map(@exceptions, &exception_row(&1, @can_approve))}
+      />
 
       <%# Pagination %>
       <div class="pagination" style="margin-top:0.75rem">
@@ -262,5 +237,20 @@ defmodule VmuCoreWeb.Live.Admin.ExceptionQueueComponent do
   end
   defp format_dt(%NaiveDateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  end
+
+  defp exception_row(exc, can_approve) do
+    %{
+      id: exc.id,
+      pan_last4: pan_last4(exc.pan_token),
+      mti: exc.mti,
+      stan: exc.stan || "—",
+      rrn: exc.rrn || "—",
+      terminal_id: exc.terminal_id || "—",
+      status: exc.status,
+      status_class: "badge-" <> badge_class(exc.status),
+      received: format_dt(exc.inserted_at),
+      can_act: exc.status == "pending" and can_approve
+    }
   end
 end
